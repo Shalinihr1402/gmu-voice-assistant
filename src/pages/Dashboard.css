@@ -1,0 +1,207 @@
+.dashboard-page {
+  min-height: 100vh;
+  background: #f5f5f5;
+}
+
+.dashboard-header {
+  background: #8B4513;
+  color: white;
+  padding: 20px 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.header-center h1 {
+  font-size: 32px;
+  font-weight: bold;
+  margin: 0;
+}
+
+.header-logo {
+  display: flex;
+  align-items: center;
+}
+
+.logo-circle {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 3px solid #FFD700;
+  background: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+}
+
+.logo-content {
+  text-align: center;
+  color: #8B4513;
+}
+
+.logo-icon {
+  font-size: 24px;
+  margin-bottom: 2px;
+}
+
+.logo-text-small {
+  font-size: 8px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.logo-tagline {
+  font-size: 7px;
+  line-height: 1;
+  margin-top: 2px;
+}
+
+.dashboard-container {
+  display: flex;
+  min-height: calc(100vh - 120px);
+}
+
+.dashboard-sidebar {
+  width: 280px;
+  background: #FFD700;
+  padding: 30px 20px;
+  box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+}
+
+.sidebar-profile {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.sidebar-photo {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: white;
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid #8B4513;
+}
+
+.photo-placeholder {
+  font-size: 60px;
+}
+
+.sidebar-name {
+  color: #333;
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.sidebar-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.menu-item {
+  background: #FFD700;
+  color: #333;
+  padding: 15px 20px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.3s;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-left: none;
+  border-right: none;
+}
+
+.menu-item:hover {
+  background: #FFC700;
+}
+
+.menu-item:first-child {
+  border-top: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.dashboard-main {
+  flex: 1;
+  background: #FFD700;
+  padding: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dashboard-content {
+  background: white;
+  border-radius: 15px;
+  width: 100%;
+  max-width: 900px;
+  padding: 40px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.university-image-section {
+  margin-bottom: 30px;
+  position: relative;
+  height: 300px;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.university-image {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  position: relative;
+  background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400"><rect fill="%23667eea" width="1200" height="400"/><text x="50%25" y="50%25" font-size="60" fill="white" text-anchor="middle" dominant-baseline="middle">University Building</text></svg>');
+  background-size: cover;
+  background-position: center;
+}
+
+.image-overlay {
+  position: absolute;
+  bottom: 50%;
+  left: 50%;
+  transform: translate(-50%, 50%);
+  width: 200px;
+  height: 200px;
+  background: white;
+  border-radius: 50%;
+  opacity: 0.9;
+}
+
+.student-info-section {
+  text-align: center;
+}
+
+.student-name {
+  font-size: 28px;
+  color: #333;
+  margin-bottom: 30px;
+  font-weight: 600;
+}
+
+.student-details {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  text-align: left;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.detail-item {
+  font-size: 16px;
+  color: #333;
+  padding: 10px;
+  background: #f9f9f9;
+  border-radius: 5px;
+}
+
+.detail-item strong {
+  color: #8B4513;
+  margin-right: 10px;
+}
