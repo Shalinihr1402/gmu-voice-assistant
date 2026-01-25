@@ -1,140 +1,40 @@
 <?php
-header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
 
-// Handle preflight requests
+// 🔥 CORS HEADERS — VERY IMPORTANT
+header("Access-Control-Allow-Origin: http://localhost:3000");
+header("Access-Control-Allow-Methods: POST, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
+header("Access-Control-Max-Age: 86400");
+header("Content-Type: application/json");
+
+// ✅ Handle preflight OPTIONS request
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
     exit();
 }
 
-// Sample student data
-$studentData = [
-    'username' => '822991167838',
-    'name' => 'I M SHIVAKUMARA',
-    'usn' => 'P24C01CA026',
-    'mobile' => '8105020220',
-    'year' => 2,
-    'sem' => 3,
-    'branch' => 'MCA',
-    'academicYear' => '2025-26',
-    'season' => 'ODD',
-    'faculty' => 'FCIT',
-    'school' => 'SCA',
-    'quota' => 'MGMT',
-    'designation' => 'Student',
-    'section' => 'NA',
-    'discipline' => 'MCA'
-];
+// ✅ Read JSON input
+$raw = file_get_contents("php://input");
+$input = json_decode($raw, true);
+$message = $input["message"] ?? "";
 
-$method = $_SERVER['REQUEST_METHOD'];
-$path = $_SERVER['REQUEST_URI'];
-$pathParts = explode('/', trim(parse_url($path, PHP_URL_PATH), '/'));
+// ✅ Forward to Python AI server
+$data = json_encode(["message" => $message]);
 
-// Remove 'api' from path if present
-if ($pathParts[0] === 'api') {
-    array_shift($pathParts);
+$ch = curl_init("http://127.0.0.1:5000/chat");
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
+curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json"]);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
+$response = curl_exec($ch);
+
+if ($response === false) {
+    echo json_encode(["reply" => "Python server not responding"]);
+    exit();
 }
 
-$endpoint = $pathParts[0] ?? '';
+curl_close($ch);
 
-switch ($endpoint) {
-    case 'student':
-    case '':
-        if ($method === 'GET') {
-            echo json_encode([
-                'success' => true,
-                'data' => $studentData
-            ]);
-        } elseif ($method === 'POST') {
-            $input = json_decode(file_get_contents('php://input'), true);
-            
-            if (isset($input['mobile'])) {
-                $studentData['mobile'] = $input['mobile'];
-            }
-            
-            echo json_encode([
-                'success' => true,
-                'message' => 'Profile updated successfully',
-                'data' => $studentData
-            ]);
-        }
-        break;
-    
-    case 'courses':
-        if ($method === 'GET') {
-            $courses = [
-                [
-                    'code' => 'MCA301',
-                    'name' => 'Software Engineering and Project Management',
-                    'group' => 'ACADEMIC',
-                    'type' => 'CORE'
-                ],
-                [
-                    'code' => 'MCA302',
-                    'name' => 'Digital Image Processing',
-                    'group' => 'ACADEMIC',
-                    'type' => 'CORE'
-                ],
-                [
-                    'code' => 'MCA303',
-                    'name' => 'Web Technology',
-                    'group' => 'ACADEMIC',
-                    'type' => 'CORE'
-                ],
-                [
-                    'code' => 'MCA304',
-                    'name' => 'Cloud Computing',
-                    'group' => 'ACADEMIC',
-                    'type' => 'ELECTIVE'
-                ]
-            ];
-            
-            echo json_encode([
-                'success' => true,
-                'data' => $courses
-            ]);
-        }
-        break;
-    
-    case 'fees':
-        if ($method === 'GET') {
-            $fees = [
-                'programFee' => [
-                    'total' => 113631.00,
-                    'toPay' => 113631.00,
-                    'paid' => 0.00,
-                    'balance' => 113631.00
-                ],
-                'skillAssessment' => [
-                    'total' => 19369.00,
-                    'toPay' => 19369.00,
-                    'paid' => 0.00,
-                    'balance' => 19369.00
-                ],
-                'lateFee' => [
-                    'delayedWeeks' => 7,
-                    'finePayable' => 3500,
-                    'paid' => 0,
-                    'balance' => 3500
-                ]
-            ];
-            
-            echo json_encode([
-                'success' => true,
-                'data' => $fees
-            ]);
-        }
-        break;
-    
-    default:
-        http_response_code(404);
-        echo json_encode([
-            'success' => false,
-            'message' => 'Endpoint not found'
-        ]);
-        break;
-}
-?>
+// ✅ Return AI response
+echo $response;
