@@ -38,21 +38,29 @@ const VoiceAssistant = () => {
       window.speechSynthesis.speak(utterance)
     }
   }
+
 const askAI = async (text) => {
   try {
-    const res = await fetch("http://localhost:8080/gmu-voice-assistant/backend/api.php", {
+    const res = await fetch("/api/gmu-voice-assistant/backend/api.php", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: text })
     })
 
-    const data = await res.json()
-    return data.reply
+    const raw = await res.text()
+    console.log("RAW RESPONSE:", raw)
+
+    if (!raw) return "Server returned empty response"
+
+    const data = JSON.parse(raw)
+    return data.reply || "No reply field in response"
+
   } catch (err) {
     console.error("FETCH ERROR:", err)
     return "Sorry, I am not able to connect to the server right now."
   }
 }
+
 
 
   const handleVoiceCommand = (command) => {

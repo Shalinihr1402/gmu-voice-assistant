@@ -13,6 +13,8 @@ def chat():
     cur = db.cursor(dictionary=True)
 
     reply = "Sorry, I could not understand."
+    def home():
+     return "Python AI server is running"
 
  
     if "fee" in message:
