@@ -6,33 +6,56 @@ const Login = () => {
   const [aadhaar, setAadhaar] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
   const handleLogin = async (e) => {
     e.preventDefault()
+
+    // Prevent empty submit
+    if (!aadhaar || !password) {
+      setError("Please fill all fields")
+      return
+    }
+
     setError("")
+    setLoading(true)
 
     try {
-      const res = await fetch("http://localhost/api/gmu-voice-assistant/backend/login.php", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json"
-        },
-        credentials: "include",   // ⭐ VERY IMPORTANT FOR SESSION
-        body: JSON.stringify({ aadhaar, password })
-      })
+      const res = await fetch(
+        "http://localhost:8080/gmu-voice-assistant/backend/login.php",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          credentials: "include",
+          body: JSON.stringify({ aadhaar, password })
+        }
+      )
 
-      const data = await res.json()
+      const text = await res.text()   // 🔥 safer parsing
 
-      if (data.success) {
-        navigate("/dashboard")
+      console.log("Raw Response:", text)
+
+      let data
+      try {
+        data = JSON.parse(text)
+      } catch (err) {
+        throw new Error("Invalid JSON from server")
+      }
+
+      if (data.success === true) {
+        navigate("/home")
       } else {
         setError(data.message || "Invalid credentials")
       }
 
     } catch (err) {
-      console.error(err)
-      setError("Server error. Please try again.")
+      console.error("Login error:", err)
+      setError("Server error. Please check backend.")
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -49,7 +72,6 @@ const Login = () => {
               type="text"
               value={aadhaar}
               onChange={(e) => setAadhaar(e.target.value)}
-              required
             />
           </div>
 
@@ -59,14 +81,17 @@ const Login = () => {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              required
             />
           </div>
 
           {error && <p className="error-text">{error}</p>}
 
-          <button type="submit" className="login-btn">
-            Login
+          <button 
+            type="submit" 
+            className="login-btn"
+            disabled={loading}
+          >
+            {loading ? "Logging in..." : "Login"}
           </button>
         </form>
       </div>

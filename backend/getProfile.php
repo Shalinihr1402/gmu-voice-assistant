@@ -29,9 +29,10 @@ $student_id = $_SESSION['student_id'];
 
 // ✅ Fetch student data
 $stmt = $conn->prepare("
-    SELECT full_name, usn, branch, email 
-    FROM students 
-    WHERE student_id = ?
+   SELECT full_name, usn, branch, email, mobile_no, aadhaar_number
+FROM students
+WHERE student_id = ?
+
 ");
 
 

@@ -1,135 +1,180 @@
+/* ============================= */
+/* PAGE BACKGROUND */
+/* ============================= */
+
 .registration-page {
   min-height: 100vh;
-  background: #f5f5f5;
+  background: #e9e9e9;
+  font-family: Arial, Helvetica, sans-serif;
 }
 
+/* ============================= */
+/* TOP HEADER */
+/* ============================= */
+
 .reg-header {
-  background: #8B0000;
+  background: #7a1d1d;
   color: white;
-  padding: 15px 30px;
+  padding: 14px 40px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
 }
 
-.reg-main {
-  padding: 30px;
-  max-width: 1200px;
-  margin: 0 auto;
+.logo-text {
+  font-size: 26px;
+  font-weight: bold;
 }
+
+.header-nav {
+  display: flex;
+  gap: 35px;
+  font-size: 15px;
+}
+
+.header-nav a {
+  color: white;
+  text-decoration: none;
+}
+
+.header-nav a:hover {
+  text-decoration: underline;
+}
+
+.header-user {
+  background: #f2f2f2;
+  color: #333;
+  padding: 8px 14px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+/* ============================= */
+/* MAIN CONTAINER */
+/* ============================= */
+
+.reg-main {
+  max-width: 1100px;
+  margin: 30px auto;
+  background: white;
+  padding: 30px 40px;
+  border-top: 6px solid #c9a23f;
+}
+
+/* ============================= */
+/* UNIVERSITY HEADER */
+/* ============================= */
 
 .university-header {
   text-align: center;
-  margin-bottom: 30px;
-  padding-bottom: 20px;
-  border-bottom: 2px solid #ddd;
+  margin-bottom: 20px;
 }
 
 .university-header h1 {
-  color: #8B0000;
-  font-size: 32px;
-  margin-bottom: 10px;
+  color: #7a1d1d;
+  font-size: 28px;
+  margin-bottom: 5px;
 }
 
 .university-header p {
-  color: #666;
-  font-size: 14px;
+  font-size: 13px;
+  color: #444;
 }
+
+/* ============================= */
+/* PAGE TITLE */
+/* ============================= */
 
 .page-title {
-  font-size: 28px;
-  color: #333;
-  margin-bottom: 30px;
   text-align: center;
+  font-size: 24px;
+  margin: 20px 0 30px;
+  font-weight: bold;
 }
+
+/* ============================= */
+/* STUDENT INFO SECTION */
+/* ============================= */
 
 .student-info-section {
-  background: white;
-  padding: 30px;
-  border-radius: 10px;
+  text-align: center;
   margin-bottom: 30px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-  display: flex;
-  gap: 30px;
-  align-items: flex-start;
-}
-
-.profile-section {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 15px;
 }
 
 .profile-photo {
-  width: 120px;
-  height: 120px;
+  width: 140px;
+  height: 140px;
   border-radius: 50%;
-  background: #e0e0e0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 3px solid #8B0000;
+  border: 4px solid #7a1d1d;
+  margin: 0 auto 15px auto;
+  overflow: hidden;
+}
+
+.profile-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .photo-placeholder {
-  font-size: 60px;
-}
-
-.status-messages {
-  text-align: center;
+  width: 100%;
+  height: 100%;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  font-size: 60px;
+  background: #f0f0f0;
 }
 
 .status-pending {
-  color: #d32f2f;
-  font-weight: 600;
-  font-size: 14px;
+  color: red;
+  font-weight: bold;
+  font-size: 16px;
 }
 
 .status-complete {
-  color: #388e3c;
-  font-weight: 600;
-  font-size: 14px;
+  color: green;
+  font-weight: bold;
+  font-size: 16px;
 }
 
-.student-details-table {
-  flex: 1;
-}
+/* ============================= */
+/* STUDENT DETAILS TABLE */
+/* ============================= */
 
 .student-details-table table {
   width: 100%;
   border-collapse: collapse;
+  margin-top: 20px;
 }
 
 .student-details-table td {
-  padding: 10px;
-  border-bottom: 1px solid #e0e0e0;
+  border: 1px solid #ccc;
+  padding: 8px 12px;
 }
 
 .student-details-table td:first-child {
+  background: #6b2d2d;
+  color: white;
+  font-weight: bold;
   width: 200px;
-  color: #666;
 }
 
-.course-details-section,
-.payment-details-section {
-  background: white;
-  padding: 25px;
-  border-radius: 10px;
-  margin-bottom: 30px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-}
+/* ============================= */
+/* SECTION HEADINGS */
+/* ============================= */
 
 .course-details-section h3,
 .payment-details-section h3 {
-  margin-bottom: 20px;
-  color: #8B0000;
-  font-size: 22px;
+  text-align: center;
+  margin: 30px 0 15px;
+  font-size: 20px;
+  font-weight: bold;
 }
+
+/* ============================= */
+/* COURSE TABLE */
+/* ============================= */
 
 .course-table,
 .payment-table {
@@ -138,93 +183,65 @@
 }
 
 .course-table th,
-.course-table td,
-.payment-table th,
-.payment-table td {
-  padding: 12px;
-  text-align: left;
-  border: 1px solid #ddd;
-}
-
-.course-table th,
 .payment-table th {
-  background: #f5f5f5;
-  font-weight: 600;
-  color: #333;
+  background: #6b2d2d;
+  color: white;
+  padding: 10px;
+  border: 1px solid #ccc;
+  font-size: 14px;
 }
 
-.course-table tr:nth-child(even),
-.payment-table tr:nth-child(even) {
+.course-table td,
+.payment-table td {
+  border: 1px solid #ccc;
+  padding: 8px;
+  font-size: 14px;
+}
+
+/* ============================= */
+/* GUIDELINES SECTION */
+/* ============================= */
+
+.guidelines-section {
+  border: 2px solid #333;
+  padding: 20px;
+  margin-top: 30px;
   background: #f9f9f9;
 }
 
-.guidelines-section {
-  background: #fff3cd;
-  padding: 25px;
-  border-radius: 10px;
-  margin-bottom: 30px;
-  border-left: 5px solid #ffc107;
-}
-
 .guidelines-section h3 {
+  text-align: center;
   margin-bottom: 15px;
-  color: #856404;
 }
 
 .guidelines-section ul {
-  list-style: none;
-  padding-left: 0;
+  padding-left: 20px;
 }
 
 .guidelines-section li {
-  padding: 8px 0;
-  padding-left: 25px;
-  position: relative;
-  color: #856404;
+  margin-bottom: 8px;
+  font-size: 14px;
 }
 
-.guidelines-section li:before {
-  content: "•";
-  position: absolute;
-  left: 0;
-  color: #856404;
-  font-weight: bold;
-  font-size: 20px;
-}
+/* ============================= */
+/* ACTION BUTTONS */
+/* ============================= */
 
 .action-buttons {
-  display: flex;
-  justify-content: center;
-  gap: 20px;
+  text-align: center;
   margin-top: 30px;
 }
 
-.action-btn {
-  padding: 12px 40px;
-  font-size: 16px;
-  font-weight: 600;
+.action-buttons button {
+  background: #e6c15a;
   border: none;
-  border-radius: 5px;
+  padding: 10px 35px;
+  margin: 0 15px;
+  font-weight: bold;
+  border-radius: 6px;
   cursor: pointer;
-  transition: all 0.3s;
 }
 
-.home-btn {
-  background: #FFD700;
-  color: #654321;
-}
-
-.print-btn {
-  background: #FFD700;
-  color: #654321;
-}
-
-.payment-btn {
-  background: #FFD700;
-  color: #654321;
-}
-
-.action-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+.action-buttons button:hover {
+  opacity: 0.9;
 }
