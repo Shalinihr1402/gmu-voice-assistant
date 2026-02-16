@@ -15,8 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 session_start();
 
-$_SESSION['student_id'] = 2;
-$_SESSION['aadhaar'] = "789654123012";
+
 
 require_once "config/db.php";
 
@@ -30,10 +29,11 @@ $student_id = $_SESSION['student_id'];
 
 // ✅ Fetch student data
 $stmt = $conn->prepare("
-    SELECT name, usn, branch, semester 
+    SELECT full_name, usn, branch, email 
     FROM students 
     WHERE student_id = ?
 ");
+
 
 $stmt->bind_param("i", $student_id);
 $stmt->execute();

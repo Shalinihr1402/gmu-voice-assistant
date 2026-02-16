@@ -10,11 +10,15 @@ const Login = () => {
 
   const handleLogin = async (e) => {
     e.preventDefault()
+    setError("")
 
     try {
-      const res = await fetch("/api/gmu-voice-assistant/backend/login.php", {
+      const res = await fetch("http://localhost/api/gmu-voice-assistant/backend/login.php", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json"
+        },
+        credentials: "include",   // ⭐ VERY IMPORTANT FOR SESSION
         body: JSON.stringify({ aadhaar, password })
       })
 
@@ -27,13 +31,13 @@ const Login = () => {
       }
 
     } catch (err) {
-      setError("Server error")
+      console.error(err)
+      setError("Server error. Please try again.")
     }
   }
 
   return (
     <div className="login-container">
-
       <div className="login-card">
         <h2>GM UNIVERSITY</h2>
         <p className="login-subtitle">Student ERP Login</p>
@@ -66,7 +70,6 @@ const Login = () => {
           </button>
         </form>
       </div>
-
     </div>
   )
 }
