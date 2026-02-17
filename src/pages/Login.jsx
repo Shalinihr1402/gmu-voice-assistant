@@ -2,7 +2,7 @@ import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import "./Login.css"
 
-const Login = () => {
+const Login = ({ setIsAuthenticated }) => {   // 🔥 receive prop
   const [aadhaar, setAadhaar] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
@@ -12,7 +12,6 @@ const Login = () => {
   const handleLogin = async (e) => {
     e.preventDefault()
 
-    // Prevent empty submit
     if (!aadhaar || !password) {
       setError("Please fill all fields")
       return
@@ -34,18 +33,13 @@ const Login = () => {
         }
       )
 
-      const text = await res.text()   // 🔥 safer parsing
+      const data = await res.json()
 
-      console.log("Raw Response:", text)
+      console.log("Login response:", data)
 
-      let data
-      try {
-        data = JSON.parse(text)
-      } catch (err) {
-        throw new Error("Invalid JSON from server")
-      }
-
-      if (data.success === true) {
+      // ✅ Correct condition
+      if (data.success) {
+        setIsAuthenticated(true)   // 🔥 update auth state
         navigate("/home")
       } else {
         setError(data.message || "Invalid credentials")

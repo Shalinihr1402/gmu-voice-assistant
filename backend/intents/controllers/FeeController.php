@@ -1,3 +1,7 @@
+<?php
+
+require_once __DIR__ . "/../../config/db.php";
+
 class FeeController {
 
     public static function getFeeBalance($student_id) {
@@ -18,6 +22,10 @@ class FeeController {
         $stmt->bind_param("i", $student_id);
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc();
+
+        if (!$row) {
+            return "No fee information found.";
+        }
 
         $balance = $row['total_fee'] - $row['paid'];
 

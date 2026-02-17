@@ -1,156 +1,209 @@
-import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
-import './VoiceAssistant.css'
+import { useState, useEffect, useRef } from "react"
+import { useNavigate } from "react-router-dom"
+import gmuLogo from "../assets/gmu-logo.png"
+import "./VoiceAssistant.css"
 
 const VoiceAssistant = () => {
-  const [isListening, setIsListening] = useState(false)
   const [isActive, setIsActive] = useState(false)
-  const [transcript, setTranscript] = useState('')
-  const [response, setResponse] = useState('')
-  const [errorMessage, setErrorMessage] = useState('')
+  const [transcript, setTranscript] = useState("")
+  const [response, setResponse] = useState("")
+  const [errorMessage, setErrorMessage] = useState("")
   const recognitionRef = useRef(null)
+  const femaleVoiceRef = useRef(null)
   const navigate = useNavigate()
 
-  // ✅ preload voices
+  /* ================= LOCK FEMALE VOICE ================= */
   useEffect(() => {
-    window.speechSynthesis.onvoiceschanged = () => {
-      window.speechSynthesis.getVoices()
+    const loadVoices = () => {
+      const voices = window.speechSynthesis.getVoices()
+      if (!voices.length) return
+
+      const female =
+        voices.find(v => v.name.includes("Zira")) ||
+        voices.find(v => v.name.includes("Samantha")) ||
+        voices.find(v => v.name.toLowerCase().includes("female")) ||
+        voices.find(v => v.name.toLowerCase().includes("google"))
+
+      if (female) {
+        femaleVoiceRef.current = female
+        console.log("Locked female voice:", female.name)
+      }
     }
+
+    loadVoices()
+    window.speechSynthesis.onvoiceschanged = loadVoices
   }, [])
 
+  /* ================= SPEAK FUNCTION ================= */
   const speak = (text) => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel()
-      const utterance = new SpeechSynthesisUtterance(text)
-      utterance.lang = 'en-US'
-      utterance.rate = 1
-      utterance.pitch = 1.2
+    if (!("speechSynthesis" in window)) return
 
-      const voices = window.speechSynthesis.getVoices()
-      const femaleVoice = voices.find(v =>
-        v.name.toLowerCase().includes('zira') ||
-        v.name.toLowerCase().includes('female') ||
-        v.name.toLowerCase().includes('woman') ||
-        v.name.toLowerCase().includes('samantha')
-      )
+    window.speechSynthesis.cancel()
 
-      if (femaleVoice) utterance.voice = femaleVoice
-      window.speechSynthesis.speak(utterance)
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = "en-US"
+    utterance.rate = 0.9
+    utterance.pitch = 1.15
+    utterance.volume = 1
+
+    if (femaleVoiceRef.current) {
+      utterance.voice = femaleVoiceRef.current
+    }
+
+    window.speechSynthesis.speak(utterance)
+  }
+
+  /* ================= BACKEND CALL ================= */
+  const askAI = async (text) => {
+    try {
+      const res = await fetch(
+  "http://localhost/gmu-voice-assistant/backend/api.php",
+  {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",   // 🔥 VERY IMPORTANT
+    body: JSON.stringify({ message: text })
+  }
+)
+
+
+      const data = await res.json()
+      return data.reply || "No response from server"
+    } catch (err) {
+      console.error(err)
+      return "Unable to connect to server."
     }
   }
 
-const askAI = async (text) => {
-  try {
-    const res = await fetch("/api/gmu-voice-assistant/backend/api.php", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text })
-    })
-
-    const raw = await res.text()
-    console.log("RAW RESPONSE:", raw)
-
-    if (!raw) return "Server returned empty response"
-
-    const data = JSON.parse(raw)
-    return data.reply || "No reply field in response"
-
-  } catch (err) {
-    console.error("FETCH ERROR:", err)
-    return "Sorry, I am not able to connect to the server right now."
-  }
-}
-
-
-
+  /* ================= COMMAND HANDLER ================= */
   const handleVoiceCommand = (command) => {
     if (!command) return
 
-    if (command.includes('hello') && command.includes('gmu')) {
-      const reply = 'Hello! I am your GMU assistant. How can I help you?'
+    console.log("Heard:", command)
+
+    const cleaned = command.trim().toLowerCase()
+
+    // Wake word
+    if (cleaned.startsWith("hey gmu")) {
+      const reply = "Yes, how can I help you?"
       setResponse(reply)
       speak(reply)
-
-    } else if (command.includes('profile')) {
-      speak("Opening profile")
-      navigate('/profile')
-
-    } else if (command.includes('dashboard')) {
-      speak("Opening dashboard")
-      navigate('/dashboard')
-
-    } else if (command.includes('registration')) {
-      speak("Opening registration")
-      navigate('/registration')
-
-    } else if (command.includes('home')) {
-      speak("Going home")
-      navigate('/')
-
-    } else {
-      setResponse("Thinking...")
-      askAI(command).then(reply => {
-        setResponse(reply)
-        speak(reply)
-      })
-    }
-  }
-
-  // 🎤 speech recognition
-  useEffect(() => {
-    if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
-      setErrorMessage("Speech recognition not supported")
       return
     }
 
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    recognitionRef.current = new SpeechRecognition()
-    recognitionRef.current.continuous = true
-    recognitionRef.current.lang = 'en-US'
+    // Navigation
+    if (cleaned.includes("profile")) {
+      speak("Opening profile")
+      navigate("/profile")
+      return
+    }
 
-    recognitionRef.current.onresult = (event) => {
+    if (cleaned.includes("dashboard")) {
+      speak("Opening dashboard")
+      navigate("/dashboard")
+      return
+    }
+
+    if (cleaned.includes("registration")) {
+      speak("Opening registration")
+      navigate("/registration")
+      return
+    }
+
+    if (cleaned.includes("home")) {
+      speak("Going home")
+      navigate("/home")
+      return
+    }
+
+    // ERP Query
+    setResponse("Processing...")
+    askAI(cleaned).then((reply) => {
+      setResponse(reply)
+      speak(reply)
+    })
+  }
+
+  /* ================= SETUP RECOGNITION ================= */
+  useEffect(() => {
+    if (!("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
+      setErrorMessage("Speech recognition not supported in this browser")
+      return
+    }
+
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition
+
+    const recognition = new SpeechRecognition()
+    recognition.continuous = true
+    recognition.interimResults = false
+    recognition.lang = "en-US"
+
+    recognition.onresult = (event) => {
       const last = event.results.length - 1
-      const command = event.results[last][0].transcript.toLowerCase()
+      const command = event.results[last][0].transcript
       setTranscript(command)
       handleVoiceCommand(command)
     }
 
-  }, [])
-
-  const toggleListening = () => {
-    if (isListening) {
-      recognitionRef.current.stop()
-      setIsListening(false)
-    } else {
-      recognitionRef.current.start()
-      setIsListening(true)
+    recognition.onend = () => {
+      if (isActive) {
+        recognition.start()   // restart only when active
+      }
     }
+
+    recognitionRef.current = recognition
+  }, [isActive])
+
+  /* ================= ACTIVATE BUTTON ================= */
+  const activateAssistant = () => {
+    setIsActive(true)
+
+    if (recognitionRef.current) {
+      recognitionRef.current.start()
+    }
+
+    speak("Hello. I am GMU VoiceBot. Say Hey to activate me.")
+  }
+
+  /* ================= CLOSE BUTTON ================= */
+  const closeAssistant = () => {
+    setIsActive(false)
+    recognitionRef.current?.stop()
   }
 
   return (
     <div className="voice-assistant-container">
+
       {isActive && (
         <div className="voice-assistant-panel">
-          <button className="close-btn" onClick={() => setIsActive(false)}>×</button>
-
-          <h3>GMU Voice Assistant</h3>
-
-          <button onClick={toggleListening}>
-            {isListening ? "🛑 Stop Listening" : "🎤 Start Listening"}
+          <button className="close-btn" onClick={closeAssistant}>
+            ×
           </button>
 
-          <p><b>You said:</b> {transcript}</p>
-          <p><b>Assistant:</b> {response}</p>
-          {errorMessage && <p style={{color:"red"}}>{errorMessage}</p>}
+          <h3>GMU VoiceBot</h3>
+
+          <div className="voice-content">
+            <p><b>You:</b> {transcript}</p>
+            <p><b>Assistant:</b> {response}</p>
+            {errorMessage && (
+              <p style={{ color: "red" }}>{errorMessage}</p>
+            )}
+          </div>
         </div>
       )}
 
-      <button className="voice-assistant-btn" onClick={() => {
-        setIsActive(true)
-        speak("Hello! I am your GMU assistant.")
-      }}>
-        🤖
+      <button
+        className="voice-assistant-btn"
+        onClick={activateAssistant}
+      >
+        <img
+          src={gmuLogo}
+          alt="GMU VoiceBot"
+          className="voice-logo"
+        />
       </button>
+
     </div>
   )
 }

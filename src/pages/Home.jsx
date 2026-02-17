@@ -1,5 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import VoiceAssistant from "../components/VoiceAssistant"
+
 import './Home.css'
 
 const Home = () => {

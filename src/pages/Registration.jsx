@@ -146,14 +146,14 @@ const Registration = () => {
               </tr>
             </thead>
             <tbody>
-              {courses.map((course, index) => (
-                <tr key={course.course_id}>
-                  <td>{index + 1}</td>
-                  <td>{course.course_code}</td>
-                  <td>{course.course_title}</td>
-                  <td>{course.credits}</td>
-                  <td>{course.course_type}</td>
-                </tr>
+             {courses.map((course, index) => (
+               <tr key={index}>
+      <td>{index + 1}</td>
+      <td>{course.code}</td>
+      <td>{course.title}</td>
+      <td>{course.group}</td>
+      <td>{course.type}</td>
+    </tr>
               ))}
             </tbody>
           </table>

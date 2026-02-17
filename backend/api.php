@@ -1,11 +1,16 @@
 <?php
+
+header("Access-Control-Allow-Origin: http://localhost:3000");
+header("Access-Control-Allow-Credentials: true");
+header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type");
 header("Content-Type: application/json");
 session_start();
 
-require_once "config/db.php";
-require_once "services/IntentService.php";
-require_once "controllers/StudentController.php";
-require_once "controllers/FeeController.php";
+require_once __DIR__ . "/intents/studentIntent.php";
+require_once __DIR__ . "/intents/controllers/StudentController.php";
+require_once __DIR__ . "/intents/controllers/FeeController.php";
+require_once __DIR__ . "/config/db.php";
 
 // Handle preflight
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -13,22 +18,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit();
 }
 
+// Check authentication
+if (!isset($_SESSION['student_id'])) {
+    echo json_encode([
+        "status" => "error",
+        "reply" => "Unauthorized access. Please login."
+    ]);
+    exit();
+}
+
+$student_id = $_SESSION['student_id'];
+
 // Read input
 $raw = file_get_contents("php://input");
 $input = json_decode($raw, true);
 
 if (!$input || !isset($input["message"])) {
-    echo json_encode(["reply" => "No message received"]);
+    echo json_encode([
+        "status" => "error",
+        "reply" => "No message received"
+    ]);
     exit();
 }
 
-$message = $input["message"];
-
-// Get student id from session (temporary fixed for now)
-$student_id = $_SESSION['student_id'] ?? 1;
+$message = trim($input["message"]);
 
 // Detect intent
 $intent = IntentService::detectIntent($message);
+
+$reply = "";
+$confidence = "high";
 
 switch ($intent) {
 
@@ -49,6 +68,8 @@ switch ($intent) {
         break;
 
     default:
+        $confidence = "low";
+
         // Fallback to Python AI
         $data = json_encode(["message" => $message]);
 
@@ -61,12 +82,18 @@ switch ($intent) {
         $response = curl_exec($ch);
         curl_close($ch);
 
-        if (!$response) {
-            $reply = "Sorry, I did not understand your request.";
+        if ($response) {
+            $pythonReply = json_decode($response, true);
+            $reply = $pythonReply["reply"] ?? "Sorry, I did not understand your request.";
         } else {
-            echo $response;
-            exit();
+            $reply = "Sorry, I did not understand your request.";
         }
 }
 
-echo json_encode(["reply" => $reply]);
+// Final Response
+echo json_encode([
+    "status" => "success",
+    "intent" => $intent,
+    "confidence" => $confidence,
+    "reply" => $reply
+]);
