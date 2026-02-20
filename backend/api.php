@@ -66,6 +66,9 @@ switch ($intent) {
     case "GET_ATTENDANCE":
         $reply = StudentController::getAttendance($student_id);
         break;
+    case "GET_COURSE_CODE":
+    $reply = StudentController::getCourseCode($message);
+    break;
 
     default:
         $confidence = "low";

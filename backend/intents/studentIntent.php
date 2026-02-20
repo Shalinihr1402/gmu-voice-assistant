@@ -12,9 +12,11 @@ class IntentService {
 
         "GET_SGPA" => [
             "sgpa",
-            "semester gpa",
             "gpa",
-            "grade point"
+            "semester gpa",
+            "result",
+            "semester result",
+            "my result"
         ],
 
         "GET_FEES_BALANCE" => [
@@ -26,22 +28,17 @@ class IntentService {
             "amount due"
         ],
 
-        "GET_ATTENDANCE" => [
-            "attendance",
-            "present percentage",
-            "attendance percentage"
-        ],
+        "GET_SUBJECT_ATTENDANCE" => [
+    "attendance in",
+    "attendance of",
+    "subject attendance"
+],
 
         "GET_COURSE_CODE" => [
             "course code",
             "subject code",
-            "code"
-        ],
-
-        "GET_SUBJECTS" => [
-            "subjects",
-            "courses",
-            "registered subjects"
+            "code of",
+            "code for"
         ]
     ];
 
