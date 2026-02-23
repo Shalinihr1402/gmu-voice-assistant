@@ -1,10 +1,16 @@
 <?php
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
+
+ini_set('session.cookie_samesite', 'Lax');
+ini_set('session.cookie_secure', '0');
 
 header("Access-Control-Allow-Origin: http://localhost:3000");
 header("Access-Control-Allow-Credentials: true");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type");
 header("Content-Type: application/json");
+
 session_start();
 
 require_once __DIR__ . "/intents/studentIntent.php";
@@ -47,7 +53,7 @@ $message = trim($input["message"]);
 $intent = IntentService::detectIntent($message);
 
 $reply = "";
-$confidence = "high";
+$confidence = ($intent === "UNKNOWN") ? "low" : "high";
 
 switch ($intent) {
 
@@ -66,13 +72,16 @@ switch ($intent) {
     case "GET_ATTENDANCE":
         $reply = StudentController::getAttendance($student_id);
         break;
+
+    case "GET_SUBJECT_ATTENDANCE":
+        $reply = StudentController::getSubjectAttendance($student_id, $message);
+        break;
+
     case "GET_COURSE_CODE":
-    $reply = StudentController::getCourseCode($message);
-    break;
+        $reply = StudentController::getCourseCode($message);
+        break;
 
     default:
-        $confidence = "low";
-
         // Fallback to Python AI
         $data = json_encode(["message" => $message]);
 
@@ -93,7 +102,6 @@ switch ($intent) {
         }
 }
 
-// Final Response
 echo json_encode([
     "status" => "success",
     "intent" => $intent,

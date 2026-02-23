@@ -37,21 +37,35 @@ const VoiceAssistant = () => {
 
   /* ================= SPEAK FUNCTION ================= */
   const speak = (text) => {
-    if (!("speechSynthesis" in window)) return
+  if (!("speechSynthesis" in window)) return
 
-    window.speechSynthesis.cancel()
+  window.speechSynthesis.cancel()
 
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = "en-US"
-    utterance.rate = 0.95
-    utterance.pitch = 1.1
+  const utterance = new SpeechSynthesisUtterance(text)
+  utterance.lang = "en-US"
+  utterance.rate = 0.95
+  utterance.pitch = 1.1
 
-    if (femaleVoiceRef.current) {
-      utterance.voice = femaleVoiceRef.current
-    }
-
-    window.speechSynthesis.speak(utterance)
+  if (femaleVoiceRef.current) {
+    utterance.voice = femaleVoiceRef.current
   }
+
+  // 🔴 STOP LISTENING BEFORE SPEAKING
+  recognitionRef.current?.stop()
+
+  utterance.onend = () => {
+    // 🟢 Restart listening after speaking
+    if (isActive) {
+      setTimeout(() => {
+        try {
+          recognitionRef.current?.start()
+        } catch {}
+      }, 300)
+    }
+  }
+
+  window.speechSynthesis.speak(utterance)
+}
 
   /* ================= BACKEND ================= */
   const askAI = async (text) => {
@@ -73,17 +87,14 @@ const VoiceAssistant = () => {
     }
   }
 
- 
   const handleVoiceCommand = async (command) => {
     if (!command) return
 
     let cleaned = command.trim().toLowerCase()
 
-   
     if (cleaned === lastCommandRef.current) return
     lastCommandRef.current = cleaned
 
-    
     cleaned = cleaned
       .replace(/\b(hi|hii|hello|hey)\b/g, "")
       .replace(/\bassistant\b/g, "")
@@ -97,7 +108,6 @@ const VoiceAssistant = () => {
       return
     }
 
-    
     const goToPage = (page, message) => {
       setResponse(message)
       speak(message)
@@ -110,7 +120,6 @@ const VoiceAssistant = () => {
       lastCommandRef.current = ""
     }
 
-    
     if (
       cleaned.includes("open it") ||
       cleaned.includes("go there") ||
@@ -126,7 +135,6 @@ const VoiceAssistant = () => {
       return
     }
 
-    
     if (cleaned.match(/\bprofile\b/)) {
       goToPage("profile", "Opening your profile page.")
       return
@@ -147,7 +155,6 @@ const VoiceAssistant = () => {
       return
     }
 
-    
     const loadingReply = "Let me check that for you."
     setResponse(loadingReply)
     speak(loadingReply)
@@ -161,7 +168,6 @@ const VoiceAssistant = () => {
     }, 600)
   }
 
-  
   useEffect(() => {
     if (!("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
       setErrorMessage("Speech recognition not supported in this browser")
@@ -211,7 +217,6 @@ const VoiceAssistant = () => {
     return () => recognition.stop()
   }, [isActive])
 
-
   const activateAssistant = () => {
     setIsActive(true)
 
@@ -224,7 +229,6 @@ const VoiceAssistant = () => {
     speak(welcome)
   }
 
-  
   const closeAssistant = () => {
     setIsActive(false)
     recognitionRef.current?.stop()

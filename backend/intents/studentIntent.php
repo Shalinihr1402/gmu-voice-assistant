@@ -27,11 +27,12 @@ class IntentService {
             "pending amount",
             "amount due"
         ],
-
         "GET_SUBJECT_ATTENDANCE" => [
+    "attendance",
+    "attendance percentage",
     "attendance in",
     "attendance of",
-    "subject attendance"
+    "percentage in"
 ],
 
         "GET_COURSE_CODE" => [

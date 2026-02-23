@@ -77,7 +77,6 @@ class StudentController {
         $totalPoints = 0;
 
         while ($row = $result->fetch_assoc()) {
-
             $credits = (float)$row['credits'];
             $gradePoint = (float)$row['grade_point'];
 
@@ -93,7 +92,6 @@ class StudentController {
 
         $sgpa = round($totalPoints / $totalCredits, 2);
 
-        // Performance message
         if ($sgpa >= 9) {
             $performance = "You performed outstandingly.";
         } elseif ($sgpa >= 8) {
@@ -112,20 +110,64 @@ class StudentController {
 
     /* ================= GET COURSE CODE ================= */
 
-    public static function getCourseCode($message) {
+   public static function getCourseCode($message) {
+    global $conn;
+
+    $message = strtolower(trim($message));
+
+    $stmt = $conn->prepare("
+        SELECT course_code, course_title 
+        FROM courses
+    ");
+
+    if (!$stmt) {
+        return "System error while fetching course information.";
+    }
+
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    while ($row = $result->fetch_assoc()) {
+
+        $title = strtolower($row['course_title']);
+
+        // Remove extra spaces for better matching
+        $normalizedTitle = preg_replace('/\s+/', ' ', $title);
+        $normalizedMessage = preg_replace('/\s+/', ' ', $message);
+
+        if (strpos($normalizedMessage, $normalizedTitle) !== false) {
+            $stmt->close();
+            return "The course code of " . $row['course_title'] . " is " . $row['course_code'] . ".";
+        }
+    }
+
+    $stmt->close();
+
+    return "I could not find that course.";
+}
+
+    /* ================= SUBJECT-WISE ATTENDANCE ================= */
+
+    public static function getSubjectAttendance($student_id, $message) {
         global $conn;
 
         $message = strtolower($message);
 
         $stmt = $conn->prepare("
-            SELECT course_code, course_title 
-            FROM courses
+            SELECT c.course_title, 
+                   a.total_classes, 
+                   a.attended_classes, 
+                   a.percentage
+            FROM attendance a
+            JOIN courses c ON a.course_id = c.course_id
+            WHERE a.student_id = ?
         ");
 
         if (!$stmt) {
-            return "System error while fetching course information.";
+            return "System error while fetching attendance.";
         }
 
+        $stmt->bind_param("i", $student_id);
         $stmt->execute();
         $result = $stmt->get_result();
 
@@ -134,69 +176,37 @@ class StudentController {
             $title = strtolower($row['course_title']);
 
             if (strpos($message, $title) !== false) {
+
+                $percentage = round($row['percentage'], 2);
+
+                $response = "Your attendance in " . $row['course_title'] .
+                            " is $percentage percent. You attended " .
+                            $row['attended_classes'] . " out of " .
+                            $row['total_classes'] . " classes.";
+
+                if ($percentage < 75) {
+                    $response .= " Warning: Your attendance is below the required 75 percent.";
+                }
+
                 $stmt->close();
-                return "The course code of " . $row['course_title'] . " is " . $row['course_code'] . ".";
+                return $response;
             }
         }
 
         $stmt->close();
-
-        return "I could not find that course.";
-    }
-     public static function getSubjectAttendance($student_id, $message) {
-    global $conn;
-
-    $message = strtolower($message);
-
-    $stmt = $conn->prepare("
-        SELECT c.course_title, a.total_classes, 
-               a.attended_classes, a.percentage
-        FROM attendance a
-        JOIN courses c ON a.course_id = c.course_id
-        WHERE a.student_id = ?
-    ");
-
-    if (!$stmt) {
-        return "System error while fetching attendance.";
+        return "I could not find attendance for that subject.";
     }
 
-    $stmt->bind_param("i", $student_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
 
-    while ($row = $result->fetch_assoc()) {
-
-        $title = strtolower($row['course_title']);
-
-        if (strpos($message, $title) !== false) {
-
-            $stmt->close();
-
-            return "Your attendance in " . $row['course_title'] .
-                   " is " . $row['percentage'] . 
-                   " percent. You attended " . 
-                   $row['attended_classes'] . 
-                   " out of " . 
-                   $row['total_classes'] . " classes.";
-        }
-    }
-
-    $stmt->close();
-
-    return "I could not find attendance for that subject.";
-}
-
-    /* ================= GET ATTENDANCE ================= */
+    /* ================= OVERALL ATTENDANCE ================= */
 
     public static function getAttendance($student_id) {
         global $conn;
 
         $stmt = $conn->prepare("
-            SELECT attendance_percentage 
-            FROM attendance 
+            SELECT AVG(percentage) AS overall_percentage
+            FROM attendance
             WHERE student_id = ?
-            ORDER BY semester DESC
-            LIMIT 1
         ");
 
         if (!$stmt) {
@@ -208,10 +218,12 @@ class StudentController {
         $result = $stmt->get_result()->fetch_assoc();
         $stmt->close();
 
-        if (!$result) {
+        if (!$result || !$result['overall_percentage']) {
             return "Attendance data not found.";
         }
 
-        return "Your attendance percentage is " . $result['attendance_percentage'] . " percent.";
+        $overall = round($result['overall_percentage'], 2);
+
+        return "Your overall attendance is $overall percent.";
     }
 }
