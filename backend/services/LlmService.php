@@ -4,6 +4,9 @@ require_once __DIR__ . "/../config/db.php";
 require_once __DIR__ . "/KnowledgeBaseService.php";
 
 class LlmService {
+    private static $lastReplyMeta = [
+        "source" => "unknown"
+    ];
 
     private static function getEnvValue($key) {
         $value = getenv($key);
@@ -70,7 +73,42 @@ class LlmService {
             $knowledgeSummary = " Relevant knowledge base context: " . implode(" ", $knowledgeLines);
         }
 
-        return "You are GMU VoiceBot, a role-aware university assistant. Reply naturally, briefly, and politely in 1 to 3 sentences. Use the user's role to keep answers relevant. Never invent permissions, records, or personal facts. If the user asks for something outside their role context, say so clearly and redirect helpfully. Keep replies voice-friendly and easy to hear. " . implode(" ", $identitySummary) . $knowledgeSummary;
+        return "You are GMU VoiceBot, a role-aware university assistant. Reply naturally, briefly, and politely in 1 to 3 complete sentences. Sound warm and conversational, but stay concise. Use the user's role to keep answers relevant. Never invent permissions, records, or personal facts. If the user asks for something outside their role context, say so clearly and redirect helpfully. For greetings, jokes, or light conversation, respond in a friendly human way. Keep replies voice-friendly, easy to hear, and free of broken or unfinished sentences. " . implode(" ", $identitySummary) . $knowledgeSummary;
+    }
+
+    private static function isValidHostedReply($reply) {
+        $reply = trim((string) $reply);
+
+        if ($reply === "") {
+            return false;
+        }
+
+        if (strlen($reply) < 8) {
+            return false;
+        }
+
+        $lower = strtolower($reply);
+        $badReplies = [
+            "i understand you",
+            "i understand you'",
+            "i understand",
+            "okay",
+            "ok"
+        ];
+
+        if (in_array($lower, $badReplies, true)) {
+            return false;
+        }
+
+        if (substr($reply, -1) === "'" || substr($reply, -1) === "\"" || substr($reply, -1) === ",") {
+            return false;
+        }
+
+        if (substr_count($reply, "'") % 2 !== 0 || substr_count($reply, "\"") % 2 !== 0) {
+            return false;
+        }
+
+        return true;
     }
 
     private static function getProviderOrder() {
@@ -95,7 +133,7 @@ class LlmService {
         $patterns = [
             "/\bhow are you\b/" => "I am doing well. How can I help you today?",
             "/\bwho are you\b/" => "I am GMU VoiceBot. I can help with university information and role-based assistance for {$roleName} users.",
-            "/\b(joke|funny)\b/" => "Here is one. Why did the student bring a ladder to class? Because the grades were too high.",
+            "/\b(joke|funny|laugh|make me laugh)\b/" => "Here is one. Why did the student bring a ladder to class? Because the grades were too high.",
             "/\b(marriage|address|wedding)\b/" => "I cannot know your personal future, but I can help you with your academic details.",
             "/\b(love|girlfriend|boyfriend)\b/" => "I am better with university questions than love advice, but I am here to help however I can.",
             "/\b(hello|hi|hey)\b/" => "Hello. How can I help you today?",
@@ -113,6 +151,10 @@ class LlmService {
         }
 
         return self::getRoleHelpMessage($role);
+    }
+
+    public static function getLastReplyMeta() {
+        return self::$lastReplyMeta;
     }
 
     private static function getRoleHelpMessage($role) {
@@ -177,7 +219,7 @@ class LlmService {
 
         $data = json_decode($response, true);
 
-        if (isset($data["output_text"]) && trim($data["output_text"]) !== "") {
+        if (isset($data["output_text"]) && self::isValidHostedReply($data["output_text"])) {
             return trim($data["output_text"]);
         }
 
@@ -193,7 +235,7 @@ class LlmService {
             foreach ($item["content"] as $content) {
                 $text = $content["text"] ?? "";
 
-                if ($text !== "") {
+                if (self::isValidHostedReply($text)) {
                     return trim($text);
                 }
             }
@@ -268,7 +310,9 @@ class LlmService {
             return null;
         }
 
-        return trim(implode(" ", $texts));
+        $reply = trim(implode(" ", $texts));
+
+        return self::isValidHostedReply($reply) ? $reply : null;
     }
 
     private static function callPythonFallback($message) {
@@ -299,6 +343,10 @@ class LlmService {
     }
 
     public static function getReply($message, $userContext = []) {
+        self::$lastReplyMeta = [
+            "source" => "unknown"
+        ];
+
         $studentId = $userContext["student_id"] ?? null;
         $roleKey = $userContext["role_key"] ?? "student";
         $studentName = $studentId ? self::getStudentName($studentId) : null;
@@ -320,15 +368,24 @@ class LlmService {
             }
 
             if ($reply) {
+                self::$lastReplyMeta = [
+                    "source" => $provider
+                ];
                 return $reply;
             }
         }
 
         $pythonReply = self::callPythonFallback($message);
         if ($pythonReply) {
+            self::$lastReplyMeta = [
+                "source" => "python_fallback"
+            ];
             return $pythonReply;
         }
 
+        self::$lastReplyMeta = [
+            "source" => "local_fallback"
+        ];
         return self::localFallback($message, $userContext);
     }
 }

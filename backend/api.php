@@ -123,9 +123,12 @@ switch ($intent) {
         $reply = LlmService::getReply($message, $userContext);
 }
 
+$replyMeta = LlmService::getLastReplyMeta();
+
 echo json_encode([
     "status" => "success",
     "intent" => $intent,
     "confidence" => $confidence,
-    "reply" => $reply
+    "reply" => $reply,
+    "reply_source" => $replyMeta["source"] ?? "unknown"
 ]);

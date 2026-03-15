@@ -4,14 +4,20 @@ import gmuLogo from "../assets/gmu-logo.png"
 import "./VoiceAssistant.css"
 import { fetchJson, getBackendUrl } from "../utils/api"
 
-const RECORDING_MS = 4000
+const MAX_RECORDING_MS = 6000
+const MIN_RECORDING_MS = 700
+const SILENCE_DURATION_MS = 700
+const SILENCE_THRESHOLD = 0.018
+const RESUME_LISTENING_DELAY_MS = 350
 
 const VoiceAssistant = () => {
   const [isActive, setIsActive] = useState(false)
   const [isListening, setIsListening] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [isSpeaking, setIsSpeaking] = useState(false)
   const [transcript, setTranscript] = useState("")
   const [response, setResponse] = useState("")
+  const [replySource, setReplySource] = useState("")
   const [errorMessage, setErrorMessage] = useState("")
   const [currentUser, setCurrentUser] = useState(null)
 
@@ -20,6 +26,16 @@ const VoiceAssistant = () => {
   const mediaRecorderRef = useRef(null)
   const streamRef = useRef(null)
   const listenTimeoutRef = useRef(null)
+  const audioContextRef = useRef(null)
+  const analyserRef = useRef(null)
+  const sourceNodeRef = useRef(null)
+  const silenceAnimationRef = useRef(null)
+  const speechDetectedRef = useRef(false)
+  const silenceStartedAtRef = useRef(null)
+  const recordingStartedAtRef = useRef(0)
+  const ignoreNextRecordingRef = useRef(false)
+  const isSpeakingRef = useRef(false)
+  const lastSpokenTextRef = useRef("")
   const isActiveRef = useRef(false)
   const isProcessingRef = useRef(false)
   const lastPageRef = useRef(null)
@@ -45,17 +61,46 @@ const VoiceAssistant = () => {
       .catch(() => {})
   }, [])
 
-  const cleanupRecorder = () => {
+  const cleanupRecorder = (options = {}) => {
+    const { ignoreTranscript = false } = options
+
     if (listenTimeoutRef.current) {
       clearTimeout(listenTimeoutRef.current)
       listenTimeoutRef.current = null
     }
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      if (ignoreTranscript) {
+        ignoreNextRecordingRef.current = true
+      }
       mediaRecorderRef.current.stop()
     }
 
     mediaRecorderRef.current = null
+
+    if (silenceAnimationRef.current) {
+      cancelAnimationFrame(silenceAnimationRef.current)
+      silenceAnimationRef.current = null
+    }
+
+    if (sourceNodeRef.current) {
+      sourceNodeRef.current.disconnect()
+      sourceNodeRef.current = null
+    }
+
+    if (analyserRef.current) {
+      analyserRef.current.disconnect()
+      analyserRef.current = null
+    }
+
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {})
+      audioContextRef.current = null
+    }
+
+    speechDetectedRef.current = false
+    silenceStartedAtRef.current = null
+    recordingStartedAtRef.current = 0
 
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
@@ -90,8 +135,51 @@ const VoiceAssistant = () => {
     return (data.transcript || "").trim()
   }
 
+  const normalizeText = (text) => (
+    (text || "")
+      .toLowerCase()
+      .replace(/[^\w\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  )
+
+  const isSelfTranscript = (text) => {
+    const transcriptText = normalizeText(text)
+    const spokenText = normalizeText(lastSpokenTextRef.current)
+
+    if (!transcriptText || !spokenText) {
+      return false
+    }
+
+    if (transcriptText === spokenText) {
+      return true
+    }
+
+    if (spokenText.includes(transcriptText) || transcriptText.includes(spokenText)) {
+      return true
+    }
+
+    const transcriptWords = transcriptText.split(" ").filter(Boolean)
+    if (transcriptWords.length < 4) {
+      return false
+    }
+
+    const spokenWords = new Set(spokenText.split(" ").filter(Boolean))
+    const overlap = transcriptWords.filter((word) => spokenWords.has(word)).length
+
+    return overlap / transcriptWords.length >= 0.7
+  }
+
+  const resumeListening = () => {
+    window.setTimeout(() => {
+      if (isActiveRef.current && !isProcessingRef.current && !isSpeakingRef.current) {
+        startListening().catch(() => {})
+      }
+    }, RESUME_LISTENING_DELAY_MS)
+  }
+
   const startListening = async () => {
-    if (!isActiveRef.current || isListening || isProcessingRef.current) {
+    if (!isActiveRef.current || isListening || isProcessingRef.current || isSpeakingRef.current) {
       return
     }
 
@@ -133,6 +221,11 @@ const VoiceAssistant = () => {
 
         cleanupRecorder()
 
+        if (ignoreNextRecordingRef.current) {
+          ignoreNextRecordingRef.current = false
+          return
+        }
+
         if (!audioBlob.size || !isActiveRef.current) {
           return
         }
@@ -141,9 +234,20 @@ const VoiceAssistant = () => {
           const text = await transcribeAudio(audioBlob)
 
           if (!text) {
-            const reply = "Sorry, I didn't catch that. Please try again."
-            setResponse(reply)
-            speak(reply)
+            setTranscript("")
+            setResponse("I'm listening. Please ask your question whenever you're ready.")
+            setReplySource("")
+            lastCommandRef.current = ""
+            resumeListening()
+            return
+          }
+
+          if (isSelfTranscript(text)) {
+            setTranscript(text.toLowerCase())
+            setResponse("Waiting for your question...")
+            setReplySource("")
+            lastCommandRef.current = ""
+            resumeListening()
             return
           }
 
@@ -157,15 +261,71 @@ const VoiceAssistant = () => {
 
       streamRef.current = stream
       mediaRecorderRef.current = recorder
+      recordingStartedAtRef.current = Date.now()
       setErrorMessage("")
       setIsListening(true)
       recorder.start()
+
+      try {
+        const audioContext = new window.AudioContext()
+        const analyser = audioContext.createAnalyser()
+        const sourceNode = audioContext.createMediaStreamSource(stream)
+
+        analyser.fftSize = 2048
+        sourceNode.connect(analyser)
+
+        audioContextRef.current = audioContext
+        analyserRef.current = analyser
+        sourceNodeRef.current = sourceNode
+
+        const timeData = new Uint8Array(analyser.fftSize)
+
+        const monitorSilence = () => {
+          if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
+            silenceAnimationRef.current = null
+            return
+          }
+
+          analyser.getByteTimeDomainData(timeData)
+
+          let sumSquares = 0
+          for (let index = 0; index < timeData.length; index += 1) {
+            const normalized = (timeData[index] - 128) / 128
+            sumSquares += normalized * normalized
+          }
+
+          const rms = Math.sqrt(sumSquares / timeData.length)
+          const now = Date.now()
+          const elapsed = now - recordingStartedAtRef.current
+
+          if (rms >= SILENCE_THRESHOLD) {
+            speechDetectedRef.current = true
+            silenceStartedAtRef.current = null
+          } else if (speechDetectedRef.current && elapsed >= MIN_RECORDING_MS) {
+            if (!silenceStartedAtRef.current) {
+              silenceStartedAtRef.current = now
+            }
+
+            if (now - silenceStartedAtRef.current >= SILENCE_DURATION_MS) {
+              mediaRecorderRef.current.stop()
+              silenceAnimationRef.current = null
+              return
+            }
+          }
+
+          silenceAnimationRef.current = requestAnimationFrame(monitorSilence)
+        }
+
+        silenceAnimationRef.current = requestAnimationFrame(monitorSilence)
+      } catch {
+        // Fall back to max-duration recording if Web Audio monitoring is unavailable.
+      }
 
       listenTimeoutRef.current = setTimeout(() => {
         if (recorder.state !== "inactive") {
           recorder.stop()
         }
-      }, RECORDING_MS)
+      }, MAX_RECORDING_MS)
     } catch (error) {
       cleanupRecorder()
       setErrorMessage(error.message || "Unable to access microphone.")
@@ -174,14 +334,14 @@ const VoiceAssistant = () => {
 
   const speakWithBrowserFallback = (text) => {
     if (!("speechSynthesis" in window)) {
-      if (isActiveRef.current && !isProcessingRef.current) {
-        startListening().catch(() => {})
-      }
+      isSpeakingRef.current = false
+      setIsSpeaking(false)
+      resumeListening()
       return
     }
 
     cleanupAudio()
-    cleanupRecorder()
+    cleanupRecorder({ ignoreTranscript: true })
     window.speechSynthesis.cancel()
 
     const utterance = new SpeechSynthesisUtterance(text)
@@ -190,18 +350,29 @@ const VoiceAssistant = () => {
     utterance.pitch = 1.1
 
     utterance.onend = () => {
-      if (isActiveRef.current && !isProcessingRef.current) {
-        startListening().catch(() => {})
-      }
+      isSpeakingRef.current = false
+      setIsSpeaking(false)
+      resumeListening()
     }
 
+    utterance.onerror = () => {
+      isSpeakingRef.current = false
+      setIsSpeaking(false)
+      resumeListening()
+    }
+
+    lastSpokenTextRef.current = text
+    isSpeakingRef.current = true
+    setIsSpeaking(true)
     window.speechSynthesis.speak(utterance)
   }
 
   const speak = async (text) => {
     if (!text) return
 
-    cleanupRecorder()
+    isSpeakingRef.current = true
+    setIsSpeaking(true)
+    cleanupRecorder({ ignoreTranscript: true })
     cleanupAudio()
     window.speechSynthesis.cancel()
 
@@ -227,24 +398,41 @@ const VoiceAssistant = () => {
 
       const audioUrl = URL.createObjectURL(audioBlob)
       const audio = new Audio(audioUrl)
+      let didStartPlayback = false
 
       audioRef.current = audio
       audioUrlRef.current = audioUrl
 
+      audio.onplay = () => {
+        didStartPlayback = true
+      }
+
+      audio.onplaying = () => {
+        didStartPlayback = true
+      }
+
       audio.onended = () => {
+        isSpeakingRef.current = false
+        setIsSpeaking(false)
         cleanupAudio()
-        if (isActiveRef.current && !isProcessingRef.current) {
-          startListening().catch(() => {})
-        }
+        resumeListening()
       }
 
       audio.onerror = () => {
+        isSpeakingRef.current = false
+        setIsSpeaking(false)
         cleanupAudio()
-        speakWithBrowserFallback(text)
+        if (!didStartPlayback) {
+          speakWithBrowserFallback(text)
+        } else {
+          resumeListening()
+        }
       }
 
       await audio.play()
     } catch {
+      isSpeakingRef.current = false
+      setIsSpeaking(false)
       speakWithBrowserFallback(text)
     }
   }
@@ -256,14 +444,17 @@ const VoiceAssistant = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text })
       })
+      setReplySource(data.reply_source || "unknown")
       return data.reply || "I could not find an answer."
     } catch {
+      setReplySource("request_failed")
       return "Server is not responding. Please try again."
     }
   }
 
   const replyImmediately = (text) => {
     setResponse(text)
+    setReplySource("")
     void speak(text)
     lastCommandRef.current = ""
   }
@@ -382,22 +573,38 @@ const VoiceAssistant = () => {
     isActiveRef.current = true
     setErrorMessage("")
     setIsProcessing(false)
+    setIsSpeaking(false)
+    setReplySource("")
 
     const roleLabel = currentUser?.role_name ? ` for ${currentUser.role_name}` : ""
-    const welcome = `Hello. I am GMU VoiceBot${roleLabel}. How can I help you?`
+    const welcome = `Hello${currentUser?.full_name ? ` ${currentUser.full_name}` : ""}. I am GMU VoiceBot${roleLabel}, your voice assistant for profile, fees, attendance, results, and course support. How can I help you today?`
     setResponse(welcome)
+    setTranscript("")
+    setReplySource("")
     void speak(welcome)
   }
 
   const closeAssistant = () => {
     setIsActive(false)
     isActiveRef.current = false
+    isSpeakingRef.current = false
+    lastSpokenTextRef.current = ""
     isProcessingRef.current = false
     setIsProcessing(false)
+    setIsSpeaking(false)
+    setReplySource("")
     cleanupRecorder()
     cleanupAudio()
     window.speechSynthesis.cancel()
   }
+
+  const statusLabel = isSpeaking
+    ? "Speaking..."
+    : isListening
+      ? "Listening..."
+      : isProcessing
+        ? "Thinking..."
+        : "Waiting..."
 
   return (
     <div className="voice-assistant-container">
@@ -408,9 +615,10 @@ const VoiceAssistant = () => {
           <h3>GMU VoiceBot</h3>
 
           <div className="voice-content">
-            <p><b>Status:</b> {isListening ? "Listening..." : isProcessing ? "Thinking..." : "Waiting..."}</p>
+            <p><b>Status:</b> {statusLabel}</p>
             <p><b>You:</b> {transcript}</p>
             <p><b>Assistant:</b> {response}</p>
+            {replySource && replySource !== "local_ui" && <p><b>Source:</b> {replySource}</p>}
             {errorMessage && <p style={{ color: "red" }}>{errorMessage}</p>}
           </div>
         </div>
