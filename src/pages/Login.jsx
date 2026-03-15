@@ -30,8 +30,6 @@ const Login = ({ setIsAuthenticated }) => {
         body: JSON.stringify({ loginId, password })
       })
 
-      console.log("Login response:", data)
-
       if (data.success) {
         setIsAuthenticated(true)
         navigate(data.role === "student" ? "/home" : "/portal")

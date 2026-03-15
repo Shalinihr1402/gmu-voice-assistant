@@ -70,7 +70,7 @@ function App() {
   }, [])
 
   return (
-    <Router>
+    <Router future={{ v7_relativeSplatPath: true }}>
       <AppContent
         isAuthenticated={isAuthenticated}
         setIsAuthenticated={setIsAuthenticated}

@@ -52,6 +52,14 @@ if ($audioData === false || $audioData === "") {
     exit();
 }
 
+// Treat extremely short clips as silence instead of surfacing a noisy 400.
+if (strlen($audioData) < 2048) {
+    echo json_encode([
+        "transcript" => ""
+    ]);
+    exit();
+}
+
 $ch = curl_init("https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&punctuate=true");
 curl_setopt($ch, CURLOPT_POST, true);
 curl_setopt($ch, CURLOPT_POSTFIELDS, $audioData);
@@ -77,9 +85,19 @@ if ($response === false) {
 $data = json_decode($response, true);
 
 if ($statusCode >= 400) {
+    $message = $data["err_msg"] ?? $data["message"] ?? "Deepgram transcription failed.";
+
+    if ($statusCode === 400) {
+        echo json_encode([
+            "transcript" => "",
+            "warning" => $message
+        ]);
+        exit();
+    }
+
     http_response_code($statusCode);
     echo json_encode([
-        "error" => $data["err_msg"] ?? $data["message"] ?? "Deepgram transcription failed."
+        "error" => $message
     ]);
     exit();
 }
