@@ -1,90 +1,271 @@
-import { useState, useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import gmuLogo from "../assets/gmu-logo.png"
 import "./VoiceAssistant.css"
+import { fetchJson, getBackendUrl } from "../utils/api"
+
+const RECORDING_MS = 4000
 
 const VoiceAssistant = () => {
   const [isActive, setIsActive] = useState(false)
+  const [isListening, setIsListening] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
   const [transcript, setTranscript] = useState("")
   const [response, setResponse] = useState("")
   const [errorMessage, setErrorMessage] = useState("")
+  const [currentUser, setCurrentUser] = useState(null)
 
-  const recognitionRef = useRef(null)
-  const femaleVoiceRef = useRef(null)
+  const audioRef = useRef(null)
+  const audioUrlRef = useRef(null)
+  const mediaRecorderRef = useRef(null)
+  const streamRef = useRef(null)
+  const listenTimeoutRef = useRef(null)
+  const isActiveRef = useRef(false)
+  const isProcessingRef = useRef(false)
   const lastPageRef = useRef(null)
   const lastCommandRef = useRef("")
 
   const navigate = useNavigate()
 
-  /* ================= LOAD FEMALE VOICE ================= */
   useEffect(() => {
-    const loadVoices = () => {
-      const voices = window.speechSynthesis.getVoices()
-      if (!voices.length) return
+    isActiveRef.current = isActive
+  }, [isActive])
 
-      const female =
-        voices.find(v => v.name.includes("Zira")) ||
-        voices.find(v => v.name.includes("Samantha")) ||
-        voices.find(v => v.name.toLowerCase().includes("female")) ||
-        voices.find(v => v.name.toLowerCase().includes("google"))
+  useEffect(() => {
+    isProcessingRef.current = isProcessing
+  }, [isProcessing])
 
-      if (female) femaleVoiceRef.current = female
-    }
-
-    loadVoices()
-    window.speechSynthesis.onvoiceschanged = loadVoices
+  useEffect(() => {
+    fetchJson("getCurrentUser.php")
+      .then((data) => {
+        if (!data.error) {
+          setCurrentUser(data)
+        }
+      })
+      .catch(() => {})
   }, [])
 
-  /* ================= SPEAK FUNCTION ================= */
-  const speak = (text) => {
-  if (!("speechSynthesis" in window)) return
+  const cleanupRecorder = () => {
+    if (listenTimeoutRef.current) {
+      clearTimeout(listenTimeoutRef.current)
+      listenTimeoutRef.current = null
+    }
 
-  window.speechSynthesis.cancel()
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop()
+    }
 
-  const utterance = new SpeechSynthesisUtterance(text)
-  utterance.lang = "en-US"
-  utterance.rate = 0.95
-  utterance.pitch = 1.1
+    mediaRecorderRef.current = null
 
-  if (femaleVoiceRef.current) {
-    utterance.voice = femaleVoiceRef.current
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop())
+      streamRef.current = null
+    }
+
+    setIsListening(false)
   }
 
-  // 🔴 STOP LISTENING BEFORE SPEAKING
-  recognitionRef.current?.stop()
+  const cleanupAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.src = ""
+      audioRef.current = null
+    }
 
-  utterance.onend = () => {
-    // 🟢 Restart listening after speaking
-    if (isActive) {
-      setTimeout(() => {
-        try {
-          recognitionRef.current?.start()
-        } catch {}
-      }, 300)
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current)
+      audioUrlRef.current = null
     }
   }
 
-  window.speechSynthesis.speak(utterance)
-}
+  const transcribeAudio = async (audioBlob) => {
+    const formData = new FormData()
+    formData.append("audio", audioBlob, "voice.webm")
 
-  /* ================= BACKEND ================= */
+    const data = await fetchJson("deepgramTranscribe.php", {
+      method: "POST",
+      body: formData
+    })
+
+    return (data.transcript || "").trim()
+  }
+
+  const startListening = async () => {
+    if (!isActiveRef.current || isListening || isProcessingRef.current) {
+      return
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setErrorMessage("Microphone recording is not supported in this browser.")
+      return
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      })
+
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : ""
+
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream)
+
+      const chunks = []
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) {
+          chunks.push(event.data)
+        }
+      }
+
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(chunks, {
+          type: recorder.mimeType || "audio/webm"
+        })
+
+        cleanupRecorder()
+
+        if (!audioBlob.size || !isActiveRef.current) {
+          return
+        }
+
+        try {
+          const text = await transcribeAudio(audioBlob)
+
+          if (!text) {
+            const reply = "Sorry, I didn't catch that. Please try again."
+            setResponse(reply)
+            speak(reply)
+            return
+          }
+
+          const cleanedText = text.toLowerCase()
+          setTranscript(cleanedText)
+          await handleVoiceCommand(cleanedText)
+        } catch (error) {
+          setErrorMessage(error.message || "Unable to transcribe audio.")
+        }
+      }
+
+      streamRef.current = stream
+      mediaRecorderRef.current = recorder
+      setErrorMessage("")
+      setIsListening(true)
+      recorder.start()
+
+      listenTimeoutRef.current = setTimeout(() => {
+        if (recorder.state !== "inactive") {
+          recorder.stop()
+        }
+      }, RECORDING_MS)
+    } catch (error) {
+      cleanupRecorder()
+      setErrorMessage(error.message || "Unable to access microphone.")
+    }
+  }
+
+  const speakWithBrowserFallback = (text) => {
+    if (!("speechSynthesis" in window)) {
+      if (isActiveRef.current && !isProcessingRef.current) {
+        startListening().catch(() => {})
+      }
+      return
+    }
+
+    cleanupAudio()
+    cleanupRecorder()
+    window.speechSynthesis.cancel()
+
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = "en-US"
+    utterance.rate = 0.95
+    utterance.pitch = 1.1
+
+    utterance.onend = () => {
+      if (isActiveRef.current && !isProcessingRef.current) {
+        startListening().catch(() => {})
+      }
+    }
+
+    window.speechSynthesis.speak(utterance)
+  }
+
+  const speak = async (text) => {
+    if (!text) return
+
+    cleanupRecorder()
+    cleanupAudio()
+    window.speechSynthesis.cancel()
+
+    try {
+      const response = await fetch(getBackendUrl("deepgramTts.php"), {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ text })
+      })
+
+      if (!response.ok) {
+        throw new Error("Deepgram TTS request failed.")
+      }
+
+      const audioBlob = await response.blob()
+
+      if (!audioBlob.size) {
+        throw new Error("Deepgram TTS returned empty audio.")
+      }
+
+      const audioUrl = URL.createObjectURL(audioBlob)
+      const audio = new Audio(audioUrl)
+
+      audioRef.current = audio
+      audioUrlRef.current = audioUrl
+
+      audio.onended = () => {
+        cleanupAudio()
+        if (isActiveRef.current && !isProcessingRef.current) {
+          startListening().catch(() => {})
+        }
+      }
+
+      audio.onerror = () => {
+        cleanupAudio()
+        speakWithBrowserFallback(text)
+      }
+
+      await audio.play()
+    } catch {
+      speakWithBrowserFallback(text)
+    }
+  }
+
   const askAI = async (text) => {
     try {
-      const res = await fetch(
-        "http://localhost:8080/gmu-voice-assistant/backend/api.php",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ message: text })
-        }
-      )
-
-      const data = await res.json()
+      const data = await fetchJson("api.php", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text })
+      })
       return data.reply || "I could not find an answer."
     } catch {
       return "Server is not responding. Please try again."
     }
+  }
+
+  const replyImmediately = (text) => {
+    setResponse(text)
+    void speak(text)
+    lastCommandRef.current = ""
   }
 
   const handleVoiceCommand = async (command) => {
@@ -98,13 +279,11 @@ const VoiceAssistant = () => {
     cleaned = cleaned
       .replace(/\b(hi|hii|hello|hey)\b/g, "")
       .replace(/\bassistant\b/g, "")
+      .replace(/\b(can you|could you|please)\b/g, "")
       .trim()
 
     if (!cleaned) {
-      const reply = "Hello. What can I help you with?"
-      setResponse(reply)
-      speak(reply)
-      lastCommandRef.current = ""
+      replyImmediately("Hello. What can I help you with?")
       return
     }
 
@@ -120,6 +299,9 @@ const VoiceAssistant = () => {
       lastCommandRef.current = ""
     }
 
+    const isStudent = currentUser?.role_key === "student"
+    const isStaff = currentUser?.role_key && currentUser.role_key !== "student"
+
     if (
       cleaned.includes("open it") ||
       cleaned.includes("go there") ||
@@ -128,110 +310,92 @@ const VoiceAssistant = () => {
       if (lastPageRef.current) {
         goToPage(lastPageRef.current, "Opening " + lastPageRef.current)
       } else {
-        const reply = "Please tell me which page to open."
-        setResponse(reply)
-        speak(reply)
+        replyImmediately("Please tell me which page to open.")
       }
       return
     }
 
     if (cleaned.match(/\bprofile\b/)) {
-      goToPage("profile", "Opening your profile page.")
+      if (isStudent) {
+        goToPage("profile", "Opening your profile page.")
+      } else {
+        goToPage("portal", "Opening your role portal.")
+      }
       return
     }
 
     if (cleaned.match(/\bdashboard\b/)) {
-      goToPage("dashboard", "Opening your dashboard.")
+      if (isStudent) {
+        goToPage("dashboard", "Opening your dashboard.")
+      } else {
+        goToPage("portal", "Opening your role dashboard.")
+      }
       return
     }
 
     if (cleaned.match(/\bregistration\b/)) {
-      goToPage("registration", "Opening your registration page.")
+      if (isStudent) {
+        goToPage("registration", "Opening your registration page.")
+      } else {
+        const staffReply = "Registration is currently a student-only page. Opening your role portal instead."
+        goToPage("portal", staffReply)
+      }
       return
     }
 
     if (cleaned.match(/\bhome\b/)) {
-      goToPage("home", "Opening your home page.")
+      goToPage(isStaff ? "portal" : "home", isStaff ? "Opening your role portal." : "Opening your home page.")
       return
     }
 
-    const loadingReply = "Let me check that for you."
-    setResponse(loadingReply)
-    speak(loadingReply)
+    if (/^(how are you|who are you|thank you|thanks|good morning|good afternoon|good evening|bye|goodbye|see you)$/.test(cleaned)) {
+      const reply = await askAI(cleaned)
+      setResponse(reply)
+      void speak(reply)
+      lastCommandRef.current = ""
+      return
+    }
+
+    setIsProcessing(true)
+    setResponse("Thinking...")
 
     const reply = await askAI(cleaned)
 
-    setTimeout(() => {
-      setResponse(reply)
-      speak(reply)
-      lastCommandRef.current = ""
-    }, 600)
+    setIsProcessing(false)
+    setResponse(reply)
+    void speak(reply)
+    lastCommandRef.current = ""
   }
 
   useEffect(() => {
-    if (!("webkitSpeechRecognition" in window || "SpeechRecognition" in window)) {
-      setErrorMessage("Speech recognition not supported in this browser")
-      return
+    return () => {
+      cleanupRecorder()
+      cleanupAudio()
+      window.speechSynthesis.cancel()
     }
-
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition
-
-    const recognition = new SpeechRecognition()
-
-    recognition.continuous = true
-    recognition.interimResults = false
-    recognition.lang = "en-US"
-    recognition.maxAlternatives = 1
-
-    recognition.onresult = (event) => {
-      const last = event.results.length - 1
-      const result = event.results[last][0]
-
-      if (result.confidence < 0.55) {
-        const msg = "Sorry, I didn't catch that. Please repeat."
-        setResponse(msg)
-        speak(msg)
-        return
-      }
-
-      const command = result.transcript.toLowerCase()
-      setTranscript(command)
-      handleVoiceCommand(command)
-    }
-
-    recognition.onerror = () => {}
-
-    recognition.onend = () => {
-      if (isActive) {
-        setTimeout(() => {
-          try {
-            recognition.start()
-          } catch {}
-        }, 400)
-      }
-    }
-
-    recognitionRef.current = recognition
-
-    return () => recognition.stop()
-  }, [isActive])
+  }, [])
 
   const activateAssistant = () => {
+    if (isActiveRef.current) return
+
     setIsActive(true)
+    isActiveRef.current = true
+    setErrorMessage("")
+    setIsProcessing(false)
 
-    setTimeout(() => {
-      recognitionRef.current?.start()
-    }, 300)
-
-    const welcome = "Hello. I am GMU VoiceBot. How can I help you?"
+    const roleLabel = currentUser?.role_name ? ` for ${currentUser.role_name}` : ""
+    const welcome = `Hello. I am GMU VoiceBot${roleLabel}. How can I help you?`
     setResponse(welcome)
-    speak(welcome)
+    void speak(welcome)
   }
 
   const closeAssistant = () => {
     setIsActive(false)
-    recognitionRef.current?.stop()
+    isActiveRef.current = false
+    isProcessingRef.current = false
+    setIsProcessing(false)
+    cleanupRecorder()
+    cleanupAudio()
     window.speechSynthesis.cancel()
   }
 
@@ -239,11 +403,12 @@ const VoiceAssistant = () => {
     <div className="voice-assistant-container">
       {isActive && (
         <div className="voice-assistant-panel">
-          <button className="close-btn" onClick={closeAssistant}>×</button>
+          <button className="close-btn" onClick={closeAssistant}>x</button>
 
           <h3>GMU VoiceBot</h3>
 
           <div className="voice-content">
+            <p><b>Status:</b> {isListening ? "Listening..." : isProcessing ? "Thinking..." : "Waiting..."}</p>
             <p><b>You:</b> {transcript}</p>
             <p><b>Assistant:</b> {response}</p>
             {errorMessage && <p style={{ color: "red" }}>{errorMessage}</p>}

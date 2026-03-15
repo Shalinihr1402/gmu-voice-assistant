@@ -16,8 +16,12 @@ session_start();
 
 header("Content-Type: application/json");
 
-if (isset($_SESSION["student_id"])) {
-    echo json_encode(["loggedIn" => true]);
+if (isset($_SESSION["user_id"])) {
+    echo json_encode([
+        "loggedIn" => true,
+        "role" => $_SESSION["role"] ?? null,
+        "name" => $_SESSION["full_name"] ?? null
+    ]);
 } else {
     echo json_encode(["loggedIn" => false]);
 }

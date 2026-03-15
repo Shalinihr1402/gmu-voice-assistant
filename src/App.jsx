@@ -7,8 +7,10 @@ import Home from "./pages/Home"
 import Registration from "./pages/Registration"
 import Profile from "./pages/Profile"
 import Dashboard from "./pages/Dashboard"
+import RolePortal from "./pages/RolePortal"
 
 import "./App.css"
+import { fetchJson } from "./utils/api"
 
 function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const location = useLocation()
@@ -36,6 +38,14 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
         <Route path="/home" element={<Home />} />
         <Route path="/registration" element={<Registration />} />
         <Route path="/profile" element={<Profile />} />
+        <Route
+          path="/portal"
+          element={
+            isAuthenticated
+              ? <RolePortal />
+              : <Navigate to="/" />
+          }
+        />
       </Routes>
 
       {/* 🔥 VoiceAssistant appears on ALL pages except login */}
@@ -50,10 +60,7 @@ function App() {
 
   // Optional: keep backend check
   useEffect(() => {
-    fetch("http://localhost:8080/gmu-voice-assistant/backend/checkAuth.php", {
-      credentials: "include"
-    })
-      .then(res => res.json())
+    fetchJson("checkAuth.php")
       .then(data => {
         if (data.loggedIn) {
           setIsAuthenticated(true)

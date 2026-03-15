@@ -3,16 +3,14 @@ import { useEffect, useState } from 'react'
 import './Dashboard.css'
 import collegeImage from '../assets/college.jpg'
 import logo from '../assets/logo.png'
+import { fetchJson, getBackendUrl } from "../utils/api"
 
 const Dashboard = () => {
   const navigate = useNavigate()
   const [student, setStudent] = useState(null)
 
   useEffect(() => {
-    fetch("http://localhost:8080/gmu-voice-assistant/backend/getProfile.php", {
-      credentials: "include"
-    })
-      .then(res => res.json())
+    fetchJson("getProfile.php")
       .then(data => {
         if (!data.error) {
           setStudent(data)
@@ -42,7 +40,7 @@ const Dashboard = () => {
             <div className="sidebar-photo">
               {student.photo ? (
                 <img
-                  src={`http://localhost:8080/gmu-voice-assistant/backend/uploads/${student.photo}`}
+                  src={getBackendUrl(`uploads/${student.photo}`)}
                   alt="profile"
                 />
               ) : (
@@ -77,7 +75,7 @@ const Dashboard = () => {
               <div className="center-profile">
                 {student.photo ? (
                   <img
-                    src={`http://localhost:8080/gmu-voice-assistant/backend/uploads/${student.photo}`}
+                    src={getBackendUrl(`uploads/${student.photo}`)}
                     alt="profile"
                   />
                 ) : (

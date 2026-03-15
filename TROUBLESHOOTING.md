@@ -1,23 +1,22 @@
 # Voice Assistant Troubleshooting
 
-## Important: Voice Assistant doesn't need PHP Backend! ✅
+## Important: Voice Assistant uses PHP backend for AI replies
 
-The Voice Assistant uses **Browser's Web Speech API** which is **100% client-side**. It does NOT use PHP backend.
+The current voice assistant is not fully client-side anymore.
 
 ## How Voice Assistant Works
 
-1. **Speech Recognition**: Browser's built-in Web Speech API (client-side)
-2. **Voice Commands**: Processed in JavaScript (client-side)
-3. **Navigation**: Uses React Router (client-side)
-4. **No PHP/Backend needed** for voice assistant functionality
+1. **Microphone capture**: Browser media APIs
+2. **Speech Recognition**: Deepgram transcription through `backend/deepgramTranscribe.php`
+3. **Voice Commands + AI**: React sends text to `backend/api.php`
+4. **Navigation**: Uses React Router for page changes
+5. **Voice Output**: Browser speech synthesis
 
-## PHP Backend is only for:
+## PHP Backend is required for:
+- Deepgram transcription
+- User session lookup
 - Student data API endpoints
-- Course information
-- Payment details
-- Profile updates
-
-**Voice Assistant works completely independently!**
+- Gemini/OpenAI AI replies
 
 ---
 
@@ -53,14 +52,14 @@ The Voice Assistant uses **Browser's Web Speech API** which is **100% client-sid
 - Check browser permissions
 - Try in Chrome/Edge browser
 
-**Issue: Shows network error**
-- This is normal (ignored in code)
-- Speech recognition works offline
-- Should still work
+**Issue: AI replies are failing**
+- Check `GEMINI_API_KEY` or `OPENAI_API_KEY`
+- If you want Gemini first, set `LLM_PROVIDER=gemini`
+- Confirm Apache/PHP can read those environment variables
 
 **Issue: Not recognizing commands**
 - Speak clearly and slowly
-- Try commands: "Hello GMU", "Show my profile"
+- Try commands like "show my profile" or "what is my fee balance"
 - Check if transcript shows what you said
 
 ---
@@ -76,14 +75,10 @@ The Voice Assistant uses **Browser's Web Speech API** which is **100% client-sid
 
 ---
 
-## PHP Backend is Separate
+## PHP Backend Endpoints Used By VoiceBot
 
-PHP backend (backend/api.php) is ONLY used for:
-- `/api/student` - Student data
-- `/api/courses` - Course information  
-- `/api/fees` - Payment details
-
-Voice Assistant does NOT call PHP backend at all!
+- `backend/deepgramTranscribe.php` for speech-to-text
+- `backend/api.php` for intent handling and AI replies
 
 ---
 
@@ -95,4 +90,4 @@ If voice assistant is not working:
 3. Check browser console (F12) for errors
 4. Speak clearly and try "Hello GMU"
 
-**Remember: PHP backend issues will NOT affect voice assistant!**
+**Remember: PHP or API key issues can affect voice transcription and AI replies.**

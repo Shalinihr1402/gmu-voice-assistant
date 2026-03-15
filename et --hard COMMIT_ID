@@ -1,0 +1,95 @@
+[33mcommit 6f5cbc8ea6f4ede7611aa2ba0536a77ced091ca7[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m
+Author: Shalinihr1402 <shalinidvg16@gmail.com>
+Date:   Sat Mar 14 11:06:00 2026 +0530
+
+    Added All queries of students
+
+[33mcommit 0ffde499d24a6c59cdf1e6fa3e1cc41233b6c53c[m
+Author: Shalinihr1402 <shalinidvg16@gmail.com>
+Date:   Mon Feb 23 19:15:59 2026 +0530
+
+    updated UI
+
+[33mcommit e477fc1c6897b6531cf41308cd98c7576f89c589[m
+Author: Shalinihr1402 <shalinidvg16@gmail.com>
+Date:   Fri Feb 20 16:34:43 2026 +0530
+
+    added attendence query
+
+[33mcommit 960d6ae47e5ee87d4399254c91baa191d1e43414[m
+Author: Shalinihr1402 <shalinidvg16@gmail.com>
+Date:   Thu Feb 19 19:28:44 2026 +0530
+
+    updated voicebot feautures
+
+[33mcommit 03e5bf3963e11e5c798359e8e151ee3c6e8edfd5[m
+Author: Shalinihr1402 <shalinidvg16@gmail.com>
+Date:   Tue Feb 17 14:45:54 2026 +0530
+
+    Updated Api's
+
+[33mcommit e02f5f869f104424d5a124338b6d919b435bf63d[m
+Author: Shalinihr1402 <shalinidvg16@gmail.com>
+Date:   Mon Feb 16 21:33:14 2026 +0530
+
+    Added API feautures for Pages
+
+[33mcommit f7bd04afa38fe64f4d12d142f0a282efc2a2f209[m
+Author: Shalinihr1402 <shalinidvg16@gmail.com>
+Date:   Mon Feb 16 14:19:45 2026 +0530
+
+    Added Login Page
+
+[33mcommit 66894baa27a675d4b7488d3bde328e15093671ba[m
+Author: Shalinihr1402 <shalinidvg16@gmail.com>
+Date:   Mon Feb 16 07:13:46 2026 +0530
+
+    Added Authentication
+
+[33mcommit 996a931d08da78f054e5a3bedc69eccd76ce43f6[m
+Author: Shalinihr1402 <shalinidvg16@gmail.com>
+Date:   Mon Feb 16 07:08:53 2026 +0530
+
+    Updated UI
+
+[33mcommit ec0f643c9c181eae5a6ab15046e278c613cd5ea6[m
+Author: Shalinihr1402 <shalinidvg16@gmail.com>
+Date:   Mon Feb 16 07:07:41 2026 +0530
+
+    Added Login Page Api structure
+
+[33mcommit 6cbefd4eae16f79ac6c701c0b2f351575a81e847[m
+Author: Shalinihr1402 <shalinidvg16@gmail.com>
+Date:   Sun Feb 15 18:17:36 2026 +0530
+
+    added api configure
+
+[33mcommit eedd0627971ea2f8bd57bfcee6f06e304fee84a8[m
+Author: Shalinihr1402 <shalinidvg16@gmail.com>
+Date:   Sun Feb 15 18:05:22 2026 +0530
+
+    Added intents services updated api.php
+
+[33mcommit d9d3746e36e93bb3537653fc2b30e91de6679d75[m
+Author: Shalinihr1402 <shalinidvg16@gmail.com>
+Date:   Sun Jan 25 09:41:07 2026 +0530
+
+    first commit
+
+[33mcommit 852e26a9e9cfa3d56fc4ff3157265560da39d1d2[m
+Author: Shalinihr1402 <shalinidvg16@gmail.com>
+Date:   Sun Jan 25 09:36:12 2026 +0530
+
+    database design
+
+[33mcommit 4bf38e2990bcbe3d2757f9ddb713efd89c9f6848[m
+Author: I M SHIVA KUMAR <imshivakumar2003@gmail.com>
+Date:   Sat Jan 17 09:43:16 2026 +0530
+
+    Add files via upload
+
+[33mcommit be2031053aae6892f1ebb341f178b4c61823f851[m
+Author: I M SHIVA KUMAR <imshivakumar2003@gmail.com>
+Date:   Fri Jan 16 20:24:19 2026 +0530
+
+    Initial commit

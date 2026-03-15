@@ -16,6 +16,8 @@ session_start();
 require_once __DIR__ . "/intents/studentIntent.php";
 require_once __DIR__ . "/intents/controllers/StudentController.php";
 require_once __DIR__ . "/intents/controllers/FeeController.php";
+require_once __DIR__ . "/services/LlmService.php";
+require_once __DIR__ . "/services/UserService.php";
 require_once __DIR__ . "/config/db.php";
 
 // Handle preflight
@@ -25,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 // Check authentication
-if (!isset($_SESSION['student_id'])) {
+if (!isset($_SESSION['user_id'])) {
     echo json_encode([
         "status" => "error",
         "reply" => "Unauthorized access. Please login."
@@ -33,7 +35,18 @@ if (!isset($_SESSION['student_id'])) {
     exit();
 }
 
-$student_id = $_SESSION['student_id'];
+$userContext = UserService::getCurrentUserContext($_SESSION['user_id']);
+
+if (!$userContext) {
+    echo json_encode([
+        "status" => "error",
+        "reply" => "User context not found. Please login again."
+    ]);
+    exit();
+}
+
+$roleKey = $userContext['role_key'];
+$student_id = $userContext['student_id'] ?? null;
 
 // Read input
 $raw = file_get_contents("php://input");
@@ -55,25 +68,50 @@ $intent = IntentService::detectIntent($message);
 $reply = "";
 $confidence = ($intent === "UNKNOWN") ? "low" : "high";
 
+if ($roleKey !== "student") {
+    $intent = "ROLE_AWARE_ASSIST";
+    $confidence = "medium";
+}
+
 switch ($intent) {
 
     case "GET_USN":
+        if (!$student_id) {
+            $reply = "USN lookup is available for student accounts after student login.";
+            break;
+        }
         $reply = StudentController::getUSN($student_id);
         break;
 
     case "GET_SGPA":
+        if (!$student_id) {
+            $reply = "SGPA lookup is available for student accounts after student login.";
+            break;
+        }
         $reply = StudentController::getSGPA($student_id);
         break;
 
     case "GET_FEES_BALANCE":
+        if (!$student_id) {
+            $reply = "Fee balance lookup is available for student accounts after student login.";
+            break;
+        }
         $reply = FeeController::getFeeBalance($student_id);
         break;
 
     case "GET_ATTENDANCE":
+        if (!$student_id) {
+            $reply = "Attendance lookup is available for student accounts after student login.";
+            break;
+        }
         $reply = StudentController::getAttendance($student_id);
         break;
 
     case "GET_SUBJECT_ATTENDANCE":
+        if (!$student_id) {
+            $reply = "Subject attendance lookup is available for student accounts after student login.";
+            break;
+        }
         $reply = StudentController::getSubjectAttendance($student_id, $message);
         break;
 
@@ -82,24 +120,7 @@ switch ($intent) {
         break;
 
     default:
-        // Fallback to Python AI
-        $data = json_encode(["message" => $message]);
-
-        $ch = curl_init("http://127.0.0.1:5000/chat");
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json"]);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-
-        $response = curl_exec($ch);
-        curl_close($ch);
-
-        if ($response) {
-            $pythonReply = json_decode($response, true);
-            $reply = $pythonReply["reply"] ?? "Sorry, I did not understand your request.";
-        } else {
-            $reply = "Sorry, I did not understand your request.";
-        }
+        $reply = LlmService::getReply($message, $userContext);
 }
 
 echo json_encode([

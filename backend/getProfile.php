@@ -35,6 +35,12 @@ WHERE student_id = ?
 
 ");
 
+if (!$stmt) {
+    http_response_code(500);
+    echo json_encode(["error" => "Database schema error: missing or invalid students table."]);
+    exit();
+}
+
 
 $stmt->bind_param("i", $student_id);
 $stmt->execute();

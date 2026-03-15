@@ -26,6 +26,13 @@ $studentQuery = $conn->prepare("
     FROM students 
     WHERE student_id = ?
 ");
+
+if (!$studentQuery) {
+    http_response_code(500);
+    echo json_encode(["error" => "Database schema error: missing or invalid students table."]);
+    exit();
+}
+
 $studentQuery->bind_param("i", $student_id);
 $studentQuery->execute();
 $studentResult = $studentQuery->get_result()->fetch_assoc();
@@ -44,6 +51,12 @@ $stmt = $conn->prepare("
     FROM courses
     WHERE program = ? AND semester = ?
 ");
+
+if (!$stmt) {
+    http_response_code(500);
+    echo json_encode(["error" => "Database schema error: missing or invalid courses table."]);
+    exit();
+}
 
 $stmt->bind_param("si", $branch, $semester);
 $stmt->execute();

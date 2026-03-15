@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import './Profile.css'
+import { fetchJson } from "../utils/api"
 
 const Profile = () => {
   const navigate = useNavigate()
@@ -8,10 +9,7 @@ const Profile = () => {
   const [mobile, setMobile] = useState("")
 
   useEffect(() => {
-    fetch("http://localhost:8080/gmu-voice-assistant/backend/getProfile.php", {
-      credentials: "include"
-    })
-      .then(res => res.json())
+    fetchJson("getProfile.php")
       .then(data => {
         if (!data.error) {
           setStudent(data)

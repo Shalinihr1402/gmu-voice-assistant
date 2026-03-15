@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import './Registration.css'
+import { fetchJson } from "../utils/api"
 
 const Registration = () => {
   const navigate = useNavigate()
@@ -14,11 +15,7 @@ const Registration = () => {
     const fetchData = async () => {
       try {
         // 1️⃣ Student
-        const studentRes = await fetch(
-          "http://localhost:8080/gmu-voice-assistant/backend/getProfile.php",
-          { credentials: "include" }
-        )
-        const studentData = await studentRes.json()
+        const studentData = await fetchJson("getProfile.php")
 
         if (studentData.error) {
           navigate("/")
@@ -28,19 +25,11 @@ const Registration = () => {
         setStudent(studentData)
 
         // 2️⃣ Courses
-        const courseRes = await fetch(
-          "http://localhost:8080/gmu-voice-assistant/backend/getCourses.php",
-          { credentials: "include" }
-        )
-        const courseData = await courseRes.json()
+        const courseData = await fetchJson("getCourses.php")
         setCourses(courseData || [])
 
         // 3️⃣ Payments
-        const paymentRes = await fetch(
-          "http://localhost:8080/gmu-voice-assistant/backend/getPaymentDetails.php",
-          { credentials: "include" }
-        )
-        const paymentData = await paymentRes.json()
+        const paymentData = await fetchJson("getPaymentDetails.php")
         setPayments(paymentData || [])
 
         setLoading(false)
