@@ -7,6 +7,7 @@ class LlmService {
     private static $lastReplyMeta = [
         "source" => "unknown"
     ];
+    private const HISTORY_LIMIT = 6;
 
     private static function getEnvValue($key) {
         $value = getenv($key);
@@ -47,6 +48,37 @@ class LlmService {
         return $result["full_name"] ?? null;
     }
 
+    private static function getConversationHistory() {
+        if (!isset($_SESSION["voicebot_history"]) || !is_array($_SESSION["voicebot_history"])) {
+            $_SESSION["voicebot_history"] = [];
+        }
+
+        return $_SESSION["voicebot_history"];
+    }
+
+    private static function saveConversationTurn($userMessage, $assistantReply) {
+        if (!isset($_SESSION["voicebot_history"]) || !is_array($_SESSION["voicebot_history"])) {
+            $_SESSION["voicebot_history"] = [];
+        }
+
+        $_SESSION["voicebot_history"][] = [
+            "role" => "user",
+            "text" => trim((string) $userMessage)
+        ];
+        $_SESSION["voicebot_history"][] = [
+            "role" => "assistant",
+            "text" => trim((string) $assistantReply)
+        ];
+
+        if (count($_SESSION["voicebot_history"]) > self::HISTORY_LIMIT) {
+            $_SESSION["voicebot_history"] = array_slice($_SESSION["voicebot_history"], -self::HISTORY_LIMIT);
+        }
+    }
+
+    private static function clearConversationHistory() {
+        $_SESSION["voicebot_history"] = [];
+    }
+
     private static function buildSystemPrompt($userContext, $knowledgeItems) {
         $roleName = $userContext["role_name"] ?? "User";
         $roleKey = $userContext["role_key"] ?? "student";
@@ -79,7 +111,7 @@ class LlmService {
 
         $examples = "Examples. If asked 'who are you', say something like 'I am GMU VoiceBot, your university assistant. I can help you with profile, fee, attendance, result, and registration queries.' If asked for a joke, keep it short, clean, and professional. If asked a role-specific question outside available records, explain the limit politely and suggest the right kind of question.";
 
-        return "You are GMU VoiceBot, a role-aware university assistant for GM University. Your speaking style should feel assistant-like and professional, with clear phrasing suitable for voice output on an academic portal. " . $capabilitySummary . " " . $responseRules . " " . $examples . " " . implode(" ", $identitySummary) . $knowledgeSummary;
+        return "You are GMU VoiceBot, a role-aware university assistant for GM University. Your speaking style should feel assistant-like and professional, with clear phrasing suitable for voice output on an academic portal. Avoid repeating the same sentence structure across turns unless necessary. When the user asks a follow-up question, continue naturally from the recent conversation instead of restarting with the same generic introduction. " . $capabilitySummary . " " . $responseRules . " " . $examples . " " . implode(" ", $identitySummary) . $knowledgeSummary;
     }
 
     private static function isValidHostedReply($reply) {
@@ -203,22 +235,42 @@ class LlmService {
         $model = self::getEnvValue("OPENAI_MODEL") ?: "gpt-4.1-mini";
         $systemPrompt = self::buildSystemPrompt($userContext, $knowledgeItems);
 
+        $input = [[
+            "role" => "system",
+            "content" => [[
+                "type" => "input_text",
+                "text" => $systemPrompt
+            ]]
+        ]];
+
+        foreach (self::getConversationHistory() as $historyItem) {
+            $historyRole = $historyItem["role"] ?? "user";
+            $historyText = trim((string) ($historyItem["text"] ?? ""));
+            if ($historyText === "") {
+                continue;
+            }
+
+            $input[] = [
+                "role" => $historyRole,
+                "content" => [[
+                    "type" => "input_text",
+                    "text" => $historyText
+                ]]
+            ];
+        }
+
+        $input[] = [
+            "role" => "user",
+            "content" => [[
+                "type" => "input_text",
+                "text" => $message
+            ]]
+        ];
+
         $payload = json_encode([
             "model" => $model,
-            "input" => [[
-                "role" => "system",
-                "content" => [[
-                    "type" => "input_text",
-                    "text" => $systemPrompt
-                ]]
-            ], [
-                "role" => "user",
-                "content" => [[
-                    "type" => "input_text",
-                    "text" => $message
-                ]]
-            ]],
-            "max_output_tokens" => 120
+            "input" => $input,
+            "max_output_tokens" => 160
         ]);
 
         $ch = curl_init("https://api.openai.com/v1/responses");
@@ -280,18 +332,36 @@ class LlmService {
         $model = self::getEnvValue("GEMINI_MODEL") ?: "gemini-2.5-flash";
         $systemPrompt = self::buildSystemPrompt($userContext, $knowledgeItems);
 
+        $contents = [];
+        foreach (self::getConversationHistory() as $historyItem) {
+            $historyRole = ($historyItem["role"] ?? "user") === "assistant" ? "model" : "user";
+            $historyText = trim((string) ($historyItem["text"] ?? ""));
+            if ($historyText === "") {
+                continue;
+            }
+
+            $contents[] = [
+                "role" => $historyRole,
+                "parts" => [[
+                    "text" => $historyText
+                ]]
+            ];
+        }
+
+        $contents[] = [
+            "role" => "user",
+            "parts" => [[
+                "text" => $message
+            ]]
+        ];
+
         $payload = json_encode([
             "system_instruction" => [
                 "parts" => [[
                     "text" => $systemPrompt
                 ]]
             ],
-            "contents" => [[
-                "role" => "user",
-                "parts" => [[
-                    "text" => $message
-                ]]
-            ]],
+            "contents" => $contents,
             "generationConfig" => [
                 "temperature" => 0.55,
                 "topP" => 0.9,
@@ -372,6 +442,10 @@ class LlmService {
             "source" => "unknown"
         ];
 
+        if (!isset($_SESSION)) {
+            self::clearConversationHistory();
+        }
+
         $studentId = $userContext["student_id"] ?? null;
         $roleKey = $userContext["role_key"] ?? "student";
         $studentName = $studentId ? self::getStudentName($studentId) : null;
@@ -396,6 +470,7 @@ class LlmService {
                 self::$lastReplyMeta = [
                     "source" => $provider
                 ];
+                self::saveConversationTurn($message, $reply);
                 return $reply;
             }
         }
@@ -405,12 +480,15 @@ class LlmService {
             self::$lastReplyMeta = [
                 "source" => "python_fallback"
             ];
+            self::saveConversationTurn($message, $pythonReply);
             return $pythonReply;
         }
 
         self::$lastReplyMeta = [
             "source" => "local_fallback"
         ];
-        return self::localFallback($message, $userContext);
+        $fallbackReply = self::localFallback($message, $userContext);
+        self::saveConversationTurn($message, $fallbackReply);
+        return $fallbackReply;
     }
 }
