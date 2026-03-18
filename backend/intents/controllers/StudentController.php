@@ -116,8 +116,8 @@ class StudentController {
             $totalCredits += $credits;
             $totalPoints += ($gradePoint * $credits);
 
-            // Assumption: grade point below 5 means the course is not cleared.
-            if ($gradePoint < 5) {
+            // College rule: grade point 0 means the course is not cleared.
+            if ($gradePoint <= 0) {
                 $backlogs[] = $row["course_title"];
             }
         }
@@ -297,7 +297,7 @@ class StudentController {
 
         $backlogs = [];
         while ($row = $result->fetch_assoc()) {
-            if ((float) $row["grade_point"] < 5) {
+            if ((float) $row["grade_point"] <= 0) {
                 $backlogs[] = [
                     "semester" => (int) $row["semester"],
                     "course_title" => $row["course_title"]
