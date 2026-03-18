@@ -123,6 +123,14 @@ switch ($intent) {
         $reply = FeeController::getFinalRegistrationStatus($student_id);
         break;
 
+    case "GET_HALL_TICKET_STATUS":
+        if (!$student_id) {
+            $reply = "Hall ticket status is available for student accounts after student login.";
+            break;
+        }
+        $reply = StudentController::getHallTicketStatus($student_id, $message);
+        break;
+
     case "GET_ATTENDANCE":
         if (!$student_id) {
             $reply = "Attendance lookup is available for student accounts after student login.";

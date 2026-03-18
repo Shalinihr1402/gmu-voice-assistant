@@ -114,6 +114,19 @@ CREATE TABLE attendance (
         ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+CREATE TABLE hall_tickets (
+    hall_ticket_id INT AUTO_INCREMENT PRIMARY KEY,
+    student_id INT NOT NULL,
+    semester INT NOT NULL,
+    academic_year VARCHAR(20) NOT NULL,
+    exam_type VARCHAR(30) NOT NULL,
+    status VARCHAR(30) NOT NULL,
+    status_message VARCHAR(255) DEFAULT NULL,
+    generated_at DATETIME DEFAULT NULL,
+    FOREIGN KEY (student_id) REFERENCES students(student_id)
+        ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 CREATE TABLE knowledge_base (
     kb_id INT AUTO_INCREMENT PRIMARY KEY,
     audience_role VARCHAR(50) NOT NULL,
@@ -266,6 +279,19 @@ INSERT INTO attendance (
     (3, 1, 3, 38, 27, 71.05),
     (4, 1, 4, 20, 18, 90.00),
     (5, 1, 5, 30, 26, 86.67);
+
+INSERT INTO hall_tickets (
+    hall_ticket_id,
+    student_id,
+    semester,
+    academic_year,
+    exam_type,
+    status,
+    status_message,
+    generated_at
+) VALUES
+    (1, 1, 2, '2024-25', 'SEE', 'NOT_APPROVED', 'Eligibility list not approved. Please contact your HOD.', NULL),
+    (2, 1, 5, '2025-26', 'CIE', 'GENERATED', 'Your CIE hall ticket is ready for download.', '2026-03-01 10:00:00');
 
 INSERT INTO results (
     result_id,

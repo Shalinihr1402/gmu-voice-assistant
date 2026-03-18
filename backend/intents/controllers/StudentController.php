@@ -39,6 +39,24 @@ class StudentController {
         return null;
     }
 
+    private static function extractExamType($message) {
+        $message = strtolower($message);
+
+        if (strpos($message, "supplementary") !== false || strpos($message, "supply") !== false) {
+            return "SUPPLEMENTARY";
+        }
+
+        if (strpos($message, "see") !== false) {
+            return "SEE";
+        }
+
+        if (strpos($message, "cie") !== false || strpos($message, "internal") !== false) {
+            return "CIE";
+        }
+
+        return null;
+    }
+
     private static function getLatestSemester($student_id) {
         global $conn;
 
@@ -235,7 +253,7 @@ class StudentController {
             $totalPoints += ($gradePoint * $credits);
             $semesterSet[$row["semester"]] = true;
 
-            if ($gradePoint < 5) {
+            if ($gradePoint <= 0) {
                 $backlogCount += 1;
             }
         }
@@ -328,6 +346,71 @@ class StudentController {
         }
 
         return "You currently have " . count($backlogs) . " backlog" . (count($backlogs) > 1 ? "s" : "") . ". Uncleared subjects are " . implode("; ", $parts) . ".";
+    }
+
+    public static function getHallTicketStatus($student_id, $message = "") {
+        global $conn;
+
+        $requestedExamType = self::extractExamType($message);
+
+        if ($requestedExamType) {
+            $stmt = $conn->prepare("
+                SELECT exam_type, semester, academic_year, status, status_message
+                FROM hall_tickets
+                WHERE student_id = ?
+                AND exam_type = ?
+                ORDER BY hall_ticket_id DESC
+                LIMIT 1
+            ");
+
+            if (!$stmt) {
+                return "System error while checking hall ticket status.";
+            }
+
+            $stmt->bind_param("is", $student_id, $requestedExamType);
+        } else {
+            $stmt = $conn->prepare("
+                SELECT exam_type, semester, academic_year, status, status_message
+                FROM hall_tickets
+                WHERE student_id = ?
+                ORDER BY hall_ticket_id DESC
+                LIMIT 1
+            ");
+
+            if (!$stmt) {
+                return "System error while checking hall ticket status.";
+            }
+
+            $stmt->bind_param("i", $student_id);
+        }
+
+        $stmt->execute();
+        $record = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if (!$record) {
+            return "I could not find any hall ticket status for your account right now.";
+        }
+
+        $examType = $record["exam_type"];
+        $semester = $record["semester"];
+        $academicYear = $record["academic_year"];
+        $status = strtoupper(trim((string) $record["status"]));
+        $statusMessage = trim((string) ($record["status_message"] ?? ""));
+
+        if ($status === "GENERATED") {
+            return "Your {$examType} hall ticket for semester {$semester} in {$academicYear} has been generated successfully. You can download it from the hall ticket section.";
+        }
+
+        if ($status === "PENDING") {
+            return "Your {$examType} hall ticket for semester {$semester} in {$academicYear} is not generated yet. " . ($statusMessage !== "" ? $statusMessage : "Please check again later.");
+        }
+
+        if ($status === "NOT_APPROVED" || $status === "BLOCKED") {
+            return "Your {$examType} hall ticket for semester {$semester} in {$academicYear} is not available right now. " . ($statusMessage !== "" ? $statusMessage : "Please contact your HOD or the exam section.");
+        }
+
+        return "I found a hall ticket record for your {$examType} exam, but the current status needs manual verification. Please contact the exam section.";
     }
 
 

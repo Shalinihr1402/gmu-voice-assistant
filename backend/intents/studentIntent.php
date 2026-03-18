@@ -54,6 +54,15 @@ class IntentService {
             "registration completed",
             "registered or not"
         ],
+        "GET_HALL_TICKET_STATUS" => [
+            "hall ticket",
+            "hallticket",
+            "admission ticket",
+            "ticket generated",
+            "is my hall ticket generated",
+            "my hall ticket status",
+            "can i download hall ticket"
+        ],
         "GET_SUBJECT_ATTENDANCE" => [
     "attendance",
     "attendance percentage",
