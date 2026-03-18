@@ -123,6 +123,12 @@ const VoiceAssistant = () => {
     }
   }
 
+  const finishSpeaking = () => {
+    isSpeakingRef.current = false
+    setIsSpeaking(false)
+    resumeListening()
+  }
+
   const transcribeAudio = async (audioBlob) => {
     const formData = new FormData()
     formData.append("audio", audioBlob, "voice.webm")
@@ -334,9 +340,7 @@ const VoiceAssistant = () => {
 
   const speakWithBrowserFallback = (text) => {
     if (!("speechSynthesis" in window)) {
-      isSpeakingRef.current = false
-      setIsSpeaking(false)
-      resumeListening()
+      finishSpeaking()
       return
     }
 
@@ -346,20 +350,12 @@ const VoiceAssistant = () => {
 
     const utterance = new SpeechSynthesisUtterance(text)
     utterance.lang = "en-US"
-    utterance.rate = 0.95
-    utterance.pitch = 1.1
+    utterance.rate = 0.94
+    utterance.pitch = 1.0
 
-    utterance.onend = () => {
-      isSpeakingRef.current = false
-      setIsSpeaking(false)
-      resumeListening()
-    }
+    utterance.onend = finishSpeaking
 
-    utterance.onerror = () => {
-      isSpeakingRef.current = false
-      setIsSpeaking(false)
-      resumeListening()
-    }
+    utterance.onerror = finishSpeaking
 
     lastSpokenTextRef.current = text
     isSpeakingRef.current = true
@@ -367,8 +363,15 @@ const VoiceAssistant = () => {
     window.speechSynthesis.speak(utterance)
   }
 
-  const speak = async (text) => {
+  const speak = async (text, options = {}) => {
+    const { preferBrowser = false } = options
+
     if (!text) return
+
+    if (preferBrowser) {
+      speakWithBrowserFallback(text)
+      return
+    }
 
     isSpeakingRef.current = true
     setIsSpeaking(true)
@@ -412,27 +415,21 @@ const VoiceAssistant = () => {
       }
 
       audio.onended = () => {
-        isSpeakingRef.current = false
-        setIsSpeaking(false)
         cleanupAudio()
-        resumeListening()
+        finishSpeaking()
       }
 
       audio.onerror = () => {
-        isSpeakingRef.current = false
-        setIsSpeaking(false)
         cleanupAudio()
         if (!didStartPlayback) {
           speakWithBrowserFallback(text)
         } else {
-          resumeListening()
+          finishSpeaking()
         }
       }
 
       await audio.play()
     } catch {
-      isSpeakingRef.current = false
-      setIsSpeaking(false)
       speakWithBrowserFallback(text)
     }
   }
@@ -455,7 +452,7 @@ const VoiceAssistant = () => {
   const replyImmediately = (text) => {
     setResponse(text)
     setReplySource("")
-    void speak(text)
+    void speak(text, { preferBrowser: true })
     lastCommandRef.current = ""
   }
 
@@ -581,7 +578,7 @@ const VoiceAssistant = () => {
     setResponse(welcome)
     setTranscript("")
     setReplySource("")
-    void speak(welcome)
+    void speak(welcome, { preferBrowser: true })
   }
 
   const closeAssistant = () => {

@@ -4,18 +4,19 @@ require_once __DIR__ . "/../../config/db.php";
 
 class FeeController {
 
-    public static function getFeeBalance($student_id) {
+    private static function getFeeRows($student_id) {
         global $conn;
 
-        // 1️⃣ Get student's quota
         $quotaStmt = $conn->prepare("
-            SELECT quota 
-            FROM students 
+            SELECT quota
+            FROM students
             WHERE student_id = ?
         ");
 
         if (!$quotaStmt) {
-            return "System error while fetching student details.";
+            return [
+                "error" => "System error while fetching student details."
+            ];
         }
 
         $quotaStmt->bind_param("i", $student_id);
@@ -24,62 +25,74 @@ class FeeController {
         $quotaStmt->close();
 
         if (!$quotaResult) {
-            return "Student record not found.";
+            return [
+                "error" => "Student record not found."
+            ];
         }
 
         $quota = $quotaResult['quota'];
 
-        // 2️⃣ Get fee structure for that quota
-        $feeStmt = $conn->prepare("
-            SELECT fee_id, fee_type, total_fee
-            FROM fee_structure
-            WHERE quota = ?
+        $stmt = $conn->prepare("
+            SELECT
+                fs.fee_id,
+                fs.fee_type,
+                fs.total_fee,
+                IFNULL(SUM(sp.amount_paid), 0) AS paid
+            FROM fee_structure fs
+            LEFT JOIN student_payments sp
+                ON fs.fee_id = sp.fee_id
+                AND sp.student_id = ?
+            WHERE fs.quota = ?
+            GROUP BY fs.fee_id, fs.fee_type, fs.total_fee
         ");
 
-        if (!$feeStmt) {
-            return "System error while fetching fee structure.";
+        if (!$stmt) {
+            return [
+                "error" => "System error while fetching fee structure."
+            ];
         }
 
-        $feeStmt->bind_param("s", $quota);
-        $feeStmt->execute();
-        $feeResult = $feeStmt->get_result();
+        $stmt->bind_param("is", $student_id, $quota);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        $rows = [];
+        while ($row = $result->fetch_assoc()) {
+            $row['total_fee'] = (float) $row['total_fee'];
+            $row['paid'] = (float) $row['paid'];
+            $row['balance'] = max(0, $row['total_fee'] - $row['paid']);
+            $rows[] = $row;
+        }
+
+        $stmt->close();
+
+        return [
+            "rows" => $rows
+        ];
+    }
+
+    public static function getFeeBalance($student_id) {
+        $feeData = self::getFeeRows($student_id);
+        if (isset($feeData["error"])) {
+            return $feeData["error"];
+        }
 
         $programFee = 0;
         $skillFee = 0;
         $totalFee = 0;
-
-        while ($row = $feeResult->fetch_assoc()) {
-
-            $totalFee += (float)$row['total_fee'];
+        $totalPaid = 0;
+        foreach ($feeData["rows"] as $row) {
+            $totalFee += $row['total_fee'];
+            $totalPaid += $row['paid'];
 
             if (stripos($row['fee_type'], "program") !== false) {
-                $programFee += (float)$row['total_fee'];
+                $programFee += $row['total_fee'];
             }
 
             if (stripos($row['fee_type'], "skill") !== false) {
-                $skillFee += (float)$row['total_fee'];
+                $skillFee += $row['total_fee'];
             }
         }
-
-        $feeStmt->close();
-
-        // 3️⃣ Get total amount paid by student
-        $paidStmt = $conn->prepare("
-            SELECT IFNULL(SUM(amount_paid),0) AS paid
-            FROM student_payments
-            WHERE student_id = ?
-        ");
-
-        if (!$paidStmt) {
-            return "System error while fetching payment details.";
-        }
-
-        $paidStmt->bind_param("i", $student_id);
-        $paidStmt->execute();
-        $paidResult = $paidStmt->get_result()->fetch_assoc();
-        $paidStmt->close();
-
-        $totalPaid = (float)$paidResult['paid'];
         $balance = $totalFee - $totalPaid;
 
         if ($balance < 0) {
@@ -106,5 +119,35 @@ class FeeController {
         }
 
         return $reply;
+    }
+
+    public static function getFinalRegistrationStatus($student_id) {
+        $feeData = self::getFeeRows($student_id);
+        if (isset($feeData["error"])) {
+            return $feeData["error"];
+        }
+
+        $rows = $feeData["rows"];
+        if (empty($rows)) {
+            return "I could not find your registration payment details.";
+        }
+
+        $pendingItems = [];
+        $totalBalance = 0;
+
+        foreach ($rows as $row) {
+            if ($row["balance"] > 0) {
+                $pendingItems[] = $row["fee_type"] . " balance of Rs. " . number_format($row["balance"], 2);
+                $totalBalance += $row["balance"];
+            }
+        }
+
+        if ($totalBalance <= 0) {
+            return "Your course registration is complete and your final registration is also completed successfully. There is no pending fee balance.";
+        }
+
+        $pendingSummary = implode(", ", array_slice($pendingItems, 0, 3));
+
+        return "Your course registration is complete, but your final registration is still pending because you have an outstanding balance of Rs. " . number_format($totalBalance, 2) . ". Pending items include " . $pendingSummary . ". Please clear the balance to complete final registration.";
     }
 }

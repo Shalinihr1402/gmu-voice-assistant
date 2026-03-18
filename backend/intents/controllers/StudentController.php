@@ -4,6 +4,140 @@ require_once __DIR__ . "/../../config/db.php";
 
 class StudentController {
 
+    private static function extractRequestedSemester($message) {
+        $message = strtolower($message);
+
+        if (preg_match('/\b(?:semester|sem)\s*(\d+)\b/', $message, $matches)) {
+            return (int) $matches[1];
+        }
+
+        $wordToSemester = [
+            "first" => 1,
+            "second" => 2,
+            "third" => 3,
+            "fourth" => 4,
+            "fifth" => 5,
+            "sixth" => 6,
+            "seventh" => 7,
+            "eighth" => 8,
+            "1st" => 1,
+            "2nd" => 2,
+            "3rd" => 3,
+            "4th" => 4,
+            "5th" => 5,
+            "6th" => 6,
+            "7th" => 7,
+            "8th" => 8
+        ];
+
+        foreach ($wordToSemester as $word => $semester) {
+            if (strpos($message, $word . " sem") !== false || strpos($message, $word . " semester") !== false) {
+                return $semester;
+            }
+        }
+
+        return null;
+    }
+
+    private static function getLatestSemester($student_id) {
+        global $conn;
+
+        $semStmt = $conn->prepare("
+            SELECT semester
+            FROM results
+            WHERE student_id = ?
+            ORDER BY semester DESC
+            LIMIT 1
+        ");
+
+        if (!$semStmt) {
+            return null;
+        }
+
+        $semStmt->bind_param("i", $student_id);
+        $semStmt->execute();
+        $semResult = $semStmt->get_result()->fetch_assoc();
+        $semStmt->close();
+
+        return $semResult["semester"] ?? null;
+    }
+
+    private static function getSemesterRows($student_id, $semester) {
+        global $conn;
+
+        $stmt = $conn->prepare("
+            SELECT c.course_title, c.course_code, r.grade_point, r.credits
+            FROM results r
+            JOIN courses c ON r.course_id = c.course_id
+            WHERE r.student_id = ?
+            AND r.semester = ?
+        ");
+
+        if (!$stmt) {
+            return null;
+        }
+
+        $stmt->bind_param("ii", $student_id, $semester);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        $rows = [];
+        while ($row = $result->fetch_assoc()) {
+            $rows[] = $row;
+        }
+
+        $stmt->close();
+        return $rows;
+    }
+
+    private static function buildSemesterPerformance($student_id, $semester) {
+        $rows = self::getSemesterRows($student_id, $semester);
+
+        if ($rows === null) {
+            return [
+                "error" => "System error while fetching result."
+            ];
+        }
+
+        if (empty($rows)) {
+            return [
+                "error" => "I could not find result data for semester {$semester}."
+            ];
+        }
+
+        $totalCredits = 0.0;
+        $totalPoints = 0.0;
+        $backlogs = [];
+
+        foreach ($rows as $row) {
+            $credits = (float) $row["credits"];
+            $gradePoint = (float) $row["grade_point"];
+
+            $totalCredits += $credits;
+            $totalPoints += ($gradePoint * $credits);
+
+            // Assumption: grade point below 5 means the course is not cleared.
+            if ($gradePoint < 5) {
+                $backlogs[] = $row["course_title"];
+            }
+        }
+
+        if ($totalCredits <= 0) {
+            return [
+                "error" => "Result data is incomplete for semester {$semester}."
+            ];
+        }
+
+        $sgpa = round($totalPoints / $totalCredits, 2);
+
+        return [
+            "semester" => $semester,
+            "sgpa" => $sgpa,
+            "credits" => $totalCredits,
+            "backlogs" => $backlogs
+        ];
+    }
+
     /* ================= GET USN ================= */
 
     public static function getUSN($student_id) {
@@ -34,77 +168,166 @@ class StudentController {
 
     /* ================= CALCULATE SGPA ================= */
 
-    public static function getSGPA($student_id) {
-        global $conn;
+    public static function getSGPA($student_id, $message = "") {
+        $requestedSemester = self::extractRequestedSemester($message);
+        $semester = $requestedSemester ?: self::getLatestSemester($student_id);
 
-        // Get latest semester
-        $semStmt = $conn->prepare("
-            SELECT semester
-            FROM results
-            WHERE student_id = ?
-            ORDER BY semester DESC
-            LIMIT 1
-        ");
-
-        if (!$semStmt) {
-            return "System error while fetching result.";
-        }
-
-        $semStmt->bind_param("i", $student_id);
-        $semStmt->execute();
-        $semResult = $semStmt->get_result()->fetch_assoc();
-        $semStmt->close();
-
-        if (!$semResult) {
+        if (!$semester) {
             return "No result information found.";
         }
 
-        $semester = $semResult['semester'];
+        $performance = self::buildSemesterPerformance($student_id, $semester);
+        if (isset($performance["error"])) {
+            return $performance["error"];
+        }
 
-        // Fetch grade points & credits
+        $sgpa = $performance["sgpa"];
+        $totalCredits = $performance["credits"];
+        $backlogs = $performance["backlogs"];
+
+        if (!empty($backlogs)) {
+            return "In semester {$semester}, your SGPA is {$sgpa}. You have earned {$totalCredits} credits. Your result status is fail because you still have " . count($backlogs) . " backlog" . (count($backlogs) > 1 ? "s" : "") . ", including " . implode(", ", array_slice($backlogs, 0, 3)) . ".";
+        }
+
+        if ($sgpa >= 9) {
+            $performanceLine = "You passed with outstanding performance.";
+        } elseif ($sgpa >= 8) {
+            $performanceLine = "You passed with excellent performance.";
+        } elseif ($sgpa >= 7) {
+            $performanceLine = "You passed with good performance.";
+        } elseif ($sgpa >= 6) {
+            $performanceLine = "You passed with satisfactory performance.";
+        } else {
+            $performanceLine = "You passed, but you should improve next semester.";
+        }
+
+        return "In semester {$semester}, your SGPA is {$sgpa}. You have earned {$totalCredits} credits. {$performanceLine}";
+    }
+
+    public static function getCGPA($student_id) {
+        global $conn;
+
         $stmt = $conn->prepare("
-            SELECT grade_point, credits
+            SELECT semester, grade_point, credits
             FROM results
             WHERE student_id = ?
-            AND semester = ?
+            ORDER BY semester ASC
         ");
 
-        $stmt->bind_param("ii", $student_id, $semester);
+        if (!$stmt) {
+            return "System error while fetching CGPA.";
+        }
+
+        $stmt->bind_param("i", $student_id);
         $stmt->execute();
         $result = $stmt->get_result();
 
-        $totalCredits = 0;
-        $totalPoints = 0;
+        $totalCredits = 0.0;
+        $totalPoints = 0.0;
+        $semesterSet = [];
+        $backlogCount = 0;
 
         while ($row = $result->fetch_assoc()) {
-            $credits = (float)$row['credits'];
-            $gradePoint = (float)$row['grade_point'];
+            $credits = (float) $row["credits"];
+            $gradePoint = (float) $row["grade_point"];
 
             $totalCredits += $credits;
             $totalPoints += ($gradePoint * $credits);
+            $semesterSet[$row["semester"]] = true;
+
+            if ($gradePoint < 5) {
+                $backlogCount += 1;
+            }
         }
 
         $stmt->close();
 
-        if ($totalCredits == 0) {
-            return "Result data incomplete.";
+        if ($totalCredits <= 0) {
+            return "I could not find enough result data to calculate your CGPA.";
         }
 
-        $sgpa = round($totalPoints / $totalCredits, 2);
+        $cgpa = round($totalPoints / $totalCredits, 2);
+        $semesterCount = count($semesterSet);
 
-        if ($sgpa >= 9) {
-            $performance = "You performed outstandingly.";
-        } elseif ($sgpa >= 8) {
-            $performance = "You performed excellently.";
-        } elseif ($sgpa >= 7) {
-            $performance = "You performed well.";
-        } elseif ($sgpa >= 6) {
-            $performance = "Your performance is satisfactory.";
+        $reply = "Your current CGPA is {$cgpa}, calculated across {$semesterCount} semester" . ($semesterCount > 1 ? "s" : "") . ".";
+
+        if ($backlogCount > 0) {
+            $reply .= " You currently have {$backlogCount} uncleared backlog" . ($backlogCount > 1 ? "s" : "") . ".";
         } else {
-            $performance = "You need improvement next semester.";
+            $reply .= " You do not have any current backlog.";
         }
 
-        return "In semester $semester, your SGPA is $sgpa. You have earned $totalCredits credits. $performance";
+        return $reply;
+    }
+
+    public static function getBacklogStatus($student_id, $message = "") {
+        $requestedSemester = self::extractRequestedSemester($message);
+
+        if ($requestedSemester) {
+            $performance = self::buildSemesterPerformance($student_id, $requestedSemester);
+            if (isset($performance["error"])) {
+                return $performance["error"];
+            }
+
+            $backlogs = $performance["backlogs"];
+            if (empty($backlogs)) {
+                return "You passed semester {$requestedSemester} and you do not have any backlog in that semester.";
+            }
+
+            return "In semester {$requestedSemester}, you have " . count($backlogs) . " backlog" . (count($backlogs) > 1 ? "s" : "") . ". The uncleared subject" . (count($backlogs) > 1 ? "s are " : " is ") . implode(", ", array_slice($backlogs, 0, 4)) . ".";
+        }
+
+        global $conn;
+
+        $stmt = $conn->prepare("
+            SELECT c.course_title, r.semester, r.grade_point
+            FROM results r
+            JOIN courses c ON r.course_id = c.course_id
+            WHERE r.student_id = ?
+            ORDER BY r.semester ASC
+        ");
+
+        if (!$stmt) {
+            return "System error while checking backlog status.";
+        }
+
+        $stmt->bind_param("i", $student_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        $backlogs = [];
+        while ($row = $result->fetch_assoc()) {
+            if ((float) $row["grade_point"] < 5) {
+                $backlogs[] = [
+                    "semester" => (int) $row["semester"],
+                    "course_title" => $row["course_title"]
+                ];
+            }
+        }
+
+        $stmt->close();
+
+        if (empty($backlogs)) {
+            return "You do not have any current backlog. Your available result records show that you have passed all cleared semesters.";
+        }
+
+        $grouped = [];
+        foreach ($backlogs as $backlog) {
+            $semester = $backlog["semester"];
+            if (!isset($grouped[$semester])) {
+                $grouped[$semester] = [];
+            }
+            $grouped[$semester][] = $backlog["course_title"];
+        }
+
+        ksort($grouped);
+
+        $parts = [];
+        foreach ($grouped as $semester => $subjects) {
+            $parts[] = "semester {$semester}: " . implode(", ", array_slice($subjects, 0, 4));
+        }
+
+        return "You currently have " . count($backlogs) . " backlog" . (count($backlogs) > 1 ? "s" : "") . ". Uncleared subjects are " . implode("; ", $parts) . ".";
     }
 
 

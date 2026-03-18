@@ -214,11 +214,23 @@ INSERT INTO courses (
     course_type,
     credits
 ) VALUES
-    (1, 'Computer Science', 5, 'CS501', 'Database Management Systems', 'Core', 4.0),
-    (2, 'Computer Science', 5, 'CS502', 'Operating Systems', 'Core', 4.0),
-    (3, 'Computer Science', 5, 'CS503', 'Computer Networks', 'Core', 3.0),
-    (4, 'Computer Science', 5, 'CS5L1', 'DBMS Laboratory', 'Lab', 1.5),
-    (5, 'Computer Science', 5, 'CS5E1', 'Artificial Intelligence', 'Elective', 3.0);
+    (1, 'Computer Science', 1, 'CS101', 'Programming Fundamentals', 'Core', 4.0),
+    (2, 'Computer Science', 1, 'CS102', 'Mathematics for Computing', 'Core', 4.0),
+    (3, 'Computer Science', 1, 'CS103', 'Digital Logic', 'Core', 3.0),
+    (4, 'Computer Science', 2, 'CS201', 'Data Structures', 'Core', 4.0),
+    (5, 'Computer Science', 2, 'CS202', 'Discrete Mathematics', 'Core', 4.0),
+    (6, 'Computer Science', 2, 'CS203', 'Computer Organization', 'Core', 3.0),
+    (7, 'Computer Science', 3, 'CS301', 'Object Oriented Programming', 'Core', 4.0),
+    (8, 'Computer Science', 3, 'CS302', 'Design and Analysis of Algorithms', 'Core', 4.0),
+    (9, 'Computer Science', 3, 'CS303', 'Probability and Statistics', 'Core', 3.0),
+    (10, 'Computer Science', 4, 'CS401', 'Java Programming', 'Core', 4.0),
+    (11, 'Computer Science', 4, 'CS402', 'Software Engineering', 'Core', 4.0),
+    (12, 'Computer Science', 4, 'CS403', 'Microprocessors', 'Core', 3.0),
+    (13, 'Computer Science', 5, 'CS501', 'Database Management Systems', 'Core', 4.0),
+    (14, 'Computer Science', 5, 'CS502', 'Operating Systems', 'Core', 4.0),
+    (15, 'Computer Science', 5, 'CS503', 'Computer Networks', 'Core', 3.0),
+    (16, 'Computer Science', 5, 'CS5L1', 'DBMS Laboratory', 'Lab', 1.5),
+    (17, 'Computer Science', 5, 'CS5E1', 'Artificial Intelligence', 'Elective', 3.0);
 
 INSERT INTO fee_structure (
     fee_id,
@@ -263,11 +275,23 @@ INSERT INTO results (
     credits,
     grade_point
 ) VALUES
-    (1, 1, 5, 1, 4.0, 9.0),
-    (2, 1, 5, 2, 4.0, 8.0),
-    (3, 1, 5, 3, 3.0, 8.0),
-    (4, 1, 5, 4, 1.5, 9.0),
-    (5, 1, 5, 5, 3.0, 9.0);
+    (1, 1, 1, 1, 4.0, 8.0),
+    (2, 1, 1, 2, 4.0, 7.0),
+    (3, 1, 1, 3, 3.0, 8.0),
+    (4, 1, 2, 4, 4.0, 7.0),
+    (5, 1, 2, 5, 4.0, 6.0),
+    (6, 1, 2, 6, 3.0, 4.0),
+    (7, 1, 3, 7, 4.0, 8.0),
+    (8, 1, 3, 8, 4.0, 5.0),
+    (9, 1, 3, 9, 3.0, 7.0),
+    (10, 1, 4, 10, 4.0, 6.0),
+    (11, 1, 4, 11, 4.0, 4.0),
+    (12, 1, 4, 12, 3.0, 6.0),
+    (13, 1, 5, 13, 4.0, 9.0),
+    (14, 1, 5, 14, 4.0, 8.0),
+    (15, 1, 5, 15, 3.0, 8.0),
+    (16, 1, 5, 16, 1.5, 9.0),
+    (17, 1, 5, 17, 3.0, 9.0);
 
 INSERT INTO knowledge_base (kb_id, audience_role, topic, content) VALUES
     (1, 'student', 'Profile Access', 'Students can use the portal to view profile, course registration, payment summary, SGPA, and attendance.'),

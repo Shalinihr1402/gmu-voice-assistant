@@ -88,7 +88,23 @@ switch ($intent) {
             $reply = "SGPA lookup is available for student accounts after student login.";
             break;
         }
-        $reply = StudentController::getSGPA($student_id);
+        $reply = StudentController::getSGPA($student_id, $message);
+        break;
+
+    case "GET_CGPA":
+        if (!$student_id) {
+            $reply = "CGPA lookup is available for student accounts after student login.";
+            break;
+        }
+        $reply = StudentController::getCGPA($student_id);
+        break;
+
+    case "GET_BACKLOG_STATUS":
+        if (!$student_id) {
+            $reply = "Backlog status is available for student accounts after student login.";
+            break;
+        }
+        $reply = StudentController::getBacklogStatus($student_id, $message);
         break;
 
     case "GET_FEES_BALANCE":
@@ -97,6 +113,14 @@ switch ($intent) {
             break;
         }
         $reply = FeeController::getFeeBalance($student_id);
+        break;
+
+    case "GET_FINAL_REGISTRATION_STATUS":
+        if (!$student_id) {
+            $reply = "Final registration status is available for student accounts after student login.";
+            break;
+        }
+        $reply = FeeController::getFinalRegistrationStatus($student_id);
         break;
 
     case "GET_ATTENDANCE":

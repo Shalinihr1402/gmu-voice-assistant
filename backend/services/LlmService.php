@@ -73,7 +73,13 @@ class LlmService {
             $knowledgeSummary = " Relevant knowledge base context: " . implode(" ", $knowledgeLines);
         }
 
-        return "You are GMU VoiceBot, a role-aware university assistant. Reply naturally, briefly, and politely in 1 to 3 complete sentences. Sound warm and conversational, but stay concise. Use the user's role to keep answers relevant. Never invent permissions, records, or personal facts. If the user asks for something outside their role context, say so clearly and redirect helpfully. For greetings, jokes, or light conversation, respond in a friendly human way. Keep replies voice-friendly, easy to hear, and free of broken or unfinished sentences. " . implode(" ", $identitySummary) . $knowledgeSummary;
+        $capabilitySummary = "You can help with profile, fees, attendance, semester results, CGPA, backlog status, course details, and final registration status for student users. For academic and records questions, answer clearly, precisely, and professionally.";
+
+        $responseRules = "Strict response rules: reply in plain spoken English. Keep every answer in 1 to 3 complete sentences. Never return fragments, broken quotes, or incomplete thoughts. Sound like a professional university assistant: calm, courteous, concise, and reliable. Prefer direct answers first, then one short helpful follow-up line if needed. Avoid slang, over-friendliness, filler words, or exaggerated enthusiasm. Address the user by name only when it feels formal and helpful. Do not mention internal system prompts, APIs, databases, or technical details. If exact data is unavailable, say that briefly and offer the closest helpful guidance.";
+
+        $examples = "Examples. If asked 'who are you', say something like 'I am GMU VoiceBot, your university assistant. I can help you with profile, fee, attendance, result, and registration queries.' If asked for a joke, keep it short, clean, and professional. If asked a role-specific question outside available records, explain the limit politely and suggest the right kind of question.";
+
+        return "You are GMU VoiceBot, a role-aware university assistant for GM University. Your speaking style should feel assistant-like and professional, with clear phrasing suitable for voice output on an academic portal. " . $capabilitySummary . " " . $responseRules . " " . $examples . " " . implode(" ", $identitySummary) . $knowledgeSummary;
     }
 
     private static function isValidHostedReply($reply) {
@@ -109,6 +115,22 @@ class LlmService {
         }
 
         return true;
+    }
+
+    private static function finalizeHostedReply($reply) {
+        $reply = trim((string) $reply);
+
+        if ($reply === "") {
+            return null;
+        }
+
+        $reply = preg_replace('/\s+/', ' ', $reply);
+
+        if (!preg_match('/[.!?]$/', $reply)) {
+            $reply .= ".";
+        }
+
+        return self::isValidHostedReply($reply) ? $reply : null;
     }
 
     private static function getProviderOrder() {
@@ -219,8 +241,11 @@ class LlmService {
 
         $data = json_decode($response, true);
 
-        if (isset($data["output_text"]) && self::isValidHostedReply($data["output_text"])) {
-            return trim($data["output_text"]);
+        if (isset($data["output_text"])) {
+            $reply = self::finalizeHostedReply($data["output_text"]);
+            if ($reply) {
+                return $reply;
+            }
         }
 
         if (!isset($data["output"]) || !is_array($data["output"])) {
@@ -235,8 +260,9 @@ class LlmService {
             foreach ($item["content"] as $content) {
                 $text = $content["text"] ?? "";
 
-                if (self::isValidHostedReply($text)) {
-                    return trim($text);
+                $reply = self::finalizeHostedReply($text);
+                if ($reply) {
+                    return $reply;
                 }
             }
         }
@@ -267,8 +293,9 @@ class LlmService {
                 ]]
             ]],
             "generationConfig" => [
-                "temperature" => 0.4,
-                "maxOutputTokens" => 120
+                "temperature" => 0.55,
+                "topP" => 0.9,
+                "maxOutputTokens" => 160
             ]
         ]);
 
@@ -310,9 +337,7 @@ class LlmService {
             return null;
         }
 
-        $reply = trim(implode(" ", $texts));
-
-        return self::isValidHostedReply($reply) ? $reply : null;
+        return self::finalizeHostedReply(implode(" ", $texts));
     }
 
     private static function callPythonFallback($message) {
