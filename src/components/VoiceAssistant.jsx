@@ -32,6 +32,7 @@ const VoiceAssistant = () => {
   const [replySource, setReplySource] = useState("")
   const [errorMessage, setErrorMessage] = useState("")
   const [currentUser, setCurrentUser] = useState(null)
+  const [startupStatus, setStartupStatus] = useState("")
 
   const audioRef = useRef(null)
   const audioUrlRef = useRef(null)
@@ -138,6 +139,7 @@ const VoiceAssistant = () => {
   const finishSpeaking = () => {
     isSpeakingRef.current = false
     setIsSpeaking(false)
+    setStartupStatus("")
     resumeListening()
   }
 
@@ -200,6 +202,8 @@ const VoiceAssistant = () => {
     if (!isActiveRef.current || isListening || isProcessingRef.current || isSpeakingRef.current) {
       return
     }
+
+    setStartupStatus("")
 
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       setErrorMessage("Microphone recording is not supported in this browser.")
@@ -600,6 +604,7 @@ const VoiceAssistant = () => {
     setIsProcessing(false)
     setIsSpeaking(false)
     setReplySource("")
+    setStartupStatus("Starting assistant...")
 
     const roleLabel = currentUser?.role_name ? ` for ${currentUser.role_name}` : ""
     const welcome = `Hello${currentUser?.full_name ? ` ${currentUser.full_name}` : ""}. I am GMU VoiceBot${roleLabel}, your voice assistant for profile, fees, attendance, results, and course support. How can I help you today?`
@@ -618,6 +623,7 @@ const VoiceAssistant = () => {
     setIsProcessing(false)
     setIsSpeaking(false)
     setReplySource("")
+    setStartupStatus("")
     cleanupRecorder()
     cleanupAudio()
     window.speechSynthesis.cancel()
@@ -629,7 +635,7 @@ const VoiceAssistant = () => {
       ? "Listening..."
       : isProcessing
         ? "Thinking..."
-        : "Waiting..."
+        : startupStatus || "Waiting..."
 
   return (
     <div className="voice-assistant-container">
