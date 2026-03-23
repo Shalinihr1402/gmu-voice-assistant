@@ -131,6 +131,14 @@ switch ($intent) {
         $reply = StudentController::getHallTicketStatus($student_id, $message);
         break;
 
+    case "GET_COURSE_DETAILS":
+        if (!$student_id) {
+            $reply = "Course details are available for student accounts after student login.";
+            break;
+        }
+        $reply = StudentController::getCourseDetails($student_id, $message);
+        break;
+
     case "GET_ATTENDANCE":
         if (!$student_id) {
             $reply = "Attendance lookup is available for student accounts after student login.";

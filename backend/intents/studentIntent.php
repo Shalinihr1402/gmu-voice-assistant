@@ -63,6 +63,20 @@ class IntentService {
             "my hall ticket status",
             "can i download hall ticket"
         ],
+        "GET_COURSE_DETAILS" => [
+            "subject",
+            "subjects",
+            "course",
+            "courses",
+            "my subjects",
+            "my courses",
+            "what subjects do i have",
+            "what courses do i have",
+            "subject details",
+            "course details",
+            "registered subjects",
+            "registered courses"
+        ],
         "GET_SUBJECT_ATTENDANCE" => [
     "attendance",
     "attendance percentage",

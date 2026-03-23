@@ -4,6 +4,27 @@ require_once __DIR__ . "/../../config/db.php";
 
 class StudentController {
 
+    private static function getStudentAcademicContext($student_id) {
+        global $conn;
+
+        $stmt = $conn->prepare("
+            SELECT branch, semester
+            FROM students
+            WHERE student_id = ?
+        ");
+
+        if (!$stmt) {
+            return null;
+        }
+
+        $stmt->bind_param("i", $student_id);
+        $stmt->execute();
+        $result = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        return $result ?: null;
+    }
+
     private static function extractRequestedSemester($message) {
         $message = strtolower($message);
 
@@ -411,6 +432,69 @@ class StudentController {
         }
 
         return "I found a hall ticket record for your {$examType} exam, but the current status needs manual verification. Please contact the exam section.";
+    }
+
+    public static function getCourseDetails($student_id, $message = "") {
+        global $conn;
+
+        $student = self::getStudentAcademicContext($student_id);
+        if (!$student) {
+            return "I could not find your semester and branch details.";
+        }
+
+        $branch = $student["branch"];
+        $semester = (int) $student["semester"];
+
+        $stmt = $conn->prepare("
+            SELECT course_code, course_title, course_type, credits
+            FROM courses
+            WHERE program = ? AND semester = ?
+            ORDER BY course_type ASC, course_code ASC
+        ");
+
+        if (!$stmt) {
+            return "System error while fetching course details.";
+        }
+
+        $stmt->bind_param("si", $branch, $semester);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        $courses = [];
+        while ($row = $result->fetch_assoc()) {
+            $courses[] = $row;
+        }
+
+        $stmt->close();
+
+        if (empty($courses)) {
+            return "I could not find any course details for your current semester.";
+        }
+
+        $normalizedMessage = strtolower(trim($message));
+        foreach ($courses as $course) {
+            $courseTitle = strtolower($course["course_title"]);
+            $courseCode = strtolower($course["course_code"]);
+
+            if (
+                $normalizedMessage !== "" &&
+                (strpos($normalizedMessage, $courseTitle) !== false || strpos($normalizedMessage, $courseCode) !== false)
+            ) {
+                $credits = rtrim(rtrim(number_format((float) $course["credits"], 1, ".", ""), "0"), ".");
+                return "{$course["course_title"]} has course code {$course["course_code"]}. It is a {$course["course_type"]} course with {$credits} credit" . ($credits === "1" ? "" : "s") . " in semester {$semester}.";
+            }
+        }
+
+        $courseLabels = array_map(function ($course) {
+            return $course["course_title"] . " (" . $course["course_code"] . ")";
+        }, $courses);
+
+        $preview = implode(", ", array_slice($courseLabels, 0, 6));
+        if (count($courseLabels) > 6) {
+            $preview .= ", and " . (count($courseLabels) - 6) . " more";
+        }
+
+        return "In semester {$semester}, your subjects are {$preview}.";
     }
 
 

@@ -4,11 +4,23 @@ import gmuLogo from "../assets/gmu-logo.png"
 import "./VoiceAssistant.css"
 import { fetchJson, getBackendUrl } from "../utils/api"
 
-const MAX_RECORDING_MS = 6000
-const MIN_RECORDING_MS = 700
-const SILENCE_DURATION_MS = 700
+const MAX_RECORDING_MS = 4500
+const MIN_RECORDING_MS = 400
+const SILENCE_DURATION_MS = 450
 const SILENCE_THRESHOLD = 0.018
-const RESUME_LISTENING_DELAY_MS = 350
+const RESUME_LISTENING_DELAY_MS = 200
+const PREFERRED_FEMALE_VOICE_HINTS = [
+  "zira",
+  "aria",
+  "jenny",
+  "samantha",
+  "victoria",
+  "karen",
+  "moira",
+  "fiona",
+  "ava",
+  "thalia"
+]
 
 const VoiceAssistant = () => {
   const [isActive, setIsActive] = useState(false)
@@ -349,17 +361,30 @@ const VoiceAssistant = () => {
     window.speechSynthesis.cancel()
 
     const utterance = new SpeechSynthesisUtterance(text)
+    const voices = window.speechSynthesis.getVoices()
+    const preferredVoice = voices.find((voice) => {
+      const voiceLabel = `${voice.name} ${voice.voiceURI}`.toLowerCase()
+      return PREFERRED_FEMALE_VOICE_HINTS.some((hint) => voiceLabel.includes(hint))
+    })
+
+    if (preferredVoice) {
+      utterance.voice = preferredVoice
+    }
+
     utterance.lang = "en-US"
     utterance.rate = 0.94
     utterance.pitch = 1.0
+
+    utterance.onstart = () => {
+      isSpeakingRef.current = true
+      setIsSpeaking(true)
+    }
 
     utterance.onend = finishSpeaking
 
     utterance.onerror = finishSpeaking
 
     lastSpokenTextRef.current = text
-    isSpeakingRef.current = true
-    setIsSpeaking(true)
     window.speechSynthesis.speak(utterance)
   }
 
@@ -373,8 +398,6 @@ const VoiceAssistant = () => {
       return
     }
 
-    isSpeakingRef.current = true
-    setIsSpeaking(true)
     cleanupRecorder({ ignoreTranscript: true })
     cleanupAudio()
     window.speechSynthesis.cancel()
@@ -399,6 +422,7 @@ const VoiceAssistant = () => {
         throw new Error("Deepgram TTS returned empty audio.")
       }
 
+      lastSpokenTextRef.current = text
       const audioUrl = URL.createObjectURL(audioBlob)
       const audio = new Audio(audioUrl)
       let didStartPlayback = false
@@ -408,10 +432,14 @@ const VoiceAssistant = () => {
 
       audio.onplay = () => {
         didStartPlayback = true
+        isSpeakingRef.current = true
+        setIsSpeaking(true)
       }
 
       audio.onplaying = () => {
         didStartPlayback = true
+        isSpeakingRef.current = true
+        setIsSpeaking(true)
       }
 
       audio.onended = () => {
@@ -578,7 +606,7 @@ const VoiceAssistant = () => {
     setResponse(welcome)
     setTranscript("")
     setReplySource("")
-    void speak(welcome, { preferBrowser: true })
+    void speak(welcome)
   }
 
   const closeAssistant = () => {
