@@ -638,7 +638,7 @@ const VoiceAssistant = () => {
       ? "Listening..."
       : isProcessing
         ? "Thinking..."
-        : startupStatus || "Tap the voice button to speak"
+        : startupStatus || "Tap to ask"
 
   return (
     <div className="voice-assistant-container">
