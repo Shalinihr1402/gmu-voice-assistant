@@ -8,7 +8,6 @@ const MAX_RECORDING_MS = 4500
 const MIN_RECORDING_MS = 400
 const SILENCE_DURATION_MS = 450
 const SILENCE_THRESHOLD = 0.018
-const RESUME_LISTENING_DELAY_MS = 200
 const PREFERRED_FEMALE_VOICE_HINTS = [
   "zira",
   "aria",
@@ -140,7 +139,6 @@ const VoiceAssistant = () => {
     isSpeakingRef.current = false
     setIsSpeaking(false)
     setStartupStatus("")
-    resumeListening()
   }
 
   const transcribeAudio = async (audioBlob) => {
@@ -188,14 +186,6 @@ const VoiceAssistant = () => {
     const overlap = transcriptWords.filter((word) => spokenWords.has(word)).length
 
     return overlap / transcriptWords.length >= 0.7
-  }
-
-  const resumeListening = () => {
-    window.setTimeout(() => {
-      if (isActiveRef.current && !isProcessingRef.current && !isSpeakingRef.current) {
-        startListening().catch(() => {})
-      }
-    }, RESUME_LISTENING_DELAY_MS)
   }
 
   const startListening = async () => {
@@ -257,19 +247,17 @@ const VoiceAssistant = () => {
 
           if (!text) {
             setTranscript("")
-            setResponse("I'm listening. Please ask your question whenever you're ready.")
+            setResponse("I did not catch that. Tap the voice button and try again.")
             setReplySource("")
             lastCommandRef.current = ""
-            resumeListening()
             return
           }
 
           if (isSelfTranscript(text)) {
             setTranscript(text.toLowerCase())
-            setResponse("Waiting for your question...")
+            setResponse("Tap the voice button when you are ready with your next question.")
             setReplySource("")
             lastCommandRef.current = ""
-            resumeListening()
             return
           }
 
@@ -614,6 +602,21 @@ const VoiceAssistant = () => {
     void speak(welcome)
   }
 
+  const handleAssistantButtonClick = () => {
+    if (!isActiveRef.current) {
+      activateAssistant()
+      return
+    }
+
+    if (isListening || isProcessing || isSpeakingRef.current) {
+      return
+    }
+
+    setResponse("Listening for your question...")
+    setReplySource("")
+    void startListening()
+  }
+
   const closeAssistant = () => {
     setIsActive(false)
     isActiveRef.current = false
@@ -635,7 +638,7 @@ const VoiceAssistant = () => {
       ? "Listening..."
       : isProcessing
         ? "Thinking..."
-        : startupStatus || "Waiting..."
+        : startupStatus || "Tap the voice button to speak"
 
   return (
     <div className="voice-assistant-container">
@@ -655,7 +658,7 @@ const VoiceAssistant = () => {
         </div>
       )}
 
-      <button className="voice-assistant-btn" onClick={activateAssistant}>
+      <button className="voice-assistant-btn" onClick={handleAssistantButtonClick}>
         <img src={gmuLogo} alt="GMU VoiceBot" className="voice-logo" />
       </button>
     </div>
