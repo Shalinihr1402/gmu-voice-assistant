@@ -5,6 +5,10 @@
   right: 30px;
   z-index: 1000;
   font-family: "Times New Roman", serif;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
 }
 
 /* ===== GMU LOGO BUTTON ===== */
@@ -53,6 +57,16 @@
   height: 100%;
   object-fit: cover;     /* 🔥 fills entire circle */
   border-radius: 50%;
+}
+
+.voice-action-badge {
+  background: #7a1c1c;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: bold;
+  padding: 7px 12px;
+  border-radius: 999px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
 }
 
 /* ===== PANEL ===== */
@@ -118,6 +132,16 @@
 
 .voice-content b {
   color: #7a1c1c;
+}
+
+.voice-hint {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: #fdf5e6;
+  border-left: 4px solid #d4af37;
+  border-radius: 6px;
+  color: #6a4a00;
+  font-size: 13px;
 }
 
 /* Assistant reply styling */

@@ -641,6 +641,7 @@ const VoiceAssistant = () => {
       : isProcessing
         ? "Thinking..."
         : startupStatus || "Tap to ask"
+  const showTapHint = isActive && !isListening && !isProcessing && !isSpeaking
 
   return (
     <div className="voice-assistant-container">
@@ -656,13 +657,20 @@ const VoiceAssistant = () => {
             <p><b>Assistant:</b> {response}</p>
             {replySource && replySource !== "local_ui" && <p><b>Source:</b> {replySource}</p>}
             {errorMessage && <p style={{ color: "red" }}>{errorMessage}</p>}
+            {showTapHint && <p className="voice-hint">Tap the round GMU button below to ask your next question.</p>}
           </div>
         </div>
       )}
 
-      <button className="voice-assistant-btn" onClick={handleAssistantButtonClick}>
+      <button
+        className="voice-assistant-btn"
+        onClick={handleAssistantButtonClick}
+        title={isActive ? "Tap to ask" : "Open voice assistant"}
+        aria-label={isActive ? "Tap to ask your question" : "Open voice assistant"}
+      >
         <img src={gmuLogo} alt="GMU VoiceBot" className="voice-logo" />
       </button>
+      {showTapHint && <div className="voice-action-badge">Tap to ask</div>}
     </div>
   )
 }
