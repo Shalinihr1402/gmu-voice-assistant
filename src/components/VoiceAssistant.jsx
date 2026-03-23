@@ -509,6 +509,8 @@ const VoiceAssistant = () => {
 
     const isStudent = currentUser?.role_key === "student"
     const isStaff = currentUser?.role_key && currentUser.role_key !== "student"
+    const isNavigationRequest = /\b(open|go|navigate|take me|show me|bring me|move to)\b/.test(cleaned)
+    const isRegistrationStatusQuery = /\b(registration status|registration complete|registration completed|registration pending|final registration|is my registration|have i registered|am i registered|registered or not)\b/.test(cleaned)
 
     if (
       cleaned.includes("open it") ||
@@ -523,7 +525,7 @@ const VoiceAssistant = () => {
       return
     }
 
-    if (cleaned.match(/\bprofile\b/)) {
+    if (cleaned.match(/\bprofile\b/) && isNavigationRequest) {
       if (isStudent) {
         goToPage("profile", "Opening your profile page.")
       } else {
@@ -532,7 +534,7 @@ const VoiceAssistant = () => {
       return
     }
 
-    if (cleaned.match(/\bdashboard\b/)) {
+    if (cleaned.match(/\bdashboard\b/) && isNavigationRequest) {
       if (isStudent) {
         goToPage("dashboard", "Opening your dashboard.")
       } else {
@@ -541,7 +543,7 @@ const VoiceAssistant = () => {
       return
     }
 
-    if (cleaned.match(/\bregistration\b/)) {
+    if (cleaned.match(/\bregistration\b/) && !isRegistrationStatusQuery && isNavigationRequest) {
       if (isStudent) {
         goToPage("registration", "Opening your registration page.")
       } else {
@@ -551,7 +553,7 @@ const VoiceAssistant = () => {
       return
     }
 
-    if (cleaned.match(/\bhome\b/)) {
+    if (cleaned.match(/\bhome\b/) && isNavigationRequest) {
       goToPage(isStaff ? "portal" : "home", isStaff ? "Opening your role portal." : "Opening your home page.")
       return
     }
