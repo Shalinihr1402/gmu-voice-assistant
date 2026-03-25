@@ -117,6 +117,26 @@ class IntentService {
 
         $message = strtolower($message);
 
+        if (strpos($message, "attendance") !== false) {
+            $overallAttendanceHints = [
+                "my attendance",
+                "overall attendance",
+                "attendance percentage",
+                "attendance status",
+                "total attendance"
+            ];
+
+            foreach ($overallAttendanceHints as $hint) {
+                if (strpos($message, $hint) !== false) {
+                    return "GET_ATTENDANCE";
+                }
+            }
+
+            if (preg_match('/\b[a-z0-9&(). -]+\s+attendance\b/', $message) || preg_match('/\battendance\s+(?:in|of|for)\b/', $message)) {
+                return "GET_SUBJECT_ATTENDANCE";
+            }
+        }
+
         foreach (self::$intentMap as $intent => $keywords) {
             foreach ($keywords as $keyword) {
                 if (strpos($message, $keyword) !== false) {

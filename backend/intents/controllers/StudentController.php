@@ -4,6 +4,31 @@ require_once __DIR__ . "/../../config/db.php";
 
 class StudentController {
 
+    private static function normalizeLookupText($text) {
+        $text = strtolower(trim((string) $text));
+        $text = preg_replace('/[^a-z0-9]+/', ' ', $text);
+        $text = preg_replace('/\s+/', ' ', $text);
+        return trim($text);
+    }
+
+    private static function buildCourseShortName($courseTitle) {
+        $words = preg_split('/[^a-z0-9]+/i', strtolower((string) $courseTitle));
+        $words = array_values(array_filter($words, function ($word) {
+            return $word !== "";
+        }));
+
+        if (empty($words)) {
+            return "";
+        }
+
+        $shortName = "";
+        foreach ($words as $word) {
+            $shortName .= $word[0];
+        }
+
+        return $shortName;
+    }
+
     private static function getStudentAcademicContext($student_id) {
         global $conn;
 
@@ -652,10 +677,11 @@ class StudentController {
     public static function getSubjectAttendance($student_id, $message) {
         global $conn;
 
-        $message = strtolower($message);
+        $normalizedMessage = self::normalizeLookupText($message);
 
         $stmt = $conn->prepare("
             SELECT c.course_title, 
+                   c.course_code,
                    a.total_classes, 
                    a.attended_classes, 
                    a.percentage
@@ -673,10 +699,15 @@ class StudentController {
         $result = $stmt->get_result();
 
         while ($row = $result->fetch_assoc()) {
+            $title = self::normalizeLookupText($row['course_title']);
+            $code = self::normalizeLookupText($row['course_code'] ?? "");
+            $shortName = self::normalizeLookupText(self::buildCourseShortName($row['course_title']));
 
-            $title = strtolower($row['course_title']);
-
-            if (strpos($message, $title) !== false) {
+            if (
+                ($title !== "" && strpos($normalizedMessage, $title) !== false) ||
+                ($code !== "" && strpos($normalizedMessage, $code) !== false) ||
+                ($shortName !== "" && strpos($normalizedMessage, $shortName) !== false)
+            ) {
 
                 $percentage = round($row['percentage'], 2);
 

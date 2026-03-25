@@ -4,10 +4,11 @@ import gmuLogo from "../assets/gmu-logo.png"
 import "./VoiceAssistant.css"
 import { fetchJson, getBackendUrl } from "../utils/api"
 
-const MAX_RECORDING_MS = 4500
-const MIN_RECORDING_MS = 400
-const SILENCE_DURATION_MS = 450
+const MAX_RECORDING_MS = 2200
+const MIN_RECORDING_MS = 250
+const SILENCE_DURATION_MS = 250
 const SILENCE_THRESHOLD = 0.018
+const USE_BROWSER_TTS_BY_DEFAULT = true
 const PREFERRED_FEMALE_VOICE_HINTS = [
   "zira",
   "aria",
@@ -381,7 +382,7 @@ const VoiceAssistant = () => {
   }
 
   const speak = async (text, options = {}) => {
-    const { preferBrowser = false } = options
+    const { preferBrowser = USE_BROWSER_TTS_BY_DEFAULT } = options
 
     if (!text) return
 
