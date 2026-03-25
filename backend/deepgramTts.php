@@ -60,7 +60,7 @@ if (!$voice && isset($_ENV["DEEPGRAM_TTS_MODEL"])) {
     $voice = $_ENV["DEEPGRAM_TTS_MODEL"];
 }
 if (!$voice) {
-    $voice = "aura-2-thalia-en";
+    $voice = "aura-2-asteria-en";
 }
 
 $encoding = "mp3";

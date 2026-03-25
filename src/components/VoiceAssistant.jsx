@@ -364,8 +364,8 @@ const VoiceAssistant = () => {
     }
 
     utterance.lang = "en-US"
-    utterance.rate = 0.94
-    utterance.pitch = 1.0
+    utterance.rate = 1.04
+    utterance.pitch = 1.08
 
     utterance.onstart = () => {
       isSpeakingRef.current = true
