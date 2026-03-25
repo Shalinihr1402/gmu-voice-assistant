@@ -25,6 +25,27 @@ class StudentController {
         return $result ?: null;
     }
 
+    private static function getStudentProfileRow($student_id) {
+        global $conn;
+
+        $stmt = $conn->prepare("
+            SELECT full_name, usn, branch, semester, email, mobile_no
+            FROM students
+            WHERE student_id = ?
+        ");
+
+        if (!$stmt) {
+            return null;
+        }
+
+        $stmt->bind_param("i", $student_id);
+        $stmt->execute();
+        $result = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        return $result ?: null;
+    }
+
     private static function extractRequestedSemester($message) {
         $message = strtolower($message);
 
@@ -202,6 +223,96 @@ class StudentController {
         }
 
         return "Your USN is " . $result['usn'] . ".";
+    }
+
+    public static function getProfileSummary($student_id, $message = "") {
+        $profile = self::getStudentProfileRow($student_id);
+
+        if (!$profile) {
+            return "I could not find your student profile right now.";
+        }
+
+        $message = strtolower(trim((string) $message));
+        $fullName = trim((string) ($profile["full_name"] ?? ""));
+        $branch = trim((string) ($profile["branch"] ?? ""));
+        $semester = (int) ($profile["semester"] ?? 0);
+        $usn = trim((string) ($profile["usn"] ?? ""));
+
+        if (strpos($message, "semester") !== false) {
+            if ($semester > 0) {
+                return "You are currently studying in the {$semester}" . self::getOrdinalSuffix($semester) . " semester.";
+            }
+
+            return "I could not find your semester details right now.";
+        }
+
+        if (strpos($message, "department") !== false || strpos($message, "branch") !== false) {
+            if ($branch !== "") {
+                return "You are from the {$branch} department.";
+            }
+
+            return "I could not find your department details right now.";
+        }
+
+        if (strpos($message, "what am i studying") !== false || strpos($message, "profile") !== false || strpos($message, "who am i") !== false || strpos($message, "do you know who i am") !== false) {
+            $parts = [];
+
+            if ($fullName !== "") {
+                $parts[] = $fullName;
+            }
+
+            if ($semester > 0 && $branch !== "") {
+                $parts[] = "a {$semester}" . self::getOrdinalSuffix($semester) . " semester {$branch} student at GM University";
+            } elseif ($branch !== "") {
+                $parts[] = "a {$branch} student at GM University";
+            } elseif ($semester > 0) {
+                $parts[] = "a student in the {$semester}" . self::getOrdinalSuffix($semester) . " semester at GM University";
+            }
+
+            if (!empty($parts)) {
+                $reply = "You are " . implode(", ", $parts) . ".";
+                if ($usn !== "") {
+                    $reply .= " Your USN is {$usn}.";
+                }
+                $reply .= " How can I help you today?";
+                return $reply;
+            }
+        }
+
+        $reply = "Here is your profile summary.";
+        if ($fullName !== "") {
+            $reply .= " Your name is {$fullName}.";
+        }
+        if ($branch !== "") {
+            $reply .= " You are from {$branch}.";
+        }
+        if ($semester > 0) {
+            $reply .= " You are in the {$semester}" . self::getOrdinalSuffix($semester) . " semester.";
+        }
+        if ($usn !== "") {
+            $reply .= " Your USN is {$usn}.";
+        }
+
+        return $reply;
+    }
+
+    private static function getOrdinalSuffix($number) {
+        $number = (int) $number;
+
+        if ($number % 100 >= 11 && $number % 100 <= 13) {
+            return "th";
+        }
+
+        switch ($number % 10) {
+            case 1:
+                return "st";
+            case 2:
+                return "nd";
+            case 3:
+                return "rd";
+            default:
+                return "th";
+        }
     }
 
 

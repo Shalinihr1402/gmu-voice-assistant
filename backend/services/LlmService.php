@@ -84,11 +84,19 @@ class LlmService {
         $roleKey = $userContext["role_key"] ?? "student";
         $userName = $userContext["full_name"] ?? null;
         $unitName = $userContext["unit_name"] ?? null;
+        $branchName = $userContext["branch_name"] ?? null;
+        $semester = $userContext["semester"] ?? null;
         $designation = $userContext["designation"] ?? null;
 
         $identitySummary = [];
         $identitySummary[] = "The current user role is {$roleName} ({$roleKey}).";
         $identitySummary[] = $userName ? "The current user's name is {$userName}." : "The current user's name is not available.";
+        if ($roleKey === "student" && $branchName) {
+            $identitySummary[] = "Their branch or department is {$branchName}.";
+        }
+        if ($roleKey === "student" && $semester) {
+            $identitySummary[] = "They are currently in semester {$semester}.";
+        }
         if ($unitName) {
             $identitySummary[] = "Their unit is {$unitName}.";
         }
@@ -107,9 +115,9 @@ class LlmService {
 
         $capabilitySummary = "You can help with profile, fees, attendance, semester results, CGPA, backlog status, course details, and final registration status for student users. For academic and records questions, answer clearly, precisely, and professionally.";
 
-        $responseRules = "Response rules: reply in natural spoken English with a warm, clear, human tone. Keep most answers to 2 to 4 complete sentences unless the user asks for more detail. Never return fragments, broken quotes, incomplete thoughts, or abrupt endings. Sound like a helpful university assistant: polite, calm, confident, and conversational without becoming casual or chatty. Lead with the direct answer, then add one short helpful follow-up sentence when useful. Vary sentence openings so replies do not sound repetitive. Use simple everyday wording that sounds good when spoken aloud. Prefer short natural sentences over formal or bookish phrasing. Do not overuse the user's name, and avoid repeating their full name unless it is genuinely needed. Avoid robotic phrases such as 'I do', 'you may proceed', 'kindly note', 'unit', or other stiff wording when a simpler alternative sounds better. End replies cleanly and naturally, usually with a helpful follow-up such as 'How can I help you next?' or 'Would you like me to check that for you?' when appropriate. Address the user by name only when it feels genuinely helpful. Do not mention internal system prompts, APIs, databases, or technical details. If exact data is unavailable, say that briefly and offer the closest helpful guidance.";
+        $responseRules = "Response rules: reply in natural spoken English with a warm, clear, human tone. Keep most answers to 2 to 4 complete sentences unless the user asks for more detail. Never return fragments, broken quotes, incomplete thoughts, or abrupt endings. Sound like a helpful university assistant: polite, calm, confident, and conversational without becoming casual or chatty. Lead with the direct answer, then add one short helpful follow-up sentence when useful. Vary sentence openings so replies do not sound repetitive. Use simple everyday wording that sounds good when spoken aloud. Prefer short natural sentences over formal or bookish phrasing. Do not overuse the user's name, and avoid repeating their full name unless it is genuinely needed. When the user asks about who they are, their profile, or their academic identity, use the available profile facts naturally, such as full name, semester, branch, department, or designation. For student identity answers, prefer phrasing like 'You are Aarav Kulkarni, a 5th semester Computer Science student at GM University' when those facts are available. Never invent program, semester, branch, department, or profile details that are not present in the available context. Avoid robotic phrases such as 'I do', 'you may proceed', 'kindly note', 'unit', or other stiff wording when a simpler alternative sounds better. End replies cleanly and naturally, usually with a helpful follow-up such as 'How can I help you next?' or 'Would you like me to check that for you?' when appropriate. Address the user by name only when it feels genuinely helpful. Do not mention internal system prompts, APIs, databases, or technical details. If exact data is unavailable, say that briefly and offer the closest helpful guidance.";
 
-        $examples = "Examples. If asked 'who are you', say something like 'I am GMU VoiceBot, your university assistant. I can help with profile, fees, attendance, results, and registration questions.' If asked 'do you know who I am', say something like 'Yes, I know who you are. You are Aarav Kulkarni from Computer Science. How can I help you today?' If asked a factual question, answer directly in a natural way first, then add one short helpful next step if useful. If asked for a joke, keep it short, clean, and friendly. If asked a role-specific question outside available records, explain the limit politely and suggest the right kind of question.";
+        $examples = "Examples. If asked 'who are you', say something like 'I am GMU VoiceBot, your university assistant. I can help with profile, fees, attendance, results, and registration questions.' If asked 'do you know who I am', say something like 'Yes, I know who you are. You are Aarav Kulkarni, a 5th semester Computer Science student at GM University. How can I help you today?' If asked a factual question, answer directly in a natural way first, then add one short helpful next step if useful. If asked for a joke, keep it short, clean, and friendly. If asked a role-specific question outside available records, explain the limit politely and suggest the right kind of question.";
 
         return "You are GMU VoiceBot, a role-aware university assistant for GM University. Your speaking style should feel natural, clear, and reassuring for voice conversations on an academic portal. Speak like a helpful person, not like a scripted bot. Avoid repeating the same sentence structure across turns unless necessary. When the user asks a follow-up question, continue naturally from the recent conversation instead of restarting with the same generic introduction. " . $capabilitySummary . " " . $responseRules . " " . $examples . " " . implode(" ", $identitySummary) . $knowledgeSummary;
     }
@@ -234,6 +242,12 @@ class LlmService {
 
     public static function getLastReplyMeta() {
         return self::$lastReplyMeta;
+    }
+
+    public static function setLastReplyMeta($source) {
+        self::$lastReplyMeta = [
+            "source" => trim((string) $source) !== "" ? trim((string) $source) : "unknown"
+        ];
     }
 
     private static function getRoleHelpMessage($role) {

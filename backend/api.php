@@ -67,6 +67,7 @@ $intent = IntentService::detectIntent($message);
 
 $reply = "";
 $confidence = ($intent === "UNKNOWN") ? "low" : "high";
+$replySource = "unknown";
 
 if ($roleKey !== "student") {
     $intent = "ROLE_AWARE_ASSIST";
@@ -78,89 +79,124 @@ switch ($intent) {
     case "GET_USN":
         if (!$student_id) {
             $reply = "USN lookup is available for student accounts after student login.";
+            $replySource = "db_guard";
             break;
         }
         $reply = StudentController::getUSN($student_id);
+        $replySource = "db";
+        break;
+
+    case "GET_PROFILE_SUMMARY":
+        if (!$student_id) {
+            $reply = "Profile lookup is available for student accounts after student login.";
+            $replySource = "db_guard";
+            break;
+        }
+        $reply = StudentController::getProfileSummary($student_id, $message);
+        $replySource = "db";
         break;
 
     case "GET_SGPA":
         if (!$student_id) {
             $reply = "SGPA lookup is available for student accounts after student login.";
+            $replySource = "db_guard";
             break;
         }
         $reply = StudentController::getSGPA($student_id, $message);
+        $replySource = "db";
         break;
 
     case "GET_CGPA":
         if (!$student_id) {
             $reply = "CGPA lookup is available for student accounts after student login.";
+            $replySource = "db_guard";
             break;
         }
         $reply = StudentController::getCGPA($student_id);
+        $replySource = "db";
         break;
 
     case "GET_BACKLOG_STATUS":
         if (!$student_id) {
             $reply = "Backlog status is available for student accounts after student login.";
+            $replySource = "db_guard";
             break;
         }
         $reply = StudentController::getBacklogStatus($student_id, $message);
+        $replySource = "db";
         break;
 
     case "GET_FEES_BALANCE":
         if (!$student_id) {
             $reply = "Fee balance lookup is available for student accounts after student login.";
+            $replySource = "db_guard";
             break;
         }
         $reply = FeeController::getFeeBalance($student_id);
+        $replySource = "db";
         break;
 
     case "GET_FINAL_REGISTRATION_STATUS":
         if (!$student_id) {
             $reply = "Final registration status is available for student accounts after student login.";
+            $replySource = "db_guard";
             break;
         }
         $reply = FeeController::getFinalRegistrationStatus($student_id);
+        $replySource = "db";
         break;
 
     case "GET_HALL_TICKET_STATUS":
         if (!$student_id) {
             $reply = "Hall ticket status is available for student accounts after student login.";
+            $replySource = "db_guard";
             break;
         }
         $reply = StudentController::getHallTicketStatus($student_id, $message);
+        $replySource = "db";
         break;
 
     case "GET_COURSE_DETAILS":
         if (!$student_id) {
             $reply = "Course details are available for student accounts after student login.";
+            $replySource = "db_guard";
             break;
         }
         $reply = StudentController::getCourseDetails($student_id, $message);
+        $replySource = "db";
         break;
 
     case "GET_ATTENDANCE":
         if (!$student_id) {
             $reply = "Attendance lookup is available for student accounts after student login.";
+            $replySource = "db_guard";
             break;
         }
         $reply = StudentController::getAttendance($student_id);
+        $replySource = "db";
         break;
 
     case "GET_SUBJECT_ATTENDANCE":
         if (!$student_id) {
             $reply = "Subject attendance lookup is available for student accounts after student login.";
+            $replySource = "db_guard";
             break;
         }
         $reply = StudentController::getSubjectAttendance($student_id, $message);
+        $replySource = "db";
         break;
 
     case "GET_COURSE_CODE":
         $reply = StudentController::getCourseCode($message);
+        $replySource = "db";
         break;
 
     default:
         $reply = LlmService::getReply($message, $userContext);
+}
+
+if ($replySource !== "unknown") {
+    LlmService::setLastReplyMeta($replySource);
 }
 
 $replyMeta = LlmService::getLastReplyMeta();

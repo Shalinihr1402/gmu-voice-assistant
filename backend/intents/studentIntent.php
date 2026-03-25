@@ -9,6 +9,21 @@ class IntentService {
             "registration number",
             "university number"
         ],
+        "GET_PROFILE_SUMMARY" => [
+            "who am i",
+            "do you know who i am",
+            "my profile",
+            "tell me about my profile",
+            "student profile",
+            "which semester am i in",
+            "what semester am i in",
+            "my semester",
+            "which department am i from",
+            "what department am i from",
+            "my department",
+            "my branch",
+            "what am i studying"
+        ],
 
         "GET_SGPA" => [
             "sgpa",
@@ -77,13 +92,18 @@ class IntentService {
             "registered subjects",
             "registered courses"
         ],
+        "GET_ATTENDANCE" => [
+            "my attendance",
+            "overall attendance",
+            "attendance percentage",
+            "attendance status"
+        ],
         "GET_SUBJECT_ATTENDANCE" => [
-    "attendance",
-    "attendance percentage",
-    "attendance in",
-    "attendance of",
-    "percentage in"
-],
+            "attendance in",
+            "attendance of",
+            "percentage in",
+            "subject attendance"
+        ],
 
         "GET_COURSE_CODE" => [
             "course code",

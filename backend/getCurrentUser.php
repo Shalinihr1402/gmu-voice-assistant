@@ -28,6 +28,8 @@ $stmt = $conn->prepare("
         COALESCE(s.full_name, sm.full_name) AS full_name,
         COALESCE(s.email, sm.email) AS email,
         COALESCE(s.mobile_no, sm.mobile_no) AS mobile_no,
+        s.branch AS branch_name,
+        s.semester AS semester,
         COALESCE(s.branch, d.department_name) AS unit_name,
         sm.designation
     FROM users u
