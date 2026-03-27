@@ -4,10 +4,12 @@ import gmuLogo from "../assets/gmu-logo.png"
 import "./VoiceAssistant.css"
 import { fetchJson, getBackendUrl } from "../utils/api"
 
-const MAX_RECORDING_MS = 2200
+const MAX_RECORDING_MS = 2600
 const MIN_RECORDING_MS = 250
-const SILENCE_DURATION_MS = 250
-const SILENCE_THRESHOLD = 0.018
+const SILENCE_DURATION_MS = 260
+const SILENCE_THRESHOLD = 0.024
+const END_SPEECH_THRESHOLD = 0.03
+const FORCE_STOP_AFTER_SPEECH_MS = 1600
 const USE_BROWSER_TTS_BY_DEFAULT = true
 const PREFERRED_FEMALE_VOICE_HINTS = [
   "zira",
@@ -46,6 +48,7 @@ const VoiceAssistant = () => {
   const speechDetectedRef = useRef(false)
   const silenceStartedAtRef = useRef(null)
   const recordingStartedAtRef = useRef(0)
+  const firstSpeechAtRef = useRef(0)
   const ignoreNextRecordingRef = useRef(false)
   const isSpeakingRef = useRef(false)
   const lastSpokenTextRef = useRef("")
@@ -114,6 +117,7 @@ const VoiceAssistant = () => {
     speechDetectedRef.current = false
     silenceStartedAtRef.current = null
     recordingStartedAtRef.current = 0
+    firstSpeechAtRef.current = 0
 
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
@@ -311,17 +315,36 @@ const VoiceAssistant = () => {
 
           if (rms >= SILENCE_THRESHOLD) {
             speechDetectedRef.current = true
+            if (!firstSpeechAtRef.current) {
+              firstSpeechAtRef.current = now
+            }
             silenceStartedAtRef.current = null
           } else if (speechDetectedRef.current && elapsed >= MIN_RECORDING_MS) {
+            const speechElapsed = firstSpeechAtRef.current ? now - firstSpeechAtRef.current : 0
+
             if (!silenceStartedAtRef.current) {
               silenceStartedAtRef.current = now
             }
 
-            if (now - silenceStartedAtRef.current >= SILENCE_DURATION_MS) {
+            if (
+              speechElapsed >= MIN_RECORDING_MS &&
+              now - silenceStartedAtRef.current >= SILENCE_DURATION_MS
+            ) {
               mediaRecorderRef.current.stop()
               silenceAnimationRef.current = null
               return
             }
+          }
+
+          if (
+            speechDetectedRef.current &&
+            firstSpeechAtRef.current &&
+            now - firstSpeechAtRef.current >= FORCE_STOP_AFTER_SPEECH_MS &&
+            rms < END_SPEECH_THRESHOLD
+          ) {
+            mediaRecorderRef.current.stop()
+            silenceAnimationRef.current = null
+            return
           }
 
           silenceAnimationRef.current = requestAnimationFrame(monitorSilence)
@@ -477,6 +500,64 @@ const VoiceAssistant = () => {
     lastCommandRef.current = ""
   }
 
+  const getOrdinalLabel = (value) => {
+    const number = Number(value)
+
+    if (!Number.isFinite(number) || number <= 0) {
+      return ""
+    }
+
+    const mod100 = number % 100
+    if (mod100 >= 11 && mod100 <= 13) {
+      return `${number}th`
+    }
+
+    switch (number % 10) {
+      case 1:
+        return `${number}st`
+      case 2:
+        return `${number}nd`
+      case 3:
+        return `${number}rd`
+      default:
+        return `${number}th`
+    }
+  }
+
+  const getLocalProfileReply = (text) => {
+    if (currentUser?.role_key !== "student") {
+      return ""
+    }
+
+    const fullName = currentUser?.full_name || ""
+    const branch = currentUser?.branch_name || currentUser?.unit_name || ""
+    const semesterLabel = getOrdinalLabel(currentUser?.semester)
+
+    if (/\b(which|what)\s+semester\b|\bmy semester\b/.test(text)) {
+      return semesterLabel
+        ? `You are currently in the ${semesterLabel} semester.`
+        : ""
+    }
+
+    if (/\b(which|what)\s+(department|branch)\b|\bmy department\b|\bmy branch\b/.test(text)) {
+      return branch
+        ? `You are from the ${branch} department.`
+        : ""
+    }
+
+    if (/\b(who am i|do you know who i am|my profile|tell me about my profile|what am i studying)\b/.test(text)) {
+      if (fullName && semesterLabel && branch) {
+        return `You are ${fullName}, a ${semesterLabel} semester ${branch} student at GM University. How can I help you today?`
+      }
+
+      if (fullName && branch) {
+        return `You are ${fullName} from the ${branch} department at GM University. How can I help you today?`
+      }
+    }
+
+    return ""
+  }
+
   const handleVoiceCommand = async (command) => {
     if (!command) return
 
@@ -493,6 +574,13 @@ const VoiceAssistant = () => {
 
     if (!cleaned) {
       replyImmediately("Hello. What can I help you with?")
+      return
+    }
+
+    const localProfileReply = getLocalProfileReply(cleaned)
+    if (localProfileReply) {
+      setReplySource("local_profile")
+      replyImmediately(localProfileReply)
       return
     }
 

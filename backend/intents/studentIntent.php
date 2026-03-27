@@ -1,6 +1,20 @@
 <?php
 
 class IntentService {
+    private static $intentPriority = [
+        "GET_COURSE_CODE" => 120,
+        "GET_SUBJECT_ATTENDANCE" => 110,
+        "GET_ATTENDANCE" => 100,
+        "GET_FINAL_REGISTRATION_STATUS" => 100,
+        "GET_HALL_TICKET_STATUS" => 100,
+        "GET_PROFILE_SUMMARY" => 95,
+        "GET_FEES_BALANCE" => 90,
+        "GET_BACKLOG_STATUS" => 90,
+        "GET_CGPA" => 90,
+        "GET_SGPA" => 85,
+        "GET_COURSE_DETAILS" => 70,
+        "GET_USN" => 65
+    ];
 
     private static $intentMap = [
 
@@ -113,9 +127,23 @@ class IntentService {
         ]
     ];
 
+    private static function normalizeIntentText($message) {
+        $message = strtolower(trim((string) $message));
+        $message = preg_replace('/[^a-z0-9\s]+/', ' ', $message);
+        $message = preg_replace('/\s+/', ' ', (string) $message);
+        return trim((string) $message);
+    }
+
     public static function detectIntent($message) {
 
-        $message = strtolower($message);
+        $message = self::normalizeIntentText($message);
+
+        if (
+            preg_match('/\b(course|subject)\s+code\b/', $message) ||
+            preg_match('/\bcode\s+(of|for)\b/', $message)
+        ) {
+            return "GET_COURSE_CODE";
+        }
 
         if (strpos($message, "attendance") !== false) {
             $overallAttendanceHints = [
@@ -137,14 +165,25 @@ class IntentService {
             }
         }
 
+        $bestIntent = "UNKNOWN";
+        $bestScore = 0;
+
         foreach (self::$intentMap as $intent => $keywords) {
+            $score = self::$intentPriority[$intent] ?? 50;
+
             foreach ($keywords as $keyword) {
                 if (strpos($message, $keyword) !== false) {
-                    return $intent;
+                    $keywordWords = array_values(array_filter(explode(" ", $keyword)));
+                    $scoreBoost = max(1, count($keywordWords)) * 10;
+
+                    if ($score + $scoreBoost > $bestScore) {
+                        $bestScore = $score + $scoreBoost;
+                        $bestIntent = $intent;
+                    }
                 }
             }
         }
 
-        return "UNKNOWN";
+        return $bestIntent;
     }
 }

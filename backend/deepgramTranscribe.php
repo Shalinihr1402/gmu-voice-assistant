@@ -18,6 +18,8 @@ if (!isset($_SESSION['student_id'])) {
     exit();
 }
 
+require_once __DIR__ . "/config/db.php";
+
 $apiKey = getenv("DEEPGRAM_API_KEY");
 
 if (!$apiKey && isset($_SERVER["DEEPGRAM_API_KEY"])) {
@@ -52,6 +54,113 @@ if ($audioData === false || $audioData === "") {
     exit();
 }
 
+function normalizeKeytermValue($value) {
+    $value = trim((string) $value);
+    $value = preg_replace('/\s+/', ' ', $value);
+    return trim((string) $value);
+}
+
+function buildShortCourseName($courseTitle) {
+    $words = preg_split('/[^a-z0-9]+/i', strtolower((string) $courseTitle));
+    $words = array_values(array_filter($words, function ($word) {
+        return $word !== "";
+    }));
+
+    if (empty($words)) {
+        return "";
+    }
+
+    $shortName = "";
+    foreach ($words as $word) {
+        $shortName .= strtoupper($word[0]);
+    }
+
+    return $shortName;
+}
+
+function getTranscriptionKeyterms($studentId) {
+    global $conn;
+
+    $keyterms = [
+        "GM University",
+        "GMU",
+        "course code",
+        "subject code",
+        "registration",
+        "attendance",
+        "hall ticket",
+        "semester",
+        "Computer Science"
+    ];
+
+    $studentStmt = $conn->prepare("
+        SELECT branch, semester
+        FROM students
+        WHERE student_id = ?
+    ");
+
+    if ($studentStmt) {
+        $studentStmt->bind_param("i", $studentId);
+        $studentStmt->execute();
+        $student = $studentStmt->get_result()->fetch_assoc();
+        $studentStmt->close();
+
+        if ($student) {
+            $branch = normalizeKeytermValue($student["branch"] ?? "");
+            $semester = (int) ($student["semester"] ?? 0);
+
+            if ($branch !== "") {
+                $keyterms[] = $branch;
+            }
+
+            if ($branch !== "" && $semester > 0) {
+                $courseStmt = $conn->prepare("
+                    SELECT course_title, course_code
+                    FROM courses
+                    WHERE program = ? AND semester = ?
+                    ORDER BY course_code ASC
+                ");
+
+                if ($courseStmt) {
+                    $courseStmt->bind_param("si", $branch, $semester);
+                    $courseStmt->execute();
+                    $result = $courseStmt->get_result();
+
+                    while ($row = $result->fetch_assoc()) {
+                        $courseTitle = normalizeKeytermValue($row["course_title"] ?? "");
+                        $courseCode = normalizeKeytermValue($row["course_code"] ?? "");
+                        $shortName = buildShortCourseName($courseTitle);
+
+                        if ($courseTitle !== "") {
+                            $keyterms[] = $courseTitle;
+                        }
+                        if ($courseCode !== "") {
+                            $keyterms[] = $courseCode;
+                        }
+                        if ($shortName !== "" && strlen($shortName) >= 3) {
+                            $keyterms[] = $shortName;
+                        }
+                    }
+
+                    $courseStmt->close();
+                }
+            }
+        }
+    }
+
+    $cleaned = [];
+    foreach ($keyterms as $term) {
+        $term = normalizeKeytermValue($term);
+        if ($term === "") {
+            continue;
+        }
+
+        $cleaned[strtolower($term)] = $term;
+    }
+
+    return array_slice(array_values($cleaned), 0, 40);
+}
+
 // Treat extremely short clips as silence instead of surfacing a noisy 400.
 if (strlen($audioData) < 2048) {
     echo json_encode([
@@ -60,7 +169,19 @@ if (strlen($audioData) < 2048) {
     exit();
 }
 
-$ch = curl_init("https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&punctuate=true");
+$queryParams = [
+    "model=nova-3",
+    "smart_format=true",
+    "punctuate=true"
+];
+
+foreach (getTranscriptionKeyterms((int) $_SESSION['student_id']) as $keyterm) {
+    $queryParams[] = "keyterm=" . rawurlencode($keyterm);
+}
+
+$listenUrl = "https://api.deepgram.com/v1/listen?" . implode("&", $queryParams);
+
+$ch = curl_init($listenUrl);
 curl_setopt($ch, CURLOPT_POST, true);
 curl_setopt($ch, CURLOPT_POSTFIELDS, $audioData);
 curl_setopt($ch, CURLOPT_HTTPHEADER, [

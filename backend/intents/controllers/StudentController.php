@@ -3,6 +3,23 @@
 require_once __DIR__ . "/../../config/db.php";
 
 class StudentController {
+    private static $courseAliases = [
+        "dbms" => "database management systems",
+        "dbms lab" => "dbms laboratory",
+        "ai" => "artificial intelligence",
+        "artificial intelligence" => "artificial intelligence",
+        "os" => "operating systems",
+        "operating systems" => "operating systems",
+        "cn" => "computer networks",
+        "computer networks" => "computer networks",
+        "ds" => "data structures",
+        "data structures" => "data structures",
+        "se" => "software engineering",
+        "software engineering" => "software engineering",
+        "oop" => "object oriented programming",
+        "oops" => "object oriented programming",
+        "java" => "java programming"
+    ];
 
     private static function normalizeLookupText($text) {
         $text = strtolower(trim((string) $text));
@@ -27,6 +44,124 @@ class StudentController {
         }
 
         return $shortName;
+    }
+
+    private static function stripCourseQueryNoise($text) {
+        $text = self::normalizeLookupText($text);
+        $noisePatterns = [
+            '/\bwhat\b/',
+            '/\bis\b/',
+            '/\bthe\b/',
+            '/\bcourse\b/',
+            '/\bsubject\b/',
+            '/\bcode\b/',
+            '/\bof\b/',
+            '/\bfor\b/',
+            '/\btell\b/',
+            '/\bme\b/',
+            '/\bplease\b/',
+            '/\bcan\b/',
+            '/\byou\b/',
+            '/\bgive\b/',
+            '/\bfind\b/',
+            '/\bi\b/',
+            '/\bwant\b/',
+            '/\bto\b/',
+            '/\bknow\b/'
+        ];
+
+        $cleaned = preg_replace($noisePatterns, ' ', $text);
+        $cleaned = preg_replace('/\s+/', ' ', (string) $cleaned);
+        return trim((string) $cleaned);
+    }
+
+    private static function applyCourseAliases($text) {
+        $normalized = self::normalizeLookupText($text);
+
+        if ($normalized === "") {
+            return "";
+        }
+
+        foreach (self::$courseAliases as $alias => $expanded) {
+            $aliasText = self::normalizeLookupText($alias);
+            $expandedText = self::normalizeLookupText($expanded);
+
+            if ($aliasText === "" || $expandedText === "") {
+                continue;
+            }
+
+            $normalized = preg_replace('/\b' . preg_quote($aliasText, '/') . '\b/', $expandedText, $normalized);
+        }
+
+        $normalized = preg_replace('/\s+/', ' ', (string) $normalized);
+        return trim((string) $normalized);
+    }
+
+    private static function scoreCourseMatch($query, $courseTitle, $courseCode) {
+        $normalizedQuery = self::applyCourseAliases(self::stripCourseQueryNoise($query));
+        $normalizedTitle = self::normalizeLookupText($courseTitle);
+        $normalizedCode = self::normalizeLookupText($courseCode);
+        $shortName = self::normalizeLookupText(self::buildCourseShortName($courseTitle));
+
+        if ($normalizedQuery === "") {
+            return 0;
+        }
+
+        if ($normalizedQuery === $normalizedCode || $normalizedQuery === $shortName) {
+            return 100;
+        }
+
+        if (strpos($normalizedTitle, $normalizedQuery) !== false || strpos($normalizedQuery, $normalizedTitle) !== false) {
+            return 95;
+        }
+
+        $queryWords = array_values(array_filter(explode(' ', $normalizedQuery)));
+        $titleWords = array_values(array_filter(explode(' ', $normalizedTitle)));
+
+        $matchedWords = 0;
+        foreach ($queryWords as $queryWord) {
+            foreach ($titleWords as $titleWord) {
+                if (
+                    $queryWord === $titleWord ||
+                    strpos($titleWord, $queryWord) !== false ||
+                    strpos($queryWord, $titleWord) !== false ||
+                    levenshtein($queryWord, $titleWord) <= 2
+                ) {
+                    $matchedWords += 1;
+                    break;
+                }
+            }
+        }
+
+        if (!empty($queryWords)) {
+            $coverage = $matchedWords / count($queryWords);
+            if ($coverage >= 0.99) {
+                return 90;
+            }
+            if ($coverage >= 0.7) {
+                return 75;
+            }
+            if ($coverage >= 0.5) {
+                return 60;
+            }
+        }
+
+        if ($shortName !== "") {
+            $distance = levenshtein($normalizedQuery, $shortName);
+            if ($distance <= 1) {
+                return 88;
+            }
+            if ($distance <= 2) {
+                return 72;
+            }
+        }
+
+        $titleDistance = levenshtein($normalizedQuery, $normalizedTitle);
+        if ($titleDistance <= 3) {
+            return 68;
+        }
+
+        return 0;
     }
 
     private static function getStudentAcademicContext($student_id) {
@@ -637,40 +772,40 @@ class StudentController {
     /* ================= GET COURSE CODE ================= */
 
    public static function getCourseCode($message) {
-    global $conn;
+        global $conn;
 
-    $message = strtolower(trim($message));
+        $stmt = $conn->prepare("
+            SELECT course_code, course_title
+            FROM courses
+        ");
 
-    $stmt = $conn->prepare("
-        SELECT course_code, course_title 
-        FROM courses
-    ");
-
-    if (!$stmt) {
-        return "System error while fetching course information.";
-    }
-
-    $stmt->execute();
-    $result = $stmt->get_result();
-
-    while ($row = $result->fetch_assoc()) {
-
-        $title = strtolower($row['course_title']);
-
-        // Remove extra spaces for better matching
-        $normalizedTitle = preg_replace('/\s+/', ' ', $title);
-        $normalizedMessage = preg_replace('/\s+/', ' ', $message);
-
-        if (strpos($normalizedMessage, $normalizedTitle) !== false) {
-            $stmt->close();
-            return "The course code of " . $row['course_title'] . " is " . $row['course_code'] . ".";
+        if (!$stmt) {
+            return "System error while fetching course information.";
         }
+
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        $bestMatch = null;
+        $bestScore = 0;
+
+        while ($row = $result->fetch_assoc()) {
+            $score = self::scoreCourseMatch($message, $row['course_title'], $row['course_code']);
+
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $bestMatch = $row;
+            }
+        }
+
+        $stmt->close();
+
+        if ($bestMatch && $bestScore >= 60) {
+            return "The course code for " . $bestMatch['course_title'] . " is " . $bestMatch['course_code'] . ".";
+        }
+
+        return "I could not find that course code. Please say the subject name more clearly.";
     }
-
-    $stmt->close();
-
-    return "I could not find that course.";
-}
 
     /* ================= SUBJECT-WISE ATTENDANCE ================= */
 
