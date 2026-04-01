@@ -2,12 +2,12 @@
 
 require_once __DIR__ . "/../config/db.php";
 require_once __DIR__ . "/KnowledgeBaseService.php";
+require_once __DIR__ . "/ConversationContextService.php";
 
 class LlmService {
     private static $lastReplyMeta = [
         "source" => "unknown"
     ];
-    private const HISTORY_LIMIT = 6;
 
     private static function getEnvValue($key) {
         $value = getenv($key);
@@ -48,38 +48,45 @@ class LlmService {
         return $result["full_name"] ?? null;
     }
 
-    private static function getConversationHistory() {
-        if (!isset($_SESSION["voicebot_history"]) || !is_array($_SESSION["voicebot_history"])) {
-            $_SESSION["voicebot_history"] = [];
-        }
-
-        return $_SESSION["voicebot_history"];
-    }
-
-    private static function saveConversationTurn($userMessage, $assistantReply) {
-        if (!isset($_SESSION["voicebot_history"]) || !is_array($_SESSION["voicebot_history"])) {
-            $_SESSION["voicebot_history"] = [];
-        }
-
-        $_SESSION["voicebot_history"][] = [
-            "role" => "user",
-            "text" => trim((string) $userMessage)
-        ];
-        $_SESSION["voicebot_history"][] = [
-            "role" => "assistant",
-            "text" => trim((string) $assistantReply)
-        ];
-
-        if (count($_SESSION["voicebot_history"]) > self::HISTORY_LIMIT) {
-            $_SESSION["voicebot_history"] = array_slice($_SESSION["voicebot_history"], -self::HISTORY_LIMIT);
-        }
-    }
-
     private static function clearConversationHistory() {
-        $_SESSION["voicebot_history"] = [];
+        ConversationContextService::clear();
     }
 
-    private static function buildSystemPrompt($userContext, $knowledgeItems) {
+    private static function buildKnowledgeContextBlock($knowledgeItems) {
+        if (empty($knowledgeItems)) {
+            return "";
+        }
+
+        $lines = [];
+        foreach ($knowledgeItems as $index => $item) {
+            $topic = trim((string) ($item["topic"] ?? ""));
+            $content = trim((string) ($item["content"] ?? ""));
+            $source = trim((string) ($item["source"] ?? ("context_" . ($index + 1))));
+
+            if ($topic === "" || $content === "") {
+                continue;
+            }
+
+            $lines[] = "[" . $source . "] " . $topic . ": " . $content;
+        }
+
+        if (empty($lines)) {
+            return "";
+        }
+
+        return "Retrieved university context:\n" . implode("\n", $lines);
+    }
+
+    private static function buildMemoryContextBlock($contextPayload) {
+        $summary = trim((string) ($contextPayload["summary"] ?? ""));
+        if ($summary === "") {
+            return "";
+        }
+
+        return "Conversation memory summary:\n" . $summary;
+    }
+
+    private static function buildSystemPrompt($userContext, $knowledgeItems, $contextPayload = []) {
         $roleName = $userContext["role_name"] ?? "User";
         $roleKey = $userContext["role_key"] ?? "student";
         $userName = $userContext["full_name"] ?? null;
@@ -104,22 +111,26 @@ class LlmService {
             $identitySummary[] = "Their designation is {$designation}.";
         }
 
-        $knowledgeSummary = "";
-        if (!empty($knowledgeItems)) {
-            $knowledgeLines = [];
-            foreach ($knowledgeItems as $item) {
-                $knowledgeLines[] = $item["topic"] . ": " . $item["content"];
-            }
-            $knowledgeSummary = " Relevant knowledge base context: " . implode(" ", $knowledgeLines);
-        }
+        $knowledgeSummary = self::buildKnowledgeContextBlock($knowledgeItems);
+        $memorySummary = self::buildMemoryContextBlock($contextPayload);
 
         $capabilitySummary = "You help with profile, fees, attendance, results, CGPA, backlog status, course details, and registration status.";
 
-        $responseRules = "Reply in warm, natural spoken English. Keep answers short, usually 1 to 3 sentences. Answer directly first, then add one useful follow-up sentence only if it helps. Use available profile facts naturally when identity or profile is asked. Never invent missing facts. Do not mention internal systems or technical details. If exact data is unavailable, say that briefly and offer the closest helpful guidance.";
+        $responseRules = "Reply in warm, natural spoken English. Keep answers short, usually 1 to 3 sentences. Answer directly first, then add one useful follow-up sentence only if it helps. Use conversation memory summary together with the recent messages to resolve follow-up questions and references like that subject, his office, or what about fees. Use available profile facts naturally when identity or profile is asked. Never invent missing facts. Prefer retrieved university context for factual campus answers. If the retrieved context does not support a factual claim, say that briefly instead of guessing. Do not mention internal systems or technical details. If exact data is unavailable, say that briefly and offer the closest helpful guidance.";
 
         $examples = "Examples: 'I am GMU VoiceBot, your university assistant.' 'Yes, I know who you are. You are Aarav Kulkarni, a 5th semester Computer Science student at GM University.' Keep jokes short and clean.";
 
-        return "You are GMU VoiceBot, a role-aware university assistant for GM University. Sound clear, helpful, and human for voice conversations. Continue naturally across follow-up questions. " . $capabilitySummary . " " . $responseRules . " " . $examples . " " . implode(" ", $identitySummary) . $knowledgeSummary;
+        $prompt = "You are GMU VoiceBot, a role-aware university assistant for GM University. Sound clear, helpful, and human for voice conversations. Continue naturally across follow-up questions. " . $capabilitySummary . " " . $responseRules . " " . $examples . " " . implode(" ", $identitySummary);
+
+        if ($memorySummary !== "") {
+            $prompt .= "\n\n" . $memorySummary;
+        }
+
+        if ($knowledgeSummary !== "") {
+            $prompt .= "\n\n" . $knowledgeSummary;
+        }
+
+        return $prompt;
     }
 
     private static function isValidHostedReply($reply) {
@@ -272,7 +283,8 @@ class LlmService {
         }
 
         $model = self::getEnvValue("OPENAI_MODEL") ?: "gpt-4.1-mini";
-        $systemPrompt = self::buildSystemPrompt($userContext, $knowledgeItems);
+        $contextPayload = ConversationContextService::getContextPayload();
+        $systemPrompt = self::buildSystemPrompt($userContext, $knowledgeItems, $contextPayload);
 
         $input = [[
             "role" => "system",
@@ -282,7 +294,7 @@ class LlmService {
             ]]
         ]];
 
-        foreach (self::getConversationHistory() as $historyItem) {
+        foreach ($contextPayload["recent_messages"] ?? [] as $historyItem) {
             $historyRole = $historyItem["role"] ?? "user";
             $historyText = trim((string) ($historyItem["text"] ?? ""));
             if ($historyText === "") {
@@ -369,10 +381,11 @@ class LlmService {
         }
 
         $model = self::getEnvValue("GEMINI_MODEL") ?: "gemini-2.5-flash";
-        $systemPrompt = self::buildSystemPrompt($userContext, $knowledgeItems);
+        $contextPayload = ConversationContextService::getContextPayload();
+        $systemPrompt = self::buildSystemPrompt($userContext, $knowledgeItems, $contextPayload);
 
         $contents = [];
-        foreach (self::getConversationHistory() as $historyItem) {
+        foreach ($contextPayload["recent_messages"] ?? [] as $historyItem) {
             $historyRole = ($historyItem["role"] ?? "user") === "assistant" ? "model" : "user";
             $historyText = trim((string) ($historyItem["text"] ?? ""));
             if ($historyText === "") {
@@ -509,7 +522,7 @@ class LlmService {
                 self::$lastReplyMeta = [
                     "source" => $provider
                 ];
-                self::saveConversationTurn($message, $reply);
+                ConversationContextService::saveTurn($message, $reply);
                 return $reply;
             }
         }
@@ -519,7 +532,7 @@ class LlmService {
             self::$lastReplyMeta = [
                 "source" => "python_fallback"
             ];
-            self::saveConversationTurn($message, $pythonReply);
+            ConversationContextService::saveTurn($message, $pythonReply);
             return $pythonReply;
         }
 
@@ -527,7 +540,7 @@ class LlmService {
             "source" => "local_fallback"
         ];
         $fallbackReply = self::localFallback($message, $userContext);
-        self::saveConversationTurn($message, $fallbackReply);
+        ConversationContextService::saveTurn($message, $fallbackReply);
         return $fallbackReply;
     }
 }

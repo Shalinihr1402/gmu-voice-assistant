@@ -1,6 +1,9 @@
 <?php
 
 class IntentService {
+    private const DATABASE_ROUTE = "database";
+    private const LLM_ROUTE = "llm";
+
     private static $intentPriority = [
         "GET_COURSE_CODE" => 120,
         "GET_SUBJECT_ATTENDANCE" => 110,
@@ -17,7 +20,6 @@ class IntentService {
     ];
 
     private static $intentMap = [
-
         "GET_USN" => [
             "usn",
             "registration number",
@@ -38,7 +40,6 @@ class IntentService {
             "my branch",
             "what am i studying"
         ],
-
         "GET_SGPA" => [
             "sgpa",
             "gpa",
@@ -64,7 +65,6 @@ class IntentService {
             "did i fail",
             "supplementary"
         ],
-
         "GET_FEES_BALANCE" => [
             "fee",
             "fees",
@@ -118,7 +118,6 @@ class IntentService {
             "percentage in",
             "subject attendance"
         ],
-
         "GET_COURSE_CODE" => [
             "course code",
             "subject code",
@@ -127,6 +126,24 @@ class IntentService {
         ]
     ];
 
+    private static function getEnvValue($key) {
+        $value = getenv($key);
+
+        if ($value !== false && $value !== "") {
+            return $value;
+        }
+
+        if (isset($_SERVER[$key]) && $_SERVER[$key] !== "") {
+            return $_SERVER[$key];
+        }
+
+        if (isset($_ENV[$key]) && $_ENV[$key] !== "") {
+            return $_ENV[$key];
+        }
+
+        return null;
+    }
+
     private static function normalizeIntentText($message) {
         $message = strtolower(trim((string) $message));
         $message = preg_replace('/[^a-z0-9\s]+/', ' ', $message);
@@ -134,8 +151,160 @@ class IntentService {
         return trim((string) $message);
     }
 
-    public static function detectIntent($message) {
+    public static function classifyIntent($message, $userContext = []) {
+        $message = trim((string) $message);
+        $roleKey = strtolower(trim((string) ($userContext["role_key"] ?? "student")));
 
+        if ($roleKey !== "student") {
+            return [
+                "route" => self::LLM_ROUTE,
+                "intent" => "ROLE_AWARE_ASSIST",
+                "confidence" => "medium",
+                "source" => "role_policy"
+            ];
+        }
+
+        $aiClassification = self::classifyWithAi($message);
+        if ($aiClassification !== null) {
+            if (
+                $aiClassification["route"] === self::DATABASE_ROUTE &&
+                $aiClassification["confidence"] === "low"
+            ) {
+                $fallbackIntent = self::detectIntentFallback($message);
+                if ($fallbackIntent !== "UNKNOWN") {
+                    return [
+                        "route" => self::DATABASE_ROUTE,
+                        "intent" => $fallbackIntent,
+                        "confidence" => "medium",
+                        "source" => "keyword_fallback"
+                    ];
+                }
+
+                return [
+                    "route" => self::LLM_ROUTE,
+                    "intent" => "UNKNOWN",
+                    "confidence" => "low",
+                    "source" => "ai_classifier"
+                ];
+            }
+
+            return $aiClassification;
+        }
+
+        $fallbackIntent = self::detectIntentFallback($message);
+        return [
+            "route" => $fallbackIntent === "UNKNOWN" ? self::LLM_ROUTE : self::DATABASE_ROUTE,
+            "intent" => $fallbackIntent,
+            "confidence" => $fallbackIntent === "UNKNOWN" ? "low" : "medium",
+            "source" => "keyword_fallback"
+        ];
+    }
+
+    private static function classifyWithAi($message) {
+        $apiKey = self::getEnvValue("GEMINI_API_KEY") ?: self::getEnvValue("GOOGLE_API_KEY");
+        if (!$apiKey) {
+            return null;
+        }
+
+        $model = self::getEnvValue("INTENT_CLASSIFIER_MODEL") ?: "gemini-2.5-flash";
+        $allowedIntents = implode(", ", array_keys(self::$intentMap));
+        $prompt = "Classify the user query for routing in a university assistant. "
+            . "Return only JSON with keys route, intent, confidence. "
+            . "route must be either database or llm. "
+            . "intent must be one of {$allowedIntents}, ROLE_AWARE_ASSIST, or UNKNOWN. "
+            . "Use database only when the query is a short factual student portal lookup that directly matches one database handler. "
+            . "Use llm for ambiguous, conversational, multi-part, reasoning-heavy, or open-ended queries. "
+            . "confidence must be high, medium, or low. "
+            . "Query: " . $message;
+
+        $payload = json_encode([
+            "contents" => [[
+                "role" => "user",
+                "parts" => [[
+                    "text" => $prompt
+                ]]
+            ]],
+            "generationConfig" => [
+                "temperature" => 0.1,
+                "topP" => 0.8,
+                "maxOutputTokens" => 100
+            ]
+        ]);
+
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/" . rawurlencode($model) . ":generateContent";
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            "x-goog-api-key: " . $apiKey,
+            "Content-Type: application/json"
+        ]);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 8);
+
+        $response = curl_exec($ch);
+        $statusCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($response === false || $statusCode >= 400) {
+            return null;
+        }
+
+        $data = json_decode($response, true);
+        $parts = $data["candidates"][0]["content"]["parts"] ?? [];
+        $text = "";
+        foreach ($parts as $part) {
+            $text .= (string) ($part["text"] ?? "");
+        }
+
+        $parsed = self::parseClassificationJson($text);
+        if ($parsed === null) {
+            return null;
+        }
+
+        $route = $parsed["route"] ?? self::LLM_ROUTE;
+        $intent = $parsed["intent"] ?? "UNKNOWN";
+        $confidence = $parsed["confidence"] ?? "low";
+
+        $validRoute = in_array($route, [self::DATABASE_ROUTE, self::LLM_ROUTE], true);
+        $validIntent = $intent === "UNKNOWN" || $intent === "ROLE_AWARE_ASSIST" || isset(self::$intentMap[$intent]);
+        $validConfidence = in_array($confidence, ["high", "medium", "low"], true);
+
+        if (!$validRoute || !$validIntent || !$validConfidence) {
+            return null;
+        }
+
+        if ($route === self::DATABASE_ROUTE && !isset(self::$intentMap[$intent])) {
+            return null;
+        }
+
+        return [
+            "route" => $route,
+            "intent" => $intent,
+            "confidence" => $confidence,
+            "source" => "ai_classifier"
+        ];
+    }
+
+    private static function parseClassificationJson($text) {
+        $text = trim((string) $text);
+        if ($text === "") {
+            return null;
+        }
+
+        if (preg_match('/\{.*\}/s', $text, $matches)) {
+            $text = $matches[0];
+        }
+
+        $data = json_decode($text, true);
+        return is_array($data) ? $data : null;
+    }
+
+    public static function detectIntent($message) {
+        return self::detectIntentFallback($message);
+    }
+
+    private static function detectIntentFallback($message) {
         $message = self::normalizeIntentText($message);
 
         if (
@@ -160,7 +329,10 @@ class IntentService {
                 }
             }
 
-            if (preg_match('/\b[a-z0-9&(). -]+\s+attendance\b/', $message) || preg_match('/\battendance\s+(?:in|of|for)\b/', $message)) {
+            if (
+                preg_match('/\b[a-z0-9&(). -]+\s+attendance\b/', $message) ||
+                preg_match('/\battendance\s+(?:in|of|for)\b/', $message)
+            ) {
                 return "GET_SUBJECT_ATTENDANCE";
             }
         }

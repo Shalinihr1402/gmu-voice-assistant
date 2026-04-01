@@ -1,69 +1,104 @@
-from flask import Flask, request, jsonify
-from db import get_db
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 
+from rag_engine import RAGEngine
+
 app = Flask(__name__)
+CORS(app)
 
-@app.route("/chat", methods=["POST"])
+engine = RAGEngine()
+
+
+@app.get("/")
+def home():
+    return jsonify({
+        "status": "ok",
+        "service": "gmu-rag-service"
+    })
+
+
+@app.get("/health")
+def health():
+    status = engine.health()
+    return jsonify(status), 200 if status["ready"] else 503
+
+
+@app.post("/rag/reindex")
+def rag_reindex():
+    payload = request.get_json(silent=True) or {}
+    try:
+        summary = engine.build_index(
+            max_chunk_chars=int(payload.get("max_chunk_chars", 650)),
+            chunk_overlap=int(payload.get("chunk_overlap", 120))
+        )
+        return jsonify({
+            "ok": True,
+            "summary": summary
+        })
+    except Exception as exc:
+        return jsonify({
+            "ok": False,
+            "error": str(exc)
+        }), 500
+
+
+@app.post("/rag/retrieve")
+def rag_retrieve():
+    payload = request.get_json(silent=True) or {}
+    query = (payload.get("query") or "").strip()
+    role = (payload.get("role") or "student").strip().lower()
+    top_k = int(payload.get("top_k", 4))
+
+    if not query:
+        return jsonify({
+            "ok": False,
+            "error": "query is required"
+        }), 400
+
+    try:
+        items = engine.search(query=query, role=role, top_k=top_k)
+        return jsonify({
+            "ok": True,
+            "items": items
+        })
+    except FileNotFoundError as exc:
+        return jsonify({
+            "ok": False,
+            "error": str(exc),
+            "hint": "Run /rag/reindex before retrieval."
+        }), 503
+    except Exception as exc:
+        return jsonify({
+            "ok": False,
+            "error": str(exc)
+        }), 500
+
+
+@app.post("/chat")
 def chat():
-    data = request.json
-    message = data.get("message","").lower()
+    payload = request.get_json(silent=True) or {}
+    query = (payload.get("message") or "").strip()
 
-    db = get_db()
-    cur = db.cursor(dictionary=True)
+    if not query:
+        return jsonify({
+            "reply": "Please ask a question."
+        }), 400
 
-    reply = "Sorry, I could not understand."
-    def home():
-     return "Python AI server is running"
+    try:
+        items = engine.search(query=query, role="all", top_k=1)
+    except Exception:
+        items = []
 
- 
-    if "fee" in message:
-        cur.execute("SELECT balance FROM fees LIMIT 1")
-        r = cur.fetchone()
-        reply = f"Your fee balance is {r['balance']} rupees."
+    if not items:
+        return jsonify({
+            "reply": "Sorry, I could not understand."
+        })
 
- 
-    elif "subject" in message or "course" in message:
-        cur.execute("SELECT name FROM courses WHERE branch='MCA' AND semester=3")
-        subjects = [row["name"] for row in cur.fetchall()]
-        reply = "Your subjects are: " + ", ".join(subjects)
+    top_item = items[0]
+    return jsonify({
+        "reply": f"{top_item['topic']}: {top_item['content']}"
+    })
 
-   
-    elif "attendance" in message:
-        cur.execute("SELECT subject,percentage FROM attendance WHERE student_id=1")
-        rows = cur.fetchall()
-        reply = "Your attendance: " + ", ".join(
-            [f"{r['subject']} {r['percentage']}%" for r in rows]
-        )
 
- 
-    elif "result" in message or "grade" in message:
-        cur.execute("SELECT subject,grade FROM results WHERE student_id=1")
-        rows = cur.fetchall()
-        reply = "Your results: " + ", ".join(
-            [f"{r['subject']} grade {r['grade']}" for r in rows]
-        )
-
-   
-    elif "notification" in message or "notice" in message:
-        cur.execute("SELECT title,message FROM notifications ORDER BY id DESC LIMIT 2")
-        rows = cur.fetchall()
-        reply = "Latest notifications: " + " | ".join(
-            [f"{r['title']}: {r['message']}" for r in rows]
-        )
-
-   
-    else:
-        cur.execute("SELECT answer FROM knowledge_base WHERE question LIKE %s LIMIT 1",(f"%{message}%",))
-        row = cur.fetchone()
-        if row:
-            reply = row["answer"]
-        else:
-            cur.execute("INSERT INTO knowledge_base(role,question,answer) VALUES(%s,%s,%s)",
-                        ("student",message,"Pending"))
-            db.commit()
-            reply = "I will learn this soon."
-
-    return jsonify({"reply": reply})
-
-app.run(port=5000, debug=True)
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=5000, debug=True)

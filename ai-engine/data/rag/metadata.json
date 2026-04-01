@@ -1,0 +1,65 @@
+[
+  {
+    "id": "knowledge_base:1#0",
+    "kb_id": 1,
+    "topic": "Profile Access",
+    "chunk_text": "Students can use the portal to view profile, course registration, payment summary, SGPA, and attendance.",
+    "audience_role": "student",
+    "source": "knowledge_base:1#0",
+    "embedding_dimension": 3072
+  },
+  {
+    "id": "knowledge_base:2#0",
+    "kb_id": 2,
+    "topic": "Teacher Access",
+    "chunk_text": "Teachers can review subject information, attendance trends, and future academic workflow integrations.",
+    "audience_role": "teacher",
+    "source": "knowledge_base:2#0",
+    "embedding_dimension": 3072
+  },
+  {
+    "id": "knowledge_base:3#0",
+    "kb_id": 3,
+    "topic": "Department Monitoring",
+    "chunk_text": "HOD users can monitor department-level academic data and issue tracking workflows.",
+    "audience_role": "hod",
+    "source": "knowledge_base:3#0",
+    "embedding_dimension": 3072
+  },
+  {
+    "id": "knowledge_base:4#0",
+    "kb_id": 4,
+    "topic": "University Overview",
+    "chunk_text": "Director users can review institutional summaries and escalated academic concerns.",
+    "audience_role": "director",
+    "source": "knowledge_base:4#0",
+    "embedding_dimension": 3072
+  },
+  {
+    "id": "knowledge_base:5#0",
+    "kb_id": 5,
+    "topic": "Academic Oversight",
+    "chunk_text": "Dean users can use the assistant for academic planning and compliance checks.",
+    "audience_role": "dean",
+    "source": "knowledge_base:5#0",
+    "embedding_dimension": 3072
+  },
+  {
+    "id": "knowledge_base:6#0",
+    "kb_id": 6,
+    "topic": "Records Management",
+    "chunk_text": "Registrar users can use the assistant for records-related operations and verification.",
+    "audience_role": "registrar",
+    "source": "knowledge_base:6#0",
+    "embedding_dimension": 3072
+  },
+  {
+    "id": "knowledge_base:7#0",
+    "kb_id": 7,
+    "topic": "Management Insights",
+    "chunk_text": "Management users can use the assistant for high-level institutional insights.",
+    "audience_role": "management",
+    "source": "knowledge_base:7#0",
+    "embedding_dimension": 3072
+  }
+]
