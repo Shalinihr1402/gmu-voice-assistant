@@ -164,22 +164,22 @@ class IntentService {
             ];
         }
 
+        $fallbackIntent = self::detectIntentFallback($message);
+        if ($fallbackIntent !== "UNKNOWN") {
+            return [
+                "route" => self::DATABASE_ROUTE,
+                "intent" => $fallbackIntent,
+                "confidence" => "medium",
+                "source" => "keyword_fallback_fast"
+            ];
+        }
+
         $aiClassification = self::classifyWithAi($message);
         if ($aiClassification !== null) {
             if (
                 $aiClassification["route"] === self::DATABASE_ROUTE &&
                 $aiClassification["confidence"] === "low"
             ) {
-                $fallbackIntent = self::detectIntentFallback($message);
-                if ($fallbackIntent !== "UNKNOWN") {
-                    return [
-                        "route" => self::DATABASE_ROUTE,
-                        "intent" => $fallbackIntent,
-                        "confidence" => "medium",
-                        "source" => "keyword_fallback"
-                    ];
-                }
-
                 return [
                     "route" => self::LLM_ROUTE,
                     "intent" => "UNKNOWN",
@@ -191,11 +191,10 @@ class IntentService {
             return $aiClassification;
         }
 
-        $fallbackIntent = self::detectIntentFallback($message);
         return [
-            "route" => $fallbackIntent === "UNKNOWN" ? self::LLM_ROUTE : self::DATABASE_ROUTE,
-            "intent" => $fallbackIntent,
-            "confidence" => $fallbackIntent === "UNKNOWN" ? "low" : "medium",
+            "route" => self::LLM_ROUTE,
+            "intent" => "UNKNOWN",
+            "confidence" => "low",
             "source" => "keyword_fallback"
         ];
     }
@@ -240,7 +239,7 @@ class IntentService {
             "Content-Type: application/json"
         ]);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 8);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 4);
 
         $response = curl_exec($ch);
         $statusCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);

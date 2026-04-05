@@ -213,14 +213,14 @@ class LlmService {
         $preferred = strtolower(trim((string) (self::getEnvValue("LLM_PROVIDER") ?: "")));
 
         if ($preferred === "gemini") {
-            return ["gemini", "openai"];
+            return ["gemini"];
         }
 
         if ($preferred === "openai") {
-            return ["openai", "gemini"];
+            return ["openai"];
         }
 
-        return ["gemini", "openai"];
+        return ["gemini"];
     }
 
     private static function localFallback($message, $userContext = null) {
@@ -231,6 +231,7 @@ class LlmService {
         $patterns = [
             "/\bhow are you\b/" => "I am doing well. How can I help you today?",
             "/\bwho are you\b/" => "I am GMU VoiceBot. I can help with university information and role-based assistance for {$roleName} users.",
+            "/\b(family|father|mother|parents|brother|sister|wife|husband)\b/" => "I do not have personal information about your family. I only know the profile details available in your university account.",
             "/\b(joke|funny|laugh|make me laugh)\b/" => "Here is one. Why did the student bring a ladder to class? Because the grades were too high.",
             "/\b(marriage|address|wedding)\b/" => "I cannot know your personal future, but I can help you with your academic details.",
             "/\b(love|girlfriend|boyfriend)\b/" => "I am better with university questions than love advice, but I am here to help however I can.",
@@ -321,7 +322,7 @@ class LlmService {
         $payload = json_encode([
             "model" => $model,
             "input" => $input,
-            "max_output_tokens" => 160
+            "max_output_tokens" => 70
         ]);
 
         $ch = curl_init("https://api.openai.com/v1/responses");
@@ -332,7 +333,7 @@ class LlmService {
             "Content-Type: application/json"
         ]);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 4);
 
         $response = curl_exec($ch);
         $statusCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -415,9 +416,9 @@ class LlmService {
             ],
             "contents" => $contents,
             "generationConfig" => [
-                "temperature" => 0.72,
+                "temperature" => 0.55,
                 "topP" => 0.9,
-                "maxOutputTokens" => 220
+                "maxOutputTokens" => 90
             ]
         ]);
 
@@ -430,7 +431,7 @@ class LlmService {
             "Content-Type: application/json"
         ]);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 4);
 
         $response = curl_exec($ch);
         $statusCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);

@@ -813,6 +813,15 @@ class StudentController {
         global $conn;
 
         $normalizedMessage = self::normalizeLookupText($message);
+        $genericAttendancePhrases = [
+            "individual subject",
+            "subject wise",
+            "subject wise attendance",
+            "attendance in individual subject",
+            "attendance in subject",
+            "attendance of subject",
+            "subject attendance"
+        ];
 
         $stmt = $conn->prepare("
             SELECT c.course_title, 
@@ -832,35 +841,48 @@ class StudentController {
         $stmt->bind_param("i", $student_id);
         $stmt->execute();
         $result = $stmt->get_result();
+        $availableSubjects = [];
+        $bestMatch = null;
+        $bestScore = 0;
 
         while ($row = $result->fetch_assoc()) {
-            $title = self::normalizeLookupText($row['course_title']);
-            $code = self::normalizeLookupText($row['course_code'] ?? "");
-            $shortName = self::normalizeLookupText(self::buildCourseShortName($row['course_title']));
+            $availableSubjects[] = $row['course_title'];
+            $score = self::scoreCourseMatch($message, $row['course_title'], $row['course_code'] ?? "");
 
-            if (
-                ($title !== "" && strpos($normalizedMessage, $title) !== false) ||
-                ($code !== "" && strpos($normalizedMessage, $code) !== false) ||
-                ($shortName !== "" && strpos($normalizedMessage, $shortName) !== false)
-            ) {
-
-                $percentage = round($row['percentage'], 2);
-
-                $response = "Your attendance in " . $row['course_title'] .
-                            " is $percentage percent. You attended " .
-                            $row['attended_classes'] . " out of " .
-                            $row['total_classes'] . " classes.";
-
-                if ($percentage < 75) {
-                    $response .= " Warning: Your attendance is below the required 75 percent.";
-                }
-
-                $stmt->close();
-                return $response;
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $bestMatch = $row;
             }
         }
 
         $stmt->close();
+
+        if ($bestMatch && $bestScore >= 60) {
+            $percentage = round($bestMatch['percentage'], 2);
+
+            $response = "Your attendance in " . $bestMatch['course_title'] .
+                        " is $percentage percent. You attended " .
+                        $bestMatch['attended_classes'] . " out of " .
+                        $bestMatch['total_classes'] . " classes.";
+
+            if ($percentage < 75) {
+                $response .= " Warning: Your attendance is below the required 75 percent.";
+            }
+
+            return $response;
+        }
+
+        foreach ($genericAttendancePhrases as $phrase) {
+            if (strpos($normalizedMessage, $phrase) !== false) {
+                if (!empty($availableSubjects)) {
+                    $preview = implode(", ", array_slice($availableSubjects, 0, 4));
+                    return "Please tell me the subject name. For example, you can ask about {$preview}.";
+                }
+
+                return "Please tell me the subject name for which you want attendance.";
+            }
+        }
+
         return "I could not find attendance for that subject.";
     }
 

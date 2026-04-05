@@ -12,7 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 session_start();
 
-if (!isset($_SESSION['student_id'])) {
+if (!isset($_SESSION['student_id']) && !isset($_SESSION['user_id'])) {
     http_response_code(401);
     echo json_encode(["error" => "Unauthorized access. Please login."]);
     exit();
@@ -171,12 +171,15 @@ if (strlen($audioData) < 2048) {
 
 $queryParams = [
     "model=nova-3",
+    "language=en-US",
     "smart_format=true",
     "punctuate=true"
 ];
 
-foreach (getTranscriptionKeyterms((int) $_SESSION['student_id']) as $keyterm) {
-    $queryParams[] = "keyterm=" . rawurlencode($keyterm);
+if (isset($_SESSION['student_id'])) {
+    foreach (getTranscriptionKeyterms((int) $_SESSION['student_id']) as $keyterm) {
+        $queryParams[] = "keyterm=" . rawurlencode($keyterm);
+    }
 }
 
 $listenUrl = "https://api.deepgram.com/v1/listen?" . implode("&", $queryParams);

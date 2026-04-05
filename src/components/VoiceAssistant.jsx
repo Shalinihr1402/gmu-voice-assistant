@@ -4,14 +4,12 @@ import gmuLogo from "../assets/gmu-logo.png"
 import "./VoiceAssistant.css"
 import { fetchJson, getBackendUrl } from "../utils/api"
 
-const MAX_RECORDING_MS = 8000
+const MAX_RECORDING_MS = 15000
 const STREAMING_TIMESLICE_MS = 250
-const DEEPGRAM_ENDPOINTING_MS = 300
-const USE_BROWSER_TTS_BY_DEFAULT = false
-const DEEPGRAM_TTS_MODEL = "aura-2-asteria-en"
-const DEEPGRAM_TTS_SAMPLE_RATE = 24000
-const INTERRUPT_SPEECH_THRESHOLD = 0.05
-const INTERRUPT_MIN_FRAMES = 4
+const LOCAL_SILENCE_THRESHOLD = 0.018
+const LOCAL_SILENCE_MS = 350
+const LOCAL_MIN_SPEECH_MS = 250
+const USE_BROWSER_TTS_BY_DEFAULT = true
 const PREFERRED_FEMALE_VOICE_HINTS = [
   "zira",
   "aria",
@@ -39,9 +37,20 @@ const VoiceAssistant = () => {
 
   const audioRef = useRef(null)
   const audioUrlRef = useRef(null)
+  const recognitionRef = useRef(null)
+  const recognitionTranscriptRef = useRef("")
+  const recognitionFinalizedRef = useRef(false)
   const mediaRecorderRef = useRef(null)
   const streamRef = useRef(null)
   const listenTimeoutRef = useRef(null)
+  const silenceTimeoutRef = useRef(null)
+  const recordingAudioContextRef = useRef(null)
+  const recordingAnalyserRef = useRef(null)
+  const recordingSourceNodeRef = useRef(null)
+  const recordingAnimationRef = useRef(null)
+  const speechDetectedRef = useRef(false)
+  const recordingStartedAtRef = useRef(0)
+  const lastSpeechDetectedAtRef = useRef(0)
   const ignoreNextRecordingRef = useRef(false)
   const isSpeakingRef = useRef(false)
   const lastSpokenTextRef = useRef("")
@@ -49,16 +58,10 @@ const VoiceAssistant = () => {
   const isProcessingRef = useRef(false)
   const lastPageRef = useRef(null)
   const lastCommandRef = useRef("")
-  const deepgramSocketRef = useRef(null)
   const finalTranscriptRef = useRef("")
   const interimTranscriptRef = useRef("")
   const transcriptSubmittedRef = useRef(false)
   const streamClosedRef = useRef(false)
-  const ttsSocketRef = useRef(null)
-  const ttsAudioContextRef = useRef(null)
-  const ttsNextPlaybackTimeRef = useRef(0)
-  const ttsSourcesRef = useRef(new Set())
-  const ttsStreamGenerationRef = useRef(0)
   const interruptStreamRef = useRef(null)
   const interruptAudioContextRef = useRef(null)
   const interruptAnalyserRef = useRef(null)
@@ -66,6 +69,9 @@ const VoiceAssistant = () => {
   const interruptAnimationRef = useRef(null)
   const interruptSpeechFramesRef = useRef(0)
   const interruptInProgressRef = useRef(false)
+  const profileCacheRef = useRef(null)
+  const paymentCacheRef = useRef(null)
+  const coursesCacheRef = useRef(null)
 
   const navigate = useNavigate()
 
@@ -90,10 +96,58 @@ const VoiceAssistant = () => {
   const cleanupRecorder = (options = {}) => {
     const { ignoreTranscript = false } = options
 
+    if (recognitionRef.current) {
+      const recognition = recognitionRef.current
+      recognitionRef.current = null
+      try {
+        recognition.onresult = null
+        recognition.onerror = null
+        recognition.onend = null
+        recognition.stop()
+      } catch {}
+    }
+
+    recognitionTranscriptRef.current = ""
+    recognitionFinalizedRef.current = false
+
     if (listenTimeoutRef.current) {
       clearTimeout(listenTimeoutRef.current)
       listenTimeoutRef.current = null
     }
+
+    if (silenceTimeoutRef.current) {
+      clearTimeout(silenceTimeoutRef.current)
+      silenceTimeoutRef.current = null
+    }
+
+    if (recordingAnimationRef.current) {
+      cancelAnimationFrame(recordingAnimationRef.current)
+      recordingAnimationRef.current = null
+    }
+
+    if (recordingSourceNodeRef.current) {
+      try {
+        recordingSourceNodeRef.current.disconnect()
+      } catch {}
+      recordingSourceNodeRef.current = null
+    }
+
+    if (recordingAnalyserRef.current) {
+      try {
+        recordingAnalyserRef.current.disconnect()
+      } catch {}
+      recordingAnalyserRef.current = null
+    }
+
+    if (recordingAudioContextRef.current) {
+      const context = recordingAudioContextRef.current
+      recordingAudioContextRef.current = null
+      void context.close().catch(() => {})
+    }
+
+    speechDetectedRef.current = false
+    recordingStartedAtRef.current = 0
+    lastSpeechDetectedAtRef.current = 0
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       if (ignoreTranscript) {
@@ -122,24 +176,6 @@ const VoiceAssistant = () => {
     if (audioUrlRef.current) {
       URL.revokeObjectURL(audioUrlRef.current)
       audioUrlRef.current = null
-    }
-  }
-
-  const cleanupStreamingPlayback = async () => {
-    ttsSourcesRef.current.forEach((source) => {
-      try {
-        source.stop()
-      } catch {}
-    })
-    ttsSourcesRef.current.clear()
-    ttsNextPlaybackTimeRef.current = 0
-
-    if (ttsAudioContextRef.current) {
-      const context = ttsAudioContextRef.current
-      ttsAudioContextRef.current = null
-      try {
-        await context.close()
-      } catch {}
     }
   }
 
@@ -187,10 +223,7 @@ const VoiceAssistant = () => {
     interruptInProgressRef.current = true
 
     try {
-      await stopInterruptMonitor()
-      await stopStreamingTts({ clearRemote: true })
-      cleanupAudio()
-      window.speechSynthesis.cancel()
+      await stopCurrentSpeech()
       setResponse("Listening for your question...")
       setReplySource("")
       await startListening()
@@ -282,23 +315,7 @@ const VoiceAssistant = () => {
   }
 
   const stopStreamingTts = async ({ clearRemote = true } = {}) => {
-    ttsStreamGenerationRef.current += 1
-
-    if (ttsSocketRef.current) {
-      const socket = ttsSocketRef.current
-      ttsSocketRef.current = null
-
-      if (socket.readyState === WebSocket.OPEN && clearRemote) {
-        socket.send(JSON.stringify({ type: "Clear" }))
-        socket.send(JSON.stringify({ type: "Close" }))
-      }
-
-      try {
-        socket.close()
-      } catch {}
-    }
-
-    await cleanupStreamingPlayback()
+    void clearRemote
     await stopInterruptMonitor()
     finishSpeaking()
   }
@@ -308,6 +325,15 @@ const VoiceAssistant = () => {
     setIsSpeaking(false)
     setStartupStatus("")
     void stopInterruptMonitor()
+  }
+
+  const stopCurrentSpeech = async () => {
+    isSpeakingRef.current = false
+    setIsSpeaking(false)
+    await stopInterruptMonitor()
+    cleanupAudio()
+    window.speechSynthesis.cancel()
+    setStartupStatus("")
   }
 
   const resetStreamingTranscript = () => {
@@ -321,25 +347,9 @@ const VoiceAssistant = () => {
     `${finalTranscriptRef.current} ${interimTranscriptRef.current}`.replace(/\s+/g, " ").trim()
   )
 
-  const fetchDeepgramToken = async () => {
-    const data = await fetchJson("deepgramToken.php")
-    return data.token
-  }
-
-  const closeDeepgramSocket = () => {
-    if (!deepgramSocketRef.current) {
-      return
-    }
-
-    const socket = deepgramSocketRef.current
-    deepgramSocketRef.current = null
-
-    if (socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: "CloseStream" }))
-    }
-
-    socket.close()
-  }
+  const getSpeechRecognitionClass = () => (
+    window.SpeechRecognition || window.webkitSpeechRecognition || null
+  )
 
   const submitStreamingTranscript = async (text) => {
     const cleanedText = (text || "").trim().toLowerCase()
@@ -372,239 +382,6 @@ const VoiceAssistant = () => {
     finalTranscriptRef.current = `${normalizedCurrent} ${normalizedNext}`.replace(/\s+/g, " ").trim()
   }
 
-  const openDeepgramStream = async () => {
-    const token = await fetchDeepgramToken()
-    const query = new URLSearchParams({
-      model: "nova-3",
-      language: "en-US",
-      punctuate: "true",
-      smart_format: "true",
-      interim_results: "true",
-      endpointing: String(DEEPGRAM_ENDPOINTING_MS)
-    })
-
-    return new Promise((resolve, reject) => {
-      const socket = new WebSocket(`wss://api.deepgram.com/v1/listen?${query.toString()}`, ["token", token])
-      deepgramSocketRef.current = socket
-
-      socket.onopen = () => resolve(socket)
-      socket.onerror = () => reject(new Error("Unable to connect to Deepgram streaming STT."))
-      socket.onclose = async () => {
-        if (deepgramSocketRef.current === socket) {
-          deepgramSocketRef.current = null
-        }
-
-        if (streamClosedRef.current) {
-          return
-        }
-
-        streamClosedRef.current = true
-        const finalText = getCombinedTranscript()
-
-        if (finalText && isSelfTranscript(finalText)) {
-          setTranscript(finalText.toLowerCase())
-          setResponse("Tap the voice button when you are ready with your next question.")
-          setReplySource("")
-          lastCommandRef.current = ""
-          return
-        }
-
-        if (finalText && !transcriptSubmittedRef.current) {
-          await submitStreamingTranscript(finalText)
-          return
-        }
-
-        if (!finalText && isActiveRef.current) {
-          setTranscript("")
-          setResponse("I did not catch that. Tap the voice button and try again.")
-          setReplySource("")
-          lastCommandRef.current = ""
-        }
-      }
-
-      socket.onmessage = async (event) => {
-        let payload = null
-
-        try {
-          payload = JSON.parse(event.data)
-        } catch {
-          return
-        }
-
-        if (payload.type !== "Results") {
-          return
-        }
-
-        const nextText = (payload.channel?.alternatives?.[0]?.transcript || "").trim()
-        if (!nextText) {
-          return
-        }
-
-        if (payload.is_final) {
-          appendFinalTranscript(nextText)
-          interimTranscriptRef.current = ""
-        } else {
-          interimTranscriptRef.current = nextText
-        }
-
-        const liveTranscript = getCombinedTranscript()
-        if (liveTranscript) {
-          setTranscript(liveTranscript.toLowerCase())
-        }
-
-        if (payload.speech_final && mediaRecorderRef.current?.state !== "inactive") {
-          mediaRecorderRef.current.stop()
-        }
-      }
-    })
-  }
-
-  const ensureTtsAudioContext = async () => {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext
-
-    if (!AudioContextClass) {
-      throw new Error("Streaming audio playback is not supported in this browser.")
-    }
-
-    if (!ttsAudioContextRef.current || ttsAudioContextRef.current.state === "closed") {
-      ttsAudioContextRef.current = new AudioContextClass({
-        sampleRate: DEEPGRAM_TTS_SAMPLE_RATE
-      })
-      ttsNextPlaybackTimeRef.current = 0
-    }
-
-    if (ttsAudioContextRef.current.state === "suspended") {
-      await ttsAudioContextRef.current.resume()
-    }
-
-    return ttsAudioContextRef.current
-  }
-
-  const scheduleLinear16Chunk = async (chunkBuffer, generation) => {
-    if (generation !== ttsStreamGenerationRef.current) {
-      return
-    }
-
-    const context = await ensureTtsAudioContext()
-    const pcm = new Int16Array(chunkBuffer)
-    if (!pcm.length) {
-      return
-    }
-
-    const samples = new Float32Array(pcm.length)
-    for (let index = 0; index < pcm.length; index += 1) {
-      samples[index] = pcm[index] / 32768
-    }
-
-    const audioBuffer = context.createBuffer(1, samples.length, DEEPGRAM_TTS_SAMPLE_RATE)
-    audioBuffer.copyToChannel(samples, 0)
-
-    const source = context.createBufferSource()
-    source.buffer = audioBuffer
-    source.connect(context.destination)
-
-    const startAt = Math.max(context.currentTime + 0.04, ttsNextPlaybackTimeRef.current)
-    ttsNextPlaybackTimeRef.current = startAt + audioBuffer.duration
-
-    ttsSourcesRef.current.add(source)
-    source.onended = () => {
-      ttsSourcesRef.current.delete(source)
-      if (!ttsSourcesRef.current.size && !ttsSocketRef.current) {
-        finishSpeaking()
-      }
-    }
-
-    if (!isSpeakingRef.current) {
-      isSpeakingRef.current = true
-      setIsSpeaking(true)
-      void startInterruptMonitor()
-    }
-
-    source.start(startAt)
-  }
-
-  const chunkTextForTts = (text) => {
-    const normalized = (text || "").replace(/\s+/g, " ").trim()
-    if (!normalized) {
-      return []
-    }
-
-    const matches = normalized.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [normalized]
-    return matches.map((part) => part.trim()).filter(Boolean)
-  }
-
-  async function* sentenceChunkStream(textOrStream) {
-    if (typeof textOrStream === "string") {
-      for (const sentence of chunkTextForTts(textOrStream)) {
-        yield sentence
-      }
-      return
-    }
-
-    if (!textOrStream || typeof textOrStream[Symbol.asyncIterator] !== "function") {
-      return
-    }
-
-    let buffer = ""
-    for await (const chunk of textOrStream) {
-      buffer += chunk || ""
-
-      const sentences = chunkTextForTts(buffer)
-      const endsWithBoundary = /[.!?]["')\]]?\s*$/.test(buffer)
-      const completeCount = endsWithBoundary ? sentences.length : Math.max(sentences.length - 1, 0)
-
-      for (let index = 0; index < completeCount; index += 1) {
-        yield sentences[index]
-      }
-
-      buffer = endsWithBoundary ? "" : (sentences.at(-1) || "")
-    }
-
-    const trailing = buffer.trim()
-    if (trailing) {
-      yield trailing
-    }
-  }
-
-  const openDeepgramTtsStream = async () => {
-    const token = await fetchDeepgramToken()
-    const params = new URLSearchParams({
-      model: DEEPGRAM_TTS_MODEL,
-      encoding: "linear16",
-      sample_rate: String(DEEPGRAM_TTS_SAMPLE_RATE)
-    })
-
-    return new Promise((resolve, reject) => {
-      const socket = new WebSocket(`wss://api.deepgram.com/v1/speak?${params.toString()}`, ["token", token])
-      const generation = ttsStreamGenerationRef.current
-      ttsSocketRef.current = socket
-
-      socket.binaryType = "arraybuffer"
-      socket.onopen = () => resolve({ socket, generation })
-      socket.onerror = () => reject(new Error("Unable to connect to Deepgram streaming TTS."))
-      socket.onclose = () => {
-        if (ttsSocketRef.current === socket) {
-          ttsSocketRef.current = null
-        }
-
-        if (!ttsSourcesRef.current.size) {
-          finishSpeaking()
-        }
-      }
-      socket.onmessage = async (event) => {
-        if (typeof event.data === "string") {
-          return
-        }
-
-        const chunkBuffer = event.data instanceof ArrayBuffer
-          ? event.data
-          : await event.data.arrayBuffer()
-
-        await scheduleLinear16Chunk(chunkBuffer, generation)
-      }
-    })
-  }
-
   const speakTextStream = async (textOrStream, options = {}) => {
     const { preferBrowser = USE_BROWSER_TTS_BY_DEFAULT } = options
 
@@ -616,41 +393,11 @@ const VoiceAssistant = () => {
       return
     }
 
-    cleanupRecorder({ ignoreTranscript: true })
-    cleanupAudio()
-    window.speechSynthesis.cancel()
-    await stopStreamingTts({ clearRemote: true })
-    const generation = ttsStreamGenerationRef.current + 1
-    ttsStreamGenerationRef.current = generation
-
-    try {
-      lastSpokenTextRef.current = typeof textOrStream === "string" ? textOrStream : ""
-      const { socket } = await openDeepgramTtsStream()
-
-      for await (const sentence of sentenceChunkStream(textOrStream)) {
-        if (!sentence || ttsStreamGenerationRef.current !== generation) {
-          continue
-        }
-
-        socket.send(JSON.stringify({
-          type: "Speak",
-          text: sentence
-        }))
-
-        socket.send(JSON.stringify({ type: "Flush" }))
-      }
-
-      if (ttsStreamGenerationRef.current === generation && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "Close" }))
-      }
-    } catch {
-      await stopStreamingTts({ clearRemote: false })
-      const bufferedText = typeof textOrStream === "string" ? textOrStream : ""
-      if (bufferedText) {
-        speakWithBrowserFallback(bufferedText)
-      } else {
-        finishSpeaking()
-      }
+    const bufferedText = typeof textOrStream === "string" ? textOrStream : ""
+    if (bufferedText) {
+      speakWithBrowserFallback(bufferedText)
+    } else {
+      finishSpeaking()
     }
   }
 
@@ -697,13 +444,105 @@ const VoiceAssistant = () => {
     setStartupStatus("")
 
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      setErrorMessage("Microphone recording is not supported in this browser.")
-      return
+      const SpeechRecognitionClass = getSpeechRecognitionClass()
+      if (!SpeechRecognitionClass) {
+        setErrorMessage("Microphone recording is not supported in this browser.")
+        return
+      }
     }
 
     try {
       resetStreamingTranscript()
-      await openDeepgramStream()
+      const SpeechRecognitionClass = getSpeechRecognitionClass()
+
+      if (SpeechRecognitionClass) {
+        const recognition = new SpeechRecognitionClass()
+        recognitionRef.current = recognition
+        recognitionTranscriptRef.current = ""
+        recognitionFinalizedRef.current = false
+
+        recognition.lang = "en-US"
+        recognition.continuous = false
+        recognition.interimResults = true
+        if ("maxAlternatives" in recognition) {
+          recognition.maxAlternatives = 1
+        }
+
+        recognition.onresult = (event) => {
+          let combinedTranscript = ""
+
+          for (let index = event.resultIndex; index < event.results.length; index += 1) {
+            const result = event.results[index]
+            const nextText = (result?.[0]?.transcript || "").trim()
+            if (!nextText) {
+              continue
+            }
+
+            combinedTranscript = `${combinedTranscript} ${nextText}`.trim()
+          }
+
+          if (!combinedTranscript) {
+            return
+          }
+
+          recognitionTranscriptRef.current = combinedTranscript
+          setTranscript(combinedTranscript.toLowerCase())
+
+          const lastResult = event.results[event.results.length - 1]
+          if (lastResult?.isFinal) {
+            recognitionFinalizedRef.current = true
+          }
+        }
+
+        recognition.onerror = () => {
+          recognitionRef.current = null
+          setIsListening(false)
+        }
+
+        recognition.onend = async () => {
+          if (recognitionRef.current === recognition) {
+            recognitionRef.current = null
+          }
+
+          setIsListening(false)
+
+          if (!isActiveRef.current) {
+            return
+          }
+
+          const finalText = (recognitionTranscriptRef.current || "").trim()
+          recognitionTranscriptRef.current = ""
+
+          if (!finalText) {
+            setTranscript("")
+            setResponse("I did not catch that. Tap the voice button and try again.")
+            setReplySource("")
+            lastCommandRef.current = ""
+            return
+          }
+
+          setResponse("Processing your question...")
+          setReplySource("")
+          setIsProcessing(true)
+
+          if (isSelfTranscript(finalText)) {
+            setIsProcessing(false)
+            setTranscript(finalText.toLowerCase())
+            setResponse("Tap the voice button when you are ready with your next question.")
+            setReplySource("")
+            lastCommandRef.current = ""
+            return
+          }
+
+          await submitStreamingTranscript(finalText)
+        }
+
+        setErrorMessage("")
+        setIsListening(true)
+        setTranscript("")
+        recognition.start()
+        return
+      }
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -723,21 +562,68 @@ const VoiceAssistant = () => {
         : new MediaRecorder(stream)
 
       const chunks = []
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext
+
+      if (AudioContextClass) {
+        const audioContext = new AudioContextClass()
+        const analyser = audioContext.createAnalyser()
+        const sourceNode = audioContext.createMediaStreamSource(stream)
+        const timeData = new Uint8Array(2048)
+
+        analyser.fftSize = 2048
+        sourceNode.connect(analyser)
+
+        recordingAudioContextRef.current = audioContext
+        recordingAnalyserRef.current = analyser
+        recordingSourceNodeRef.current = sourceNode
+
+        const monitorSilence = () => {
+          const activeRecorder = mediaRecorderRef.current
+          if (!activeRecorder || activeRecorder.state === "inactive" || !recordingAnalyserRef.current) {
+            recordingAnimationRef.current = null
+            return
+          }
+
+          analyser.getByteTimeDomainData(timeData)
+
+          let sumSquares = 0
+          for (let index = 0; index < timeData.length; index += 1) {
+            const normalized = (timeData[index] - 128) / 128
+            sumSquares += normalized * normalized
+          }
+
+          const rms = Math.sqrt(sumSquares / timeData.length)
+          if (rms >= LOCAL_SILENCE_THRESHOLD) {
+            speechDetectedRef.current = true
+            lastSpeechDetectedAtRef.current = Date.now()
+            if (silenceTimeoutRef.current) {
+              clearTimeout(silenceTimeoutRef.current)
+              silenceTimeoutRef.current = null
+            }
+          } else if (
+            speechDetectedRef.current &&
+            !silenceTimeoutRef.current &&
+            lastSpeechDetectedAtRef.current > 0 &&
+            lastSpeechDetectedAtRef.current - recordingStartedAtRef.current >= LOCAL_MIN_SPEECH_MS
+          ) {
+            silenceTimeoutRef.current = window.setTimeout(() => {
+              silenceTimeoutRef.current = null
+              if (mediaRecorderRef.current?.state !== "inactive") {
+                mediaRecorderRef.current.stop()
+              }
+            }, LOCAL_SILENCE_MS)
+          }
+
+          recordingAnimationRef.current = requestAnimationFrame(monitorSilence)
+        }
+
+        recordingAnimationRef.current = requestAnimationFrame(monitorSilence)
+      }
 
       recorder.ondataavailable = (event) => {
         if (event.data.size) {
           chunks.push(event.data)
         }
-
-        if (!event.data.size || !deepgramSocketRef.current || deepgramSocketRef.current.readyState !== WebSocket.OPEN) {
-          return
-        }
-
-        event.data.arrayBuffer().then((buffer) => {
-          if (deepgramSocketRef.current?.readyState === WebSocket.OPEN) {
-            deepgramSocketRef.current.send(buffer)
-          }
-        }).catch(() => {})
       }
 
       recorder.onstop = async () => {
@@ -745,34 +631,71 @@ const VoiceAssistant = () => {
 
         if (ignoreNextRecordingRef.current) {
           ignoreNextRecordingRef.current = false
-          closeDeepgramSocket()
           return
         }
 
         if (!chunks.length || !isActiveRef.current) {
-          closeDeepgramSocket()
           return
         }
 
-        if (deepgramSocketRef.current?.readyState === WebSocket.OPEN) {
-          deepgramSocketRef.current.send(JSON.stringify({ type: "Finalize" }))
-          window.setTimeout(() => {
-            if (deepgramSocketRef.current?.readyState === WebSocket.OPEN) {
-              deepgramSocketRef.current.send(JSON.stringify({ type: "CloseStream" }))
-            }
-          }, 150)
-        } else {
-          const finalText = getCombinedTranscript()
-          if (finalText && !isSelfTranscript(finalText)) {
-            await submitStreamingTranscript(finalText)
+        setResponse("Processing your question...")
+        setReplySource("")
+        setIsProcessing(true)
+
+        const audioBlob = new Blob(chunks, {
+          type: mimeType || "audio/webm"
+        })
+
+        if (audioBlob.size < 2048) {
+          setIsProcessing(false)
+          setTranscript("")
+          setResponse("I did not catch that. Tap the voice button and try again.")
+          setReplySource("")
+          lastCommandRef.current = ""
+          return
+        }
+
+        const formData = new FormData()
+        formData.append("audio", audioBlob, "voice-input.webm")
+
+        try {
+          const data = await fetchJson("deepgramTranscribe.php", {
+            method: "POST",
+            body: formData
+          })
+
+          const finalText = (data?.transcript || "").trim()
+          if (!finalText) {
+            setIsProcessing(false)
+            setTranscript("")
+            setResponse("I did not catch that. Tap the voice button and try again.")
+            setReplySource("")
+            lastCommandRef.current = ""
+            return
           }
+
+          if (isSelfTranscript(finalText)) {
+            setIsProcessing(false)
+            setTranscript(finalText.toLowerCase())
+            setResponse("Tap the voice button when you are ready with your next question.")
+            setReplySource("")
+            lastCommandRef.current = ""
+            return
+          }
+
+          await submitStreamingTranscript(finalText)
+        } catch (transcriptionError) {
+          setIsProcessing(false)
+          setErrorMessage(transcriptionError.message || "Unable to transcribe your audio.")
         }
       }
 
       streamRef.current = stream
       mediaRecorderRef.current = recorder
+      recordingStartedAtRef.current = Date.now()
       setErrorMessage("")
       setIsListening(true)
+      setTranscript("")
       recorder.start(STREAMING_TIMESLICE_MS)
 
       listenTimeoutRef.current = setTimeout(() => {
@@ -781,7 +704,6 @@ const VoiceAssistant = () => {
         }
       }, MAX_RECORDING_MS)
     } catch (error) {
-      closeDeepgramSocket()
       cleanupRecorder()
       setErrorMessage(error.message || "Unable to start streaming transcription.")
     }
@@ -793,9 +715,11 @@ const VoiceAssistant = () => {
       return
     }
 
-    void stopStreamingTts({ clearRemote: true })
+    void stopInterruptMonitor()
     cleanupAudio()
     cleanupRecorder({ ignoreTranscript: true })
+    isSpeakingRef.current = false
+    setIsSpeaking(false)
     window.speechSynthesis.cancel()
 
     const utterance = new SpeechSynthesisUtterance(text)
@@ -816,7 +740,6 @@ const VoiceAssistant = () => {
     utterance.onstart = () => {
       isSpeakingRef.current = true
       setIsSpeaking(true)
-      void startInterruptMonitor()
     }
 
     utterance.onend = finishSpeaking
@@ -902,7 +825,7 @@ const VoiceAssistant = () => {
         : ""
     }
 
-    if (/\b(who am i|do you know who i am|my profile|tell me about my profile|what am i studying)\b/.test(text)) {
+    if (/\b(who am i|do you know who i am|do you know about me|know about me|tell me about me|my profile|tell me about my profile|what am i studying)\b/.test(text)) {
       if (fullName && semesterLabel && branch) {
         return `You are ${fullName}, a ${semesterLabel} semester ${branch} student at GM University. How can I help you today?`
       }
@@ -913,6 +836,97 @@ const VoiceAssistant = () => {
     }
 
     return ""
+  }
+
+  const loadProfileCache = async () => {
+    if (profileCacheRef.current) {
+      return profileCacheRef.current
+    }
+
+    const data = await fetchJson("getProfile.php")
+    profileCacheRef.current = data
+    return data
+  }
+
+  const loadPaymentCache = async () => {
+    if (paymentCacheRef.current) {
+      return paymentCacheRef.current
+    }
+
+    const data = await fetchJson("getPaymentDetails.php")
+    paymentCacheRef.current = data
+    return data
+  }
+
+  const loadCoursesCache = async () => {
+    if (coursesCacheRef.current) {
+      return coursesCacheRef.current
+    }
+
+    const data = await fetchJson("getCourses.php")
+    coursesCacheRef.current = data
+    return data
+  }
+
+  const formatCurrency = (value) => {
+    const amount = Number(value)
+    if (!Number.isFinite(amount)) {
+      return null
+    }
+
+    return new Intl.NumberFormat("en-IN", {
+      maximumFractionDigits: 0
+    }).format(amount)
+  }
+
+  const getFastDatabaseReply = async (text) => {
+    const normalized = text.toLowerCase()
+
+    if (/\b(final registration|registration status|registered or not|am i registered|have i registered)\b/.test(normalized)) {
+      const payments = await loadPaymentCache()
+      const totalBalance = Array.isArray(payments)
+        ? payments.reduce((sum, item) => sum + Number(item.balance || 0), 0)
+        : 0
+
+      return totalBalance > 0
+        ? "Your final registration is still pending because there is an outstanding fee balance."
+        : "Your final registration is completed successfully."
+    }
+
+    if (/\b(fee balance|fees balance|pending fees|due fees|amount due|fee due|how much fee)\b/.test(normalized)) {
+      const payments = await loadPaymentCache()
+      const totalBalance = Array.isArray(payments)
+        ? payments.reduce((sum, item) => sum + Number(item.balance || 0), 0)
+        : 0
+      const formattedBalance = formatCurrency(totalBalance)
+
+      return totalBalance > 0
+        ? `Your current pending fee balance is rupees ${formattedBalance}.`
+        : "You do not have any pending fee balance."
+    }
+
+    if (/\b(my courses|my subjects|what subjects do i have|what courses do i have|course details|subject details)\b/.test(normalized)) {
+      const courses = await loadCoursesCache()
+      if (!Array.isArray(courses) || !courses.length) {
+        return "I could not find your registered course details right now."
+      }
+
+      const topCourses = courses.slice(0, 3).map((course) => course.title).filter(Boolean)
+      if (!topCourses.length) {
+        return `You currently have ${courses.length} registered courses.`
+      }
+
+      return `You currently have ${courses.length} registered courses. Some of them are ${topCourses.join(", ")}.`
+    }
+
+    if (/\b(usn|registration number|university number)\b/.test(normalized)) {
+      const profile = await loadProfileCache()
+      if (profile?.usn) {
+        return `Your USN is ${profile.usn}.`
+      }
+    }
+
+    return null
   }
 
   const handleVoiceCommand = async (command) => {
@@ -930,14 +944,24 @@ const VoiceAssistant = () => {
       .trim()
 
     if (!cleaned) {
+      setIsProcessing(false)
       replyImmediately("Hello. What can I help you with?")
       return
     }
 
     const localProfileReply = getLocalProfileReply(cleaned)
     if (localProfileReply) {
+      setIsProcessing(false)
       setReplySource("local_profile")
       replyImmediately(localProfileReply)
+      return
+    }
+
+    const fastDatabaseReply = await getFastDatabaseReply(cleaned)
+    if (fastDatabaseReply) {
+      setIsProcessing(false)
+      setReplySource("fast_db")
+      replyImmediately(fastDatabaseReply)
       return
     }
 
@@ -964,14 +988,17 @@ const VoiceAssistant = () => {
       cleaned.includes("open that")
     ) {
       if (lastPageRef.current) {
+        setIsProcessing(false)
         goToPage(lastPageRef.current, "Opening " + lastPageRef.current)
       } else {
+        setIsProcessing(false)
         replyImmediately("Please tell me which page to open.")
       }
       return
     }
 
     if (cleaned.match(/\bprofile\b/) && isNavigationRequest) {
+      setIsProcessing(false)
       if (isStudent) {
         goToPage("profile", "Opening your profile page.")
       } else {
@@ -981,6 +1008,7 @@ const VoiceAssistant = () => {
     }
 
     if (cleaned.match(/\bdashboard\b/) && isNavigationRequest) {
+      setIsProcessing(false)
       if (isStudent) {
         goToPage("dashboard", "Opening your dashboard.")
       } else {
@@ -990,6 +1018,7 @@ const VoiceAssistant = () => {
     }
 
     if (cleaned.match(/\bregistration\b/) && !isRegistrationStatusQuery && isNavigationRequest) {
+      setIsProcessing(false)
       if (isStudent) {
         goToPage("registration", "Opening your registration page.")
       } else {
@@ -1000,6 +1029,7 @@ const VoiceAssistant = () => {
     }
 
     if (cleaned.match(/\bhome\b/) && isNavigationRequest) {
+      setIsProcessing(false)
       goToPage(isStaff ? "portal" : "home", isStaff ? "Opening your role portal." : "Opening your home page.")
       return
     }
@@ -1026,7 +1056,6 @@ const VoiceAssistant = () => {
   useEffect(() => {
     return () => {
       cleanupRecorder()
-      closeDeepgramSocket()
       void stopInterruptMonitor()
       void stopStreamingTts({ clearRemote: false })
       cleanupAudio()
@@ -1043,14 +1072,16 @@ const VoiceAssistant = () => {
     setIsProcessing(false)
     setIsSpeaking(false)
     setReplySource("")
-    setStartupStatus("Starting assistant...")
+    setStartupStatus("Tap to ask")
 
-    const roleLabel = currentUser?.role_name ? ` for ${currentUser.role_name}` : ""
-    const welcome = `Hello${currentUser?.full_name ? ` ${currentUser.full_name}` : ""}. I am GMU VoiceBot${roleLabel}, your voice assistant for profile, fees, attendance, results, and course support. How can I help you today?`
+    const firstName = (currentUser?.full_name || "").trim().split(/\s+/)[0] || ""
+    const welcome = firstName
+      ? `Hello ${firstName}. I am GMU VoiceBot. Tap again and ask your question.`
+      : "Hello. I am GMU VoiceBot. Tap again and ask your question."
     setResponse(welcome)
     setTranscript("")
     setReplySource("")
-    void speak(welcome)
+    void speak(welcome, { preferBrowser: true })
   }
 
   const handleAssistantButtonClick = async () => {
@@ -1064,14 +1095,12 @@ const VoiceAssistant = () => {
     }
 
     if (isSpeakingRef.current) {
-      await stopStreamingTts({ clearRemote: true })
-      cleanupAudio()
-      window.speechSynthesis.cancel()
+      await stopCurrentSpeech()
     }
 
     setResponse("Listening for your question...")
     setReplySource("")
-    void startListening()
+    await startListening()
   }
 
   const closeAssistant = () => {
@@ -1085,9 +1114,7 @@ const VoiceAssistant = () => {
     setReplySource("")
     setStartupStatus("")
     cleanupRecorder()
-    closeDeepgramSocket()
-    void stopInterruptMonitor()
-    void stopStreamingTts({ clearRemote: false })
+    void stopCurrentSpeech()
     cleanupAudio()
     window.speechSynthesis.cancel()
   }

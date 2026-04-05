@@ -14,24 +14,41 @@ session_start();
 
 if (!isset($_SESSION['user_id']) && !isset($_SESSION['student_id'])) {
     http_response_code(401);
-    echo json_encode(["error" => "Unauthorized access. Please login."]);
+    echo json_encode([
+        "ok" => false,
+        "error" => "Unauthorized access. Please login."
+    ]);
     exit();
 }
 
-$apiKey = getenv("DEEPGRAM_API_KEY");
+function getEnvValue($key) {
+    $value = getenv($key);
 
-if (!$apiKey && isset($_SERVER["DEEPGRAM_API_KEY"])) {
-    $apiKey = $_SERVER["DEEPGRAM_API_KEY"];
+    if ($value !== false && $value !== "") {
+        return $value;
+    }
+
+    if (isset($_SERVER[$key]) && $_SERVER[$key] !== "") {
+        return $_SERVER[$key];
+    }
+
+    if (isset($_ENV[$key]) && $_ENV[$key] !== "") {
+        return $_ENV[$key];
+    }
+
+    return null;
 }
 
-if (!$apiKey && isset($_ENV["DEEPGRAM_API_KEY"])) {
-    $apiKey = $_ENV["DEEPGRAM_API_KEY"];
-}
+$apiKey = getEnvValue("DEEPGRAM_API_KEY");
+$ttsModel = getEnvValue("DEEPGRAM_TTS_MODEL") ?: "aura-2-asteria-en";
 
 if (!$apiKey) {
     http_response_code(500);
     echo json_encode([
-        "error" => "Deepgram API key is missing. Set DEEPGRAM_API_KEY in your server environment."
+        "ok" => false,
+        "has_key" => false,
+        "tts_model" => $ttsModel,
+        "error" => "DEEPGRAM_API_KEY is missing from the PHP environment."
     ]);
     exit();
 }
@@ -57,6 +74,9 @@ curl_close($ch);
 if ($response === false) {
     http_response_code(502);
     echo json_encode([
+        "ok" => false,
+        "has_key" => true,
+        "tts_model" => $ttsModel,
         "error" => $curlError ?: "Unable to reach Deepgram."
     ]);
     exit();
@@ -68,11 +88,21 @@ $token = $data["access_token"] ?? null;
 if ($statusCode >= 400 || !$token) {
     http_response_code($statusCode >= 400 ? $statusCode : 502);
     echo json_encode([
-        "error" => $data["err_msg"] ?? $data["message"] ?? "Unable to create Deepgram token."
+        "ok" => false,
+        "has_key" => true,
+        "tts_model" => $ttsModel,
+        "status_code" => $statusCode,
+        "error" => $data["err_msg"] ?? $data["message"] ?? "Unable to create Deepgram token.",
+        "raw" => $data
     ]);
     exit();
 }
 
 echo json_encode([
-    "token" => $token
+    "ok" => true,
+    "has_key" => true,
+    "tts_model" => $ttsModel,
+    "status_code" => $statusCode,
+    "token_preview" => substr($token, 0, 16) . "...",
+    "token_length" => strlen($token)
 ]);
