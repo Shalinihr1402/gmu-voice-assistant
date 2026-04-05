@@ -838,6 +838,50 @@ const VoiceAssistant = () => {
     return ""
   }
 
+  const getFastNaturalReply = (text) => {
+    const normalized = (text || "").trim().toLowerCase()
+    const fullName = currentUser?.full_name || ""
+    const firstName = fullName.trim().split(/\s+/)[0] || ""
+    const branch = currentUser?.branch_name || currentUser?.unit_name || ""
+    const semesterLabel = getOrdinalLabel(currentUser?.semester)
+
+    if (/\b(do you know about me|know about me|tell me about me)\b/.test(normalized)) {
+      if (firstName && semesterLabel && branch) {
+        return `Yes, ${firstName}, I know your profile. You are a ${semesterLabel} semester ${branch} student at GM University.`
+      }
+
+      if (firstName) {
+        return `Yes, ${firstName}, I know a little about your university profile.`
+      }
+
+      return "Yes, I know a little about your university profile."
+    }
+
+    if (/\b(family|father|mother|parents|brother|sister|wife|husband)\b/.test(normalized)) {
+      return "I do not have personal information about your family. I only know the academic profile details available in your university account."
+    }
+
+    if (/^(how are you|how are you doing)$/.test(normalized)) {
+      return "I am doing well. I am ready to help you with your questions."
+    }
+
+    if (/^(who are you|what are you)$/.test(normalized)) {
+      return "I am GMU VoiceBot, your university assistant for profile, fees, attendance, results, and course support."
+    }
+
+    if (/^(thank you|thanks)$/.test(normalized)) {
+      return "You are welcome. I am happy to help."
+    }
+
+    if (/^(good morning|good afternoon|good evening|hello|hi|hey)$/.test(normalized)) {
+      return firstName
+        ? `Hello ${firstName}. How can I help you today?`
+        : "Hello. How can I help you today?"
+    }
+
+    return ""
+  }
+
   const loadProfileCache = async () => {
     if (profileCacheRef.current) {
       return profileCacheRef.current
@@ -954,6 +998,14 @@ const VoiceAssistant = () => {
       setIsProcessing(false)
       setReplySource("local_profile")
       replyImmediately(localProfileReply)
+      return
+    }
+
+    const fastNaturalReply = getFastNaturalReply(cleaned)
+    if (fastNaturalReply) {
+      setIsProcessing(false)
+      setReplySource("fast_natural")
+      replyImmediately(fastNaturalReply)
       return
     }
 
