@@ -48,6 +48,10 @@ const Home = () => {
             Student Registration
           </a>
 
+          <a href="#" onClick={(e) => { e.preventDefault(); navigate('/payment'); }}>
+            Payment Portal
+          </a>
+
           <a href="#" onClick={(e) => e.preventDefault()}>
             Student Result
           </a>
@@ -75,6 +79,10 @@ const Home = () => {
 
           <button className="menu-btn" onClick={() => navigate('/registration')}>
             REGISTRATION
+          </button>
+
+          <button className="menu-btn" onClick={() => navigate('/payment')}>
+            PAYMENT PORTAL
           </button>
 
           <button className="menu-btn">

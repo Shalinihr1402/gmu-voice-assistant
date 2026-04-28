@@ -184,7 +184,7 @@ const Registration = () => {
           <button onClick={() => window.print()}>
             Print
           </button>
-          <button>
+          <button onClick={() => navigate('/payment')}>
             Payment
           </button>
         </div>

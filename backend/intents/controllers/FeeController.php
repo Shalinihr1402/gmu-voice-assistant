@@ -4,6 +4,15 @@ require_once __DIR__ . "/../../config/db.php";
 
 class FeeController {
 
+    private static function normalizeLanguage($language) {
+        $normalized = strtolower(trim((string) $language));
+        return in_array($normalized, ["kn", "kannada", "kn-in"], true) ? "kn" : "en";
+    }
+
+    private static function isKannada($language) {
+        return self::normalizeLanguage($language) === "kn";
+    }
+
     private static function getFeeRows($student_id) {
         global $conn;
 
@@ -30,7 +39,7 @@ class FeeController {
             ];
         }
 
-        $quota = $quotaResult['quota'];
+        $quota = $quotaResult["quota"];
 
         $stmt = $conn->prepare("
             SELECT
@@ -58,9 +67,9 @@ class FeeController {
 
         $rows = [];
         while ($row = $result->fetch_assoc()) {
-            $row['total_fee'] = (float) $row['total_fee'];
-            $row['paid'] = (float) $row['paid'];
-            $row['balance'] = max(0, $row['total_fee'] - $row['paid']);
+            $row["total_fee"] = (float) $row["total_fee"];
+            $row["paid"] = (float) $row["paid"];
+            $row["balance"] = max(0, $row["total_fee"] - $row["paid"]);
             $rows[] = $row;
         }
 
@@ -71,49 +80,66 @@ class FeeController {
         ];
     }
 
-    public static function getFeeBalance($student_id) {
+    public static function getFeeBalance($student_id, $language = "en") {
         $feeData = self::getFeeRows($student_id);
         if (isset($feeData["error"])) {
-            return $feeData["error"];
+            return self::isKannada($language)
+                ? "ಫೀಸ್ ಮಾಹಿತಿ ತರುತ್ತಿರುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು."
+                : $feeData["error"];
         }
 
         $programFee = 0;
         $skillFee = 0;
         $totalFee = 0;
         $totalPaid = 0;
+
         foreach ($feeData["rows"] as $row) {
-            $totalFee += $row['total_fee'];
-            $totalPaid += $row['paid'];
+            $totalFee += $row["total_fee"];
+            $totalPaid += $row["paid"];
 
-            if (stripos($row['fee_type'], "program") !== false) {
-                $programFee += $row['total_fee'];
+            if (stripos($row["fee_type"], "program") !== false) {
+                $programFee += $row["total_fee"];
             }
 
-            if (stripos($row['fee_type'], "skill") !== false) {
-                $skillFee += $row['total_fee'];
+            if (stripos($row["fee_type"], "skill") !== false) {
+                $skillFee += $row["total_fee"];
             }
         }
-        $balance = $totalFee - $totalPaid;
 
-        if ($balance < 0) {
-            $balance = 0;
+        $balance = max(0, $totalFee - $totalPaid);
+
+        if (self::isKannada($language)) {
+            $reply = "ಇದು ನಿಮ್ಮ ಫೀಸ್ ವಿವರ. ";
+            $reply .= "ನಿಮ್ಮ ಪ್ರೋಗ್ರಾಂ ಫೀಸ್ ರೂ. " . number_format($programFee, 2) . ". ";
+
+            if ($skillFee > 0) {
+                $reply .= "ನಿಮ್ಮ ಸ್ಕಿಲ್ ಡೆವಲಪ್ಮೆಂಟ್ ಫೀಸ್ ರೂ. " . number_format($skillFee, 2) . ". ";
+            }
+
+            $reply .= "ನಿಮ್ಮ ಒಟ್ಟು ಅಕಾಡೆಮಿಕ್ ಫೀಸ್ ರೂ. " . number_format($totalFee, 2) . ". ";
+            $reply .= "ನೀವು ಇದುವರೆಗೆ ರೂ. " . number_format($totalPaid, 2) . " ಪಾವತಿಸಿದ್ದೀರಿ. ";
+
+            if ($balance > 0) {
+                $reply .= "ಇನ್ನೂ ಬಾಕಿ ಇರುವ ಫೀಸ್ ರೂ. " . number_format($balance, 2) . ".";
+            } else {
+                $reply .= "ನಿಮ್ಮ ಎಲ್ಲಾ ಫೀಸ್ ಪಾವತಿ ಪೂರ್ಣಗೊಂಡಿದೆ.";
+            }
+
+            return $reply;
         }
 
-        // 4️⃣ Generate natural response
         $reply = "Here is your fee summary. ";
-
-        $reply .= "Your program fee is ₹" . number_format($programFee, 2) . ". ";
+        $reply .= "Your program fee is Rs. " . number_format($programFee, 2) . ". ";
 
         if ($skillFee > 0) {
-            $reply .= "Your skill development fee is ₹" . number_format($skillFee, 2) . ". ";
+            $reply .= "Your skill development fee is Rs. " . number_format($skillFee, 2) . ". ";
         }
 
-        $reply .= "Your total academic fee is ₹" . number_format($totalFee, 2) . ". ";
-
-        $reply .= "You have paid ₹" . number_format($totalPaid, 2) . ". ";
+        $reply .= "Your total academic fee is Rs. " . number_format($totalFee, 2) . ". ";
+        $reply .= "You have paid Rs. " . number_format($totalPaid, 2) . ". ";
 
         if ($balance > 0) {
-            $reply .= "Your remaining balance is ₹" . number_format($balance, 2) . ".";
+            $reply .= "Your remaining balance is Rs. " . number_format($balance, 2) . ".";
         } else {
             $reply .= "You have cleared all your fees. Well done.";
         }
@@ -121,15 +147,19 @@ class FeeController {
         return $reply;
     }
 
-    public static function getFinalRegistrationStatus($student_id) {
+    public static function getFinalRegistrationStatus($student_id, $language = "en") {
         $feeData = self::getFeeRows($student_id);
         if (isset($feeData["error"])) {
-            return $feeData["error"];
+            return self::isKannada($language)
+                ? "ಫೈನಲ್ ರಿಜಿಸ್ಟ್ರೇಷನ್ ಮಾಹಿತಿ ತರುತ್ತಿರುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು."
+                : $feeData["error"];
         }
 
         $rows = $feeData["rows"];
         if (empty($rows)) {
-            return "I could not find your registration payment details.";
+            return self::isKannada($language)
+                ? "ನಿಮ್ಮ ರಿಜಿಸ್ಟ್ರೇಷನ್ ಪಾವತಿ ವಿವರಗಳು ಸಿಗಲಿಲ್ಲ."
+                : "I could not find your registration payment details.";
         }
 
         $pendingItems = [];
@@ -137,16 +167,31 @@ class FeeController {
 
         foreach ($rows as $row) {
             if ($row["balance"] > 0) {
-                $pendingItems[] = $row["fee_type"] . " balance of Rs. " . number_format($row["balance"], 2);
+                if (self::isKannada($language)) {
+                    $pendingItems[] = $row["fee_type"] . " ಬಾಕಿ ರೂ. " . number_format($row["balance"], 2);
+                } else {
+                    $pendingItems[] = $row["fee_type"] . " balance of Rs. " . number_format($row["balance"], 2);
+                }
+
                 $totalBalance += $row["balance"];
             }
         }
 
         if ($totalBalance <= 0) {
-            return "Your course registration is complete and your final registration is also completed successfully. There is no pending fee balance.";
+            return self::isKannada($language)
+                ? "ನಿಮ್ಮ ಕೋರ್ಸ್ ರಿಜಿಸ್ಟ್ರೇಷನ್ ಮತ್ತು ಫೈನಲ್ ರಿಜಿಸ್ಟ್ರೇಷನ್ ಯಶಸ್ವಿಯಾಗಿ ಪೂರ್ಣಗೊಂಡಿವೆ. ಯಾವುದೇ ಫೀಸ್ ಬಾಕಿ ಇಲ್ಲ."
+                : "Your course registration is complete and your final registration is also completed successfully. There is no pending fee balance.";
         }
 
         $pendingSummary = implode(", ", array_slice($pendingItems, 0, 3));
+
+        if (self::isKannada($language)) {
+            return "ನಿಮ್ಮ ಕೋರ್ಸ್ ರಿಜಿಸ್ಟ್ರೇಷನ್ ಪೂರ್ಣಗೊಂಡಿದೆ, ಆದರೆ ನಿಮ್ಮ ಫೈನಲ್ ರಿಜಿಸ್ಟ್ರೇಷನ್ ಇನ್ನೂ ಬಾಕಿಯಿದೆ. ಕಾರಣ, ರೂ. "
+                . number_format($totalBalance, 2)
+                . " ಫೀಸ್ ಬಾಕಿಯಿದೆ. ಬಾಕಿ ಅಂಶಗಳಲ್ಲಿ "
+                . $pendingSummary
+                . " ಸೇರಿವೆ. ಫೈನಲ್ ರಿಜಿಸ್ಟ್ರೇಷನ್ ಪೂರ್ಣಗೊಳಿಸಲು ದಯವಿಟ್ಟು ಈ ಬಾಕಿಯನ್ನು ಪಾವತಿಸಿ.";
+        }
 
         return "Your course registration is complete, but your final registration is still pending because you have an outstanding balance of Rs. " . number_format($totalBalance, 2) . ". Pending items include " . $pendingSummary . ". Please clear the balance to complete final registration.";
     }

@@ -106,6 +106,31 @@
   border-bottom: 2px solid #d4af37;
 }
 
+.voice-language-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 12px 14px 0;
+  background: #ffffff;
+}
+
+.voice-language-toggle button {
+  border: 1px solid #7a1c1c;
+  background: #ffffff;
+  color: #7a1c1c;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.voice-language-toggle button.active {
+  background: #7a1c1c;
+  color: #ffffff;
+  box-shadow: 0 3px 8px rgba(122, 28, 28, 0.25);
+}
+
 /* Close button */
 .close-btn {
   position: absolute;

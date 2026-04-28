@@ -1,10 +1,11 @@
 <?php
 mysqli_report(MYSQLI_REPORT_OFF);
 
-$host = "localhost";
+$host = "127.0.0.1";
 $user = "root";
 $password = "";
 $database = "gmu_voice_assistant";
+
 
 $conn = new mysqli($host, $user, $password, $database);
 

@@ -22,10 +22,12 @@ class IntentService {
     private static $intentMap = [
         "GET_USN" => [
             "usn",
+            "my usn",
             "registration number",
             "university number"
         ],
         "GET_PROFILE_SUMMARY" => [
+            "profile",
             "who am i",
             "do you know who i am",
             "my profile",
@@ -46,7 +48,8 @@ class IntentService {
             "semester gpa",
             "result",
             "semester result",
-            "my result"
+            "my result",
+            "my sgpa"
         ],
         "GET_CGPA" => [
             "cgpa",
@@ -68,6 +71,7 @@ class IntentService {
         "GET_FEES_BALANCE" => [
             "fee",
             "fees",
+            "fee balance",
             "balance",
             "due",
             "pending amount",
@@ -146,9 +150,121 @@ class IntentService {
 
     private static function normalizeIntentText($message) {
         $message = strtolower(trim((string) $message));
-        $message = preg_replace('/[^a-z0-9\s]+/', ' ', $message);
+        $message = self::canonicalizeHindiIntentTerms($message);
+        $message = self::canonicalizeKannadaIntentTerms($message);
+        $message = preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $message);
         $message = preg_replace('/\s+/', ' ', (string) $message);
         return trim((string) $message);
+    }
+
+    private static function containsAny($message, $needles) {
+        foreach ($needles as $needle) {
+            if ($needle !== "" && strpos($message, $needle) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function canonicalizeHindiIntentTerms($message) {
+        $replacements = [
+            '/फाइनल|अंतिम/u' => ' final ',
+            '/रजिस्ट्रेशन|रजिस्ट्रेसन|रेजिस्ट्रेशन|पंजीकरण|पंजीयन/u' => ' registration ',
+            '/हॉल\s*टिकट|हाल\s*टिकट|एडमिट\s*कार्ड|प्रवेश\s*पत्र/u' => ' hall ticket ',
+            '/स्टेटस|स्थिति|हालत/u' => ' status ',
+            '/प्रोफाइल|प्रोफ़ाइल|प्रोफ़ाइल|मेरे\s+बारे|मेरा\s+प्रोफाइल|मेरी\s+प्रोफाइल/u' => ' profile ',
+            '/फीस|फी|शुल्क|बकाया/u' => ' fee balance due ',
+            '/अटेंडेंस|अटेंडेंस|उपस्थिति|हाजिरी/u' => ' attendance ',
+            '/रिजल्ट|रिज़ल्ट|रेजल्ट|रिजल|रेजल|रजल|परिणाम|नतीजा/u' => ' result ',
+            '/एसजीपीए|एस\s*जी\s*पी\s*ए/u' => ' sgpa ',
+            '/सीजीपीए|सी\s*जी\s*पी\s*ए/u' => ' cgpa ',
+            '/बैकलॉग|बेकलॉग|सप्लीमेंटरी/u' => ' backlog ',
+            '/फेल|असफल/u' => ' fail ',
+            '/पास|उत्तीर्ण/u' => ' pass ',
+            '/कोर्स|कोर्सेस|सब्जेक्ट|सब्जेक्ट्स|विषय/u' => ' course subject ',
+            '/कोड/u' => ' code ',
+            '/यूएसएन|यू\s*एस\s*एन/u' => ' usn ',
+            '/मैं\s+कौन/u' => ' who am i ',
+            '/सेमेस्टर/u' => ' semester ',
+            '/ब्रांच|विभाग|डिपार्टमेंट/u' => ' branch department ',
+            '/कितनी|कितना/u' => ' how much ',
+            '/पूरा|पूर्ण|कम्प्लीट|कंप्लीट/u' => ' complete ',
+            '/पेंडिंग|लंबित/u' => ' pending ',
+            '/क्या/u' => ' ',
+            '/मेरा|मेरी|मेरे|अपना|अपनी|आपका|आपकी/u' => ' my '
+        ];
+
+        return preg_replace(
+            array_keys($replacements),
+            array_values($replacements),
+            (string) $message
+        );
+    }
+
+    private static function canonicalizeKannadaIntentTerms($message) {
+        $replacements = [
+            '/\b(nanna|nan|nanage|nanna\s+bagge|nanna\s+profile|nimma)\b/u' => ' my ',
+            '/\b(dayavittu|swalpa|please)\b|ದಯವಿಟ್ಟು/u' => ' ',
+            '/\b(enu|yenu|yen|helu|heli|tilsu|tilisi|torisu|torisi|beku|please tell)\b/u' => ' ',
+            '/\b(profail|profle)\b|ಪ್ರೊಫೈಲ್/u' => ' profile ',
+            '/\b(semesteru|semister|sem)\b|ಸೆಮಿಸ್ಟರ್/u' => ' semester ',
+            '/\b(departmentu|departmente|branchu|vibhaga)\b|ವಿಭಾಗ|ಡಿಪಾರ್ಟ್‌ಮೆಂಟ್|ಬ್ರಾಂಚ್/u' => ' branch department ',
+            '/\b(feesu|feesu|fee|fi|baki|bakki|balanceu|balance|due|fees balance|fee balance)\b|ಶುಲ್ಕ|ಫೀಸ್|ಫೀ|ಬಾಕಿ|ಬ್ಯಾಲೆನ್ಸ್/u' => ' fee balance due ',
+            '/\b(attendence|atendance|attendanceu|attendance|hajari)\b|ಹಾಜರಾತಿ|ಹಾಜರಿ|ಅಟೆಂಡೆನ್ಸ್|ಅಟೆಂಡೆನ್ಸ್/u' => ' attendance ',
+            '/\b(resultu|result|rijalt|resalt|phalithaansha|marks card)\b|ಫಲಿತಾಂಶ|ರಿಸಲ್ಟ್|ರಿಜಲ್ಟ್|ಮಾರ್ಕ್ಸ್/u' => ' result ',
+            '/\b(backlogu|back)\b|ಬ್ಯಾಕ್ಲಾಗ್/u' => ' backlog ',
+            '/\b(faila|fail)\b|ಫೇಲ್/u' => ' fail ',
+            '/\b(passa|pass)\b|ಪಾಸ್/u' => ' pass ',
+            '/\b(courseu|coursu|subjectu|vishaya)\b|ಕೋರ್ಸ್|ಸಬ್ಜೆಕ್ಟ್|ವಿಷಯ/u' => ' course subject ',
+            '/\b(codeu|kode)\b|ಕೋಡ್/u' => ' code ',
+            '/\b(usn|yu es en|u s n|yu esn|uesn|yuesen|yusn|upsn)\b|ಯುಎಸ್‌ಎನ್|ಯು ಎಸ್ ಎನ್|ಯುಎಸ್ಎನ್|ಯುಪಿಎಸನ್|ಯು ಪಿ ಎಸ್ ಎನ್/u' => ' usn ',
+            '/\b(sgpa|esjipie|s j p a)\b|ಎಸ್‌ಜಿಪಿಎ|ಎಸ್ ಜಿಪಿಎ/u' => ' sgpa ',
+            '/\b(cgpa|sijipie|c j p a)\b|ಸಿಜಿಪಿಎ|ಸಿ ಜಿಪಿಎ/u' => ' cgpa ',
+            '/\b(final)\b|ಫೈನಲ್|ಅಂತಿಮ/u' => ' final ',
+            '/\b(registrationu|rijistreshan|registrashan|regis tration|rijis tration|rijis treshan|rejistration)\b|ರಿಜಿಸ್ಟ್ರೇಶನ್|ರಿಜಿಸ್ ಟ್ರೇಶನ್|ನೋಂದಣಿ/u' => ' registration ',
+            '/\b(hallticket|hall\s*ticketu|haal ticket|hal ticket|all ticket|al ticket)\b|ಹಾಲ್\s*ಟಿಕೆಟ್|ಆಲ್\s*ಟಿಕೆಟ್|ಅಲ್\s*ಟಿಕೆಟ್/u' => ' hall ticket ',
+            '/\b(statusu)\b|ಸ್ಥಿತಿ/u' => ' status ',
+            '/\b(yestu|eshtu|yeshtu|how much)\b|ಎಷ್ಟು/u' => ' how much ',
+            '/\b(completea|completeda|complyta)\b|ಪೂರ್ಣ|ಕಂಪ್ಲೀಟ್/u' => ' complete ',
+            '/\b(pendinga|pending)\b|ಪೆಂಡಿಂಗ್/u' => ' pending ',
+            '/\b(naanu\s+yaaru|nanu\s+yaaru)\b|ನಾನು\s+ಯಾರು/u' => ' who am i ',
+            '/\b(yava\s+semester|which\s+semester)\b|ಯಾವ\s+ಸೆಮಿಸ್ಟರ್/u' => ' which semester ',
+            '/\b(yava\s+department|yava\s+branch)\b|ಯಾವ\s+ವಿಭಾಗ/u' => ' which department ',
+            '/\b(heli|helu|tilisi|tilsu|torisu|show madi|open madi)\b|ಹೇಳಿ|ಹೇಳು|ತಿಳಿಸಿ|ತೋರಿಸು/u' => ' '
+        ];
+
+        $message = preg_replace(
+            array_keys($replacements),
+            array_values($replacements),
+            (string) $message
+        );
+
+        $message = str_replace(
+            [
+                'course subject registration',
+                'course subject status',
+                'result status',
+                'attendance status',
+                'fee balance due status',
+                'hall ticket status',
+                'final registration status',
+                'course registration status'
+            ],
+            [
+                'course registration',
+                'course details',
+                'result',
+                'attendance',
+                'fee balance',
+                'hall ticket',
+                'final registration',
+                'course registration'
+            ],
+            $message
+        );
+
+        return $message;
     }
 
     public static function classifyIntent($message, $userContext = []) {
@@ -304,13 +420,148 @@ class IntentService {
     }
 
     private static function detectIntentFallback($message) {
+        $rawMessage = strtolower(trim((string) $message));
         $message = self::normalizeIntentText($message);
+
+        if ($message === "") {
+            return "UNKNOWN";
+        }
+
+        if (
+            preg_match('/ಯು\s*ಎ\s*ಸ\s*ಎನ್/u', $rawMessage) ||
+            preg_match('/ಯು\s*ಪಿ\s*ಎ\s*ಸ\s*ಎನ್/u', $rawMessage) ||
+            preg_match('/ಯು\s*ಪಿ\s*ಎಸ್\s*ಎನ್/u', $rawMessage) ||
+            preg_match('/ಯು\s*ಎಸ್\s*ಎನ್/u', $rawMessage) ||
+            preg_match('/\by\s*u\s*s\s*n\b/u', $rawMessage)
+        ) {
+            return "GET_USN";
+        }
+
+        if (
+            preg_match('/ಹಾಲ್\s*ಟಿಕೆಟ್/u', $rawMessage) ||
+            preg_match('/ಆಲ್\s*ಟಿಕೆಟ್/u', $rawMessage) ||
+            preg_match('/ಅಲ್\s*ಟಿಕೆಟ್/u', $rawMessage)
+        ) {
+            return "GET_HALL_TICKET_STATUS";
+        }
+
+        if (
+            preg_match('/ಫೈನಲ್\s*ರಿಜಿ/u', $rawMessage) ||
+            preg_match('/ರಿಜಿ\s*ಸ್ಟ್ರೇ/u', $rawMessage) ||
+            preg_match('/ನೋಂದಣಿ/u', $rawMessage)
+        ) {
+            return "GET_FINAL_REGISTRATION_STATUS";
+        }
+
+        if (
+            preg_match('/ಫೀಸ್|ಫೀ\s|ಬಾಕಿ|ಬ್ಯಾಲೆನ್ಸ್/u', $rawMessage)
+        ) {
+            return "GET_FEES_BALANCE";
+        }
+
+        if (
+            preg_match('/ಅಟೆಂಡ|ಹಾಜರ/u', $rawMessage)
+        ) {
+            return "GET_ATTENDANCE";
+        }
+
+        if (
+            preg_match('/ರಿಸಲ|ರಿಜಲ|ಫಲಿತಾಂಶ|ಎಸ್\s*ಜಿ\s*ಪಿ\s*ಎ/u', $rawMessage)
+        ) {
+            return "GET_SGPA";
+        }
+
+        if (
+            preg_match('/ಬ್ಯಾಕ್\s*(ಲಾಗ್|ಲೋಗ್|ಲಾಕ್)(್ಸ್|ಸ್)?|ಬ್ಯಾಕ್?(ಲಾಗ್|ಲೋಗ್|ಲಾಕ್)(್ಸ್|ಸ್)?|ಫೇಲ್|ಸಪ್ಲಿಮೆಂಟರಿ/u', $rawMessage) ||
+            preg_match('/\b(backlog|backlogs|fail|failed|supplementary|supply)\b/', $rawMessage) ||
+            preg_match('/ಬ್ಯಾ.*(ಲಾಗ|ಲೋಗ|ಲಾಕ್)/u', $rawMessage)
+        ) {
+            return "GET_BACKLOG_STATUS";
+        }
+
+        if (self::containsAny($message, ["usn", "my usn"])) {
+            return "GET_USN";
+        }
+
+        if (self::containsAny($message, ["hall ticket", "hallticket"])) {
+            return "GET_HALL_TICKET_STATUS";
+        }
+
+        if (self::containsAny($message, [
+            "final registration",
+            "registration status",
+            "registered or not",
+            "registration complete",
+            "registration pending",
+            "course registration"
+        ])) {
+            return "GET_FINAL_REGISTRATION_STATUS";
+        }
+
+        if (self::containsAny($message, [
+            "fee balance",
+            "fees balance",
+            "pending amount",
+            "amount due",
+            "balance due",
+            "fee",
+            "fees"
+        ])) {
+            return "GET_FEES_BALANCE";
+        }
+
+        if (self::containsAny($message, [
+            "profile",
+            "who am i",
+            "my semester",
+            "which semester",
+            "what semester",
+            "my department",
+            "which department",
+            "my branch",
+            "what am i studying"
+        ])) {
+            return "GET_PROFILE_SUMMARY";
+        }
+
+        if (self::containsAny($message, ["cgpa", "overall gpa", "cumulative gpa"])) {
+            return "GET_CGPA";
+        }
+
+        if (self::containsAny($message, [
+            "sgpa",
+            "semester gpa",
+            "semester result",
+            "my result",
+            "result"
+        ])) {
+            return "GET_SGPA";
+        }
+
+        if (self::containsAny($message, ["backlog", "failed subject", "supplementary", "fail"])) {
+            return "GET_BACKLOG_STATUS";
+        }
 
         if (
             preg_match('/\b(course|subject)\s+code\b/', $message) ||
-            preg_match('/\bcode\s+(of|for)\b/', $message)
+            preg_match('/\bcode\s+(of|for)\b/', $message) ||
+            preg_match('/ಕೋಡ್/u', $rawMessage) ||
+            preg_match('/course code|subject code/', $message)
         ) {
             return "GET_COURSE_CODE";
+        }
+
+        if (self::containsAny($message, [
+            "course subject",
+            "my courses",
+            "my subjects",
+            "course details",
+            "subject details",
+            "registered subjects",
+            "registered courses",
+            "course"
+        ])) {
+            return "GET_COURSE_DETAILS";
         }
 
         if (strpos($message, "attendance") !== false) {
@@ -319,7 +570,8 @@ class IntentService {
                 "overall attendance",
                 "attendance percentage",
                 "attendance status",
-                "total attendance"
+                "total attendance",
+                "attendance"
             ];
 
             foreach ($overallAttendanceHints as $hint) {
@@ -334,6 +586,24 @@ class IntentService {
             ) {
                 return "GET_SUBJECT_ATTENDANCE";
             }
+
+            return "GET_ATTENDANCE";
+        }
+
+        if (self::containsAny($message, [
+            "student portal",
+            "semester",
+            "department",
+            "branch",
+            "result",
+            "attendance",
+            "registration",
+            "hall ticket",
+            "fee",
+            "usn",
+            "profile"
+        ])) {
+            return "GET_PROFILE_SUMMARY";
         }
 
         $bestIntent = "UNKNOWN";

@@ -6,20 +6,45 @@ class StudentController {
     private static $courseAliases = [
         "dbms" => "database management systems",
         "dbms lab" => "dbms laboratory",
+        "ಡಿಬಿಎಮ್ಎಸ್" => "database management systems",
+        "ಡಿಬಿಎಂಎಸ್" => "database management systems",
+        "ಡೇಟಾಬೇಸ್ ಮ್ಯಾನೆಜ್ಮೆಂಟ್ ಸಿಸ್ಟಮ್ಸ್" => "database management systems",
+        "ಡಿಬಿಎಮ್ಎಸ್ ಲ್ಯಾಬ್" => "dbms laboratory",
         "ai" => "artificial intelligence",
         "artificial intelligence" => "artificial intelligence",
+        "ಎಐ" => "artificial intelligence",
+        "ಆರ್ಟಿಫಿಷಿಯಲ್ ಇಂಟೆಲಿಜೆನ್ಸ್" => "artificial intelligence",
         "os" => "operating systems",
         "operating systems" => "operating systems",
+        "ಓಎಸ್" => "operating systems",
+        "ಆಪರೇಟಿಂಗ್ ಸಿಸ್ಟಮ್ಸ್" => "operating systems",
         "cn" => "computer networks",
         "computer networks" => "computer networks",
+        "ಸಿಎನ್" => "computer networks",
+        "ಕಂಪ್ಯೂಟರ್ ನೆಟ್ವರ್ಕ್ಸ್" => "computer networks",
         "ds" => "data structures",
         "data structures" => "data structures",
+        "ಡೇಟಾ ಸ್ಟ್ರಕ್ಚರ್ಸ್" => "data structures",
         "se" => "software engineering",
         "software engineering" => "software engineering",
+        "ಸಾಫ್ಟ್‌ವೇರ್ ಎಂಜಿನಿಯರಿಂಗ್" => "software engineering",
         "oop" => "object oriented programming",
         "oops" => "object oriented programming",
-        "java" => "java programming"
+        "ಒಒಪಿ" => "object oriented programming",
+        "java" => "java programming",
+        "ಜಾವಾ" => "java programming",
+        "ಮೈಕ್ರೋಪ್ರೊಸೆಸರ್ಸ್" => "microprocessors",
+        "ಮ್ಯಾಥಮ್ಯಾಟಿಕ್ಸ್ ಫಾರ್ ಕಂಪ್ಯೂಟಿಂಗ್" => "mathematics for computing"
     ];
+
+    private static function normalizeLanguage($language) {
+        $language = strtolower(trim((string) $language));
+        return in_array($language, ["kn", "kannada", "kn-in"], true) ? "kn" : "en";
+    }
+
+    private static function isKannada($language) {
+        return self::normalizeLanguage($language) === "kn";
+    }
 
     private static function normalizeLookupText($text) {
         $text = strtolower(trim((string) $text));
@@ -47,7 +72,25 @@ class StudentController {
     }
 
     private static function stripCourseQueryNoise($text) {
-        $text = self::normalizeLookupText($text);
+        $rawText = strtolower(trim((string) $text));
+        $rawText = str_replace(
+            [
+                "ಕೋಡ್",
+                "ವಿಷಯ",
+                "ಸಬ್ಜೆಕ್ಟ್",
+                "ಕೋರ್ಸ್",
+                "ಹೇಳಿ",
+                "ಹೇಳು",
+                "ಏನು",
+                "ಯೇನು",
+                "subject code",
+                "course code"
+            ],
+            " ",
+            $rawText
+        );
+
+        $text = self::normalizeLookupText($rawText);
         $noisePatterns = [
             '/\bwhat\b/',
             '/\bis\b/',
@@ -360,7 +403,7 @@ class StudentController {
 
     /* ================= GET USN ================= */
 
-    public static function getUSN($student_id) {
+    public static function getUSN($student_id, $language = "en") {
         global $conn;
 
         $stmt = $conn->prepare("
@@ -370,7 +413,7 @@ class StudentController {
         ");
 
         if (!$stmt) {
-            return "System error while fetching USN.";
+            return self::isKannada($language) ? "USN ಮಾಹಿತಿ ತರುತ್ತಿರುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while fetching USN.";
         }
 
         $stmt->bind_param("i", $student_id);
@@ -379,17 +422,19 @@ class StudentController {
         $stmt->close();
 
         if (!$result) {
-            return "USN not found.";
+            return self::isKannada($language) ? "USN ಮಾಹಿತಿ ಸಿಗಲಿಲ್ಲ." : "USN not found.";
         }
 
-        return "Your USN is " . $result['usn'] . ".";
+        return self::isKannada($language)
+            ? "ನಿಮ್ಮ USN " . $result['usn'] . "."
+            : "Your USN is " . $result['usn'] . ".";
     }
 
-    public static function getProfileSummary($student_id, $message = "") {
+    public static function getProfileSummary($student_id, $message = "", $language = "en") {
         $profile = self::getStudentProfileRow($student_id);
 
         if (!$profile) {
-            return "I could not find your student profile right now.";
+            return self::isKannada($language) ? "ಈಗ ನಿಮ್ಮ ವಿದ್ಯಾರ್ಥಿ ಪ್ರೊಫೈಲ್ ಸಿಗಲಿಲ್ಲ." : "I could not find your student profile right now.";
         }
 
         $message = strtolower(trim((string) $message));
@@ -400,18 +445,22 @@ class StudentController {
 
         if (strpos($message, "semester") !== false) {
             if ($semester > 0) {
-                return "You are currently studying in the {$semester}" . self::getOrdinalSuffix($semester) . " semester.";
+                return self::isKannada($language)
+                    ? "ನೀವು ಈಗ {$semester}ನೇ ಸೆಮಿಸ್ಟರ್‌ನಲ್ಲಿ ಓದುತ್ತಿದ್ದೀರಿ."
+                    : "You are currently studying in the {$semester}" . self::getOrdinalSuffix($semester) . " semester.";
             }
 
-            return "I could not find your semester details right now.";
+            return self::isKannada($language) ? "ಈಗ ನಿಮ್ಮ ಸೆಮಿಸ್ಟರ್ ವಿವರಗಳು ಸಿಗಲಿಲ್ಲ." : "I could not find your semester details right now.";
         }
 
         if (strpos($message, "department") !== false || strpos($message, "branch") !== false) {
             if ($branch !== "") {
-                return "You are from the {$branch} department.";
+                return self::isKannada($language)
+                    ? "ನೀವು {$branch} ವಿಭಾಗದವರು."
+                    : "You are from the {$branch} department.";
             }
 
-            return "I could not find your department details right now.";
+            return self::isKannada($language) ? "ಈಗ ನಿಮ್ಮ ವಿಭಾಗದ ವಿವರಗಳು ಸಿಗಲಿಲ್ಲ." : "I could not find your department details right now.";
         }
 
         if (strpos($message, "what am i studying") !== false || strpos($message, "profile") !== false || strpos($message, "who am i") !== false || strpos($message, "do you know who i am") !== false) {
@@ -430,6 +479,23 @@ class StudentController {
             }
 
             if (!empty($parts)) {
+                if (self::isKannada($language)) {
+                    $reply = "ಇದು ನಿಮ್ಮ ಪ್ರೊಫೈಲ್ ವಿವರ.";
+                    if ($fullName !== "") {
+                        $reply .= " ನಿಮ್ಮ ಹೆಸರು {$fullName}.";
+                    }
+                    if ($branch !== "") {
+                        $reply .= " ನೀವು {$branch} ವಿಭಾಗದವರು.";
+                    }
+                    if ($semester > 0) {
+                        $reply .= " ನೀವು {$semester}ನೇ ಸೆಮಿಸ್ಟರ್‌ನಲ್ಲಿ ಇದ್ದೀರಿ.";
+                    }
+                    if ($usn !== "") {
+                        $reply .= " ನಿಮ್ಮ USN {$usn}.";
+                    }
+                    return $reply;
+                }
+
                 $reply = "You are " . implode(", ", $parts) . ".";
                 if ($usn !== "") {
                     $reply .= " Your USN is {$usn}.";
@@ -437,6 +503,23 @@ class StudentController {
                 $reply .= " How can I help you today?";
                 return $reply;
             }
+        }
+
+        if (self::isKannada($language)) {
+            $reply = "ಇದು ನಿಮ್ಮ ಪ್ರೊಫೈಲ್ ವಿವರ.";
+            if ($fullName !== "") {
+                $reply .= " ನಿಮ್ಮ ಹೆಸರು {$fullName}.";
+            }
+            if ($branch !== "") {
+                $reply .= " ನೀವು {$branch} ವಿಭಾಗದವರು.";
+            }
+            if ($semester > 0) {
+                $reply .= " ನೀವು {$semester}ನೇ ಸೆಮಿಸ್ಟರ್‌ನಲ್ಲಿ ಇದ್ದೀರಿ.";
+            }
+            if ($usn !== "") {
+                $reply .= " ನಿಮ್ಮ USN {$usn}.";
+            }
+            return $reply;
         }
 
         $reply = "Here is your profile summary.";
@@ -478,12 +561,12 @@ class StudentController {
 
     /* ================= CALCULATE SGPA ================= */
 
-    public static function getSGPA($student_id, $message = "") {
+    public static function getSGPA($student_id, $message = "", $language = "en") {
         $requestedSemester = self::extractRequestedSemester($message);
         $semester = $requestedSemester ?: self::getLatestSemester($student_id);
 
         if (!$semester) {
-            return "No result information found.";
+            return self::isKannada($language) ? "ಫಲಿತಾಂಶದ ಮಾಹಿತಿ ಸಿಗಲಿಲ್ಲ." : "No result information found.";
         }
 
         $performance = self::buildSemesterPerformance($student_id, $semester);
@@ -496,6 +579,10 @@ class StudentController {
         $backlogs = $performance["backlogs"];
 
         if (!empty($backlogs)) {
+            if (self::isKannada($language)) {
+                return "ನಿಮ್ಮ {$semester}ನೇ ಸೆಮಿಸ್ಟರ್ SGPA {$sgpa}. ನೀವು {$totalCredits} ಕ್ರೆಡಿಟ್ ಗಳಿಸಿದ್ದೀರಿ. ನಿಮ್ಮ ಫಲಿತಾಂಶ ಫೇಲ್ ಆಗಿದೆ, ಏಕೆಂದರೆ ಇನ್ನೂ " . count($backlogs) . " ಬ್ಯಾಕ್‌ಲಾಗ್ ಇದೆ. ಒಳಗೊಂಡ ವಿಷಯಗಳು: " . implode(", ", array_slice($backlogs, 0, 3)) . ".";
+            }
+
             return "In semester {$semester}, your SGPA is {$sgpa}. You have earned {$totalCredits} credits. Your result status is fail because you still have " . count($backlogs) . " backlog" . (count($backlogs) > 1 ? "s" : "") . ", including " . implode(", ", array_slice($backlogs, 0, 3)) . ".";
         }
 
@@ -511,10 +598,25 @@ class StudentController {
             $performanceLine = "You passed, but you should improve next semester.";
         }
 
+        if (self::isKannada($language)) {
+            $kannadaPerformanceLine = "ನೀವು  ಪಾಸ್ ಆಗಿದ್ದೀರಿ.";
+            if ($sgpa >= 9 || $sgpa >= 8) {
+                $kannadaPerformanceLine = "ನೀವು ಅತ್ಯುತ್ತಮ ಪ್ರದರ್ಶನದೊಂದಿಗೆ ಪಾಸ್ ಆಗಿದ್ದೀರಿ.";
+            } elseif ($sgpa >= 7) {
+                $kannadaPerformanceLine = "ನೀವು ಉತ್ತಮ ಪ್ರದರ್ಶನದೊಂದಿಗೆ ಪಾಸ್ ಆಗಿದ್ದೀರಿ.";
+            } elseif ($sgpa >= 6) {
+                $kannadaPerformanceLine = "ನೀವು ತೃಪ್ತಿಕರ ಪ್ರದರ್ಶನದೊಂದಿಗೆ ಪಾಸ್ ಆಗಿದ್ದೀರಿ.";
+            } else {
+                $kannadaPerformanceLine = "ನೀವು ಪಾಸ್ ಆಗಿದ್ದೀರಿ, ಆದರೆ ಮುಂದಿನ ಸೆಮಿಸ್ಟರ್‌ನಲ್ಲಿ ಇನ್ನಷ್ಟು ಉತ್ತಮಪಡಿಸಬೇಕು.";
+            }
+
+            return "ನಿಮ್ಮ {$semester}ನೇ ಸೆಮಿಸ್ಟರ್ SGPA {$sgpa}. ನೀವು {$totalCredits} ಕ್ರೆಡಿಟ್ ಗಳಿಸಿದ್ದೀರಿ. {$kannadaPerformanceLine}";
+        }
+
         return "In semester {$semester}, your SGPA is {$sgpa}. You have earned {$totalCredits} credits. {$performanceLine}";
     }
 
-    public static function getCGPA($student_id) {
+    public static function getCGPA($student_id, $language = "en") {
         global $conn;
 
         $stmt = $conn->prepare("
@@ -525,7 +627,7 @@ class StudentController {
         ");
 
         if (!$stmt) {
-            return "System error while fetching CGPA.";
+            return self::isKannada($language) ? "CGPA ಮಾಹಿತಿ ತರುತ್ತಿರುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while fetching CGPA.";
         }
 
         $stmt->bind_param("i", $student_id);
@@ -553,11 +655,21 @@ class StudentController {
         $stmt->close();
 
         if ($totalCredits <= 0) {
-            return "I could not find enough result data to calculate your CGPA.";
+            return self::isKannada($language) ? "ನಿಮ್ಮ CGPA ಲೆಕ್ಕಿಸಲು ಬೇಕಾದ ಫಲಿತಾಂಶ ಮಾಹಿತಿ ಸಿಗಲಿಲ್ಲ." : "I could not find enough result data to calculate your CGPA.";
         }
 
         $cgpa = round($totalPoints / $totalCredits, 2);
         $semesterCount = count($semesterSet);
+
+        if (self::isKannada($language)) {
+            $reply = "ನಿಮ್ಮ current CGPA {$cgpa}. ಇದು {$semesterCount} ಸೆಮಿಸ್ಟರ್ ಆಧಾರದಲ್ಲಿ ಲೆಕ್ಕಿಸಲಾಗಿದೆ.";
+            if ($backlogCount > 0) {
+                $reply .= " ಈಗ ನಿಮಗೆ {$backlogCount} uncleared backlog" . ($backlogCount > 1 ? "ಗಳು ಇವೆ." : " ಇದೆ.");
+            } else {
+                $reply .= " ಈಗ ನಿಮಗೆ ಯಾವುದೇ backlog ಇಲ್ಲ.";
+            }
+            return $reply;
+        }
 
         $reply = "Your current CGPA is {$cgpa}, calculated across {$semesterCount} semester" . ($semesterCount > 1 ? "s" : "") . ".";
 
@@ -570,7 +682,7 @@ class StudentController {
         return $reply;
     }
 
-    public static function getBacklogStatus($student_id, $message = "") {
+    public static function getBacklogStatus($student_id, $message = "", $language = "en") {
         $requestedSemester = self::extractRequestedSemester($message);
 
         if ($requestedSemester) {
@@ -581,10 +693,14 @@ class StudentController {
 
             $backlogs = $performance["backlogs"];
             if (empty($backlogs)) {
-                return "You passed semester {$requestedSemester} and you do not have any backlog in that semester.";
+                return self::isKannada($language)
+                    ? "ನೀವು {$requestedSemester}ನೇ ಸೆಮಿಸ್ಟರ್ ಪಾಸ್ ಆಗಿದ್ದೀರಿ ಮತ್ತು ಆ ಸೆಮಿಸ್ಟರ್‌ನಲ್ಲಿ ಯಾವುದೇ backlog ಇಲ್ಲ."
+                    : "You passed semester {$requestedSemester} and you do not have any backlog in that semester.";
             }
 
-            return "In semester {$requestedSemester}, you have " . count($backlogs) . " backlog" . (count($backlogs) > 1 ? "s" : "") . ". The uncleared subject" . (count($backlogs) > 1 ? "s are " : " is ") . implode(", ", array_slice($backlogs, 0, 4)) . ".";
+            return self::isKannada($language)
+                ? "{$requestedSemester}ನೇ ಸೆಮಿಸ್ಟರ್‌ನಲ್ಲಿ ನಿಮಗೆ " . count($backlogs) . " backlog" . (count($backlogs) > 1 ? "ಗಳು ಇವೆ." : " ಇದೆ.") . " ಉಳಿದಿರುವ ವಿಷಯಗಳು: " . implode(", ", array_slice($backlogs, 0, 4)) . "."
+                : "In semester {$requestedSemester}, you have " . count($backlogs) . " backlog" . (count($backlogs) > 1 ? "s" : "") . ". The uncleared subject" . (count($backlogs) > 1 ? "s are " : " is ") . implode(", ", array_slice($backlogs, 0, 4)) . ".";
         }
 
         global $conn;
@@ -598,7 +714,7 @@ class StudentController {
         ");
 
         if (!$stmt) {
-            return "System error while checking backlog status.";
+            return self::isKannada($language) ? "Backlog ಮಾಹಿತಿ ಪರಿಶೀಲಿಸುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while checking backlog status.";
         }
 
         $stmt->bind_param("i", $student_id);
@@ -618,7 +734,9 @@ class StudentController {
         $stmt->close();
 
         if (empty($backlogs)) {
-            return "You do not have any current backlog. Your available result records show that you have passed all cleared semesters.";
+            return self::isKannada($language)
+                ? "ಈಗ ನಿಮಗೆ ಯಾವುದೇ backlog ಇಲ್ಲ. ಲಭ್ಯವಿರುವ ಫಲಿತಾಂಶದ ಪ್ರಕಾರ ನೀವು ಎಲ್ಲ cleared semesters ಪಾಸ್ ಆಗಿದ್ದೀರಿ."
+                : "You do not have any current backlog. Your available result records show that you have passed all cleared semesters.";
         }
 
         $grouped = [];
@@ -637,10 +755,12 @@ class StudentController {
             $parts[] = "semester {$semester}: " . implode(", ", array_slice($subjects, 0, 4));
         }
 
-        return "You currently have " . count($backlogs) . " backlog" . (count($backlogs) > 1 ? "s" : "") . ". Uncleared subjects are " . implode("; ", $parts) . ".";
+        return self::isKannada($language)
+            ? "ಈಗ ನಿಮಗೆ " . count($backlogs) . " backlog" . (count($backlogs) > 1 ? "ಗಳು ಇವೆ." : " ಇದೆ.") . " ಉಳಿದಿರುವ ವಿಷಯಗಳು: " . implode("; ", $parts) . "."
+            : "You currently have " . count($backlogs) . " backlog" . (count($backlogs) > 1 ? "s" : "") . ". Uncleared subjects are " . implode("; ", $parts) . ".";
     }
 
-    public static function getHallTicketStatus($student_id, $message = "") {
+    public static function getHallTicketStatus($student_id, $message = "", $language = "en") {
         global $conn;
 
         $requestedExamType = self::extractExamType($message);
@@ -656,7 +776,7 @@ class StudentController {
             ");
 
             if (!$stmt) {
-                return "System error while checking hall ticket status.";
+                return self::isKannada($language) ? "Hall ticket ಮಾಹಿತಿ ಪರಿಶೀಲಿಸುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while checking hall ticket status.";
             }
 
             $stmt->bind_param("is", $student_id, $requestedExamType);
@@ -670,7 +790,7 @@ class StudentController {
             ");
 
             if (!$stmt) {
-                return "System error while checking hall ticket status.";
+                return self::isKannada($language) ? "Hall ticket ಮಾಹಿತಿ ಪರಿಶೀಲಿಸುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while checking hall ticket status.";
             }
 
             $stmt->bind_param("i", $student_id);
@@ -681,7 +801,7 @@ class StudentController {
         $stmt->close();
 
         if (!$record) {
-            return "I could not find any hall ticket status for your account right now.";
+            return self::isKannada($language) ? "ಈಗ ನಿಮ್ಮ ಖಾತೆಗೆ hall ticket ಮಾಹಿತಿ ಸಿಗಲಿಲ್ಲ." : "I could not find any hall ticket status for your account right now.";
         }
 
         $examType = $record["exam_type"];
@@ -691,26 +811,34 @@ class StudentController {
         $statusMessage = trim((string) ($record["status_message"] ?? ""));
 
         if ($status === "GENERATED") {
-            return "Your {$examType} hall ticket for semester {$semester} in {$academicYear} has been generated successfully. You can download it from the hall ticket section.";
+            return self::isKannada($language)
+                ? "{$academicYear}ರಲ್ಲಿ {$semester}ನೇ ಸೆಮಿಸ್ಟರ್‌ನ {$examType} hall ticket ಯಶಸ್ವಿಯಾಗಿ generate ಆಗಿದೆ. ನೀವು ಅದನ್ನು hall ticket sectionನಲ್ಲಿ download ಮಾಡಬಹುದು."
+                : "Your {$examType} hall ticket for semester {$semester} in {$academicYear} has been generated successfully. You can download it from the hall ticket section.";
         }
 
         if ($status === "PENDING") {
-            return "Your {$examType} hall ticket for semester {$semester} in {$academicYear} is not generated yet. " . ($statusMessage !== "" ? $statusMessage : "Please check again later.");
+            return self::isKannada($language)
+                ? "{$academicYear}ರಲ್ಲಿ {$semester}ನೇ ಸೆಮಿಸ್ಟರ್‌ನ {$examType} hall ticket ಇನ್ನೂ generate ಆಗಿಲ್ಲ. " . ($statusMessage !== "" ? $statusMessage : "ದಯವಿಟ್ಟು ನಂತರ ಮತ್ತೆ ಪರಿಶೀಲಿಸಿ.")
+                : "Your {$examType} hall ticket for semester {$semester} in {$academicYear} is not generated yet. " . ($statusMessage !== "" ? $statusMessage : "Please check again later.");
         }
 
         if ($status === "NOT_APPROVED" || $status === "BLOCKED") {
-            return "Your {$examType} hall ticket for semester {$semester} in {$academicYear} is not available right now. " . ($statusMessage !== "" ? $statusMessage : "Please contact your HOD or the exam section.");
+            return self::isKannada($language)
+                ? "{$academicYear}ರಲ್ಲಿ {$semester}ನೇ ಸೆಮಿಸ್ಟರ್‌ನ {$examType} hall ticket ಈಗ ಲಭ್ಯವಿಲ್ಲ. " . ($statusMessage !== "" ? $statusMessage : "ದಯವಿಟ್ಟು ನಿಮ್ಮ HOD ಅಥವಾ exam section ಅನ್ನು ಸಂಪರ್ಕಿಸಿ.")
+                : "Your {$examType} hall ticket for semester {$semester} in {$academicYear} is not available right now. " . ($statusMessage !== "" ? $statusMessage : "Please contact your HOD or the exam section.");
         }
 
-        return "I found a hall ticket record for your {$examType} exam, but the current status needs manual verification. Please contact the exam section.";
+        return self::isKannada($language)
+            ? "ನಿಮ್ಮ {$examType} examಗೆ hall ticket record ಸಿಕ್ಕಿದೆ, ಆದರೆ current status manual verification ಬೇಕಾಗಿದೆ. ದಯವಿಟ್ಟು exam section ಅನ್ನು ಸಂಪರ್ಕಿಸಿ."
+            : "I found a hall ticket record for your {$examType} exam, but the current status needs manual verification. Please contact the exam section.";
     }
 
-    public static function getCourseDetails($student_id, $message = "") {
+    public static function getCourseDetails($student_id, $message = "", $language = "en") {
         global $conn;
 
         $student = self::getStudentAcademicContext($student_id);
         if (!$student) {
-            return "I could not find your semester and branch details.";
+            return self::isKannada($language) ? "ನಿಮ್ಮ ಸೆಮಿಸ್ಟರ್ ಮತ್ತು ವಿಭಾಗದ ವಿವರಗಳು ಸಿಗಲಿಲ್ಲ." : "I could not find your semester and branch details.";
         }
 
         $branch = $student["branch"];
@@ -724,7 +852,7 @@ class StudentController {
         ");
 
         if (!$stmt) {
-            return "System error while fetching course details.";
+            return self::isKannada($language) ? "Course ವಿವರ ತರುತ್ತಿರುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while fetching course details.";
         }
 
         $stmt->bind_param("si", $branch, $semester);
@@ -739,7 +867,7 @@ class StudentController {
         $stmt->close();
 
         if (empty($courses)) {
-            return "I could not find any course details for your current semester.";
+            return self::isKannada($language) ? "ನಿಮ್ಮ current semesterಗೆ course details ಸಿಗಲಿಲ್ಲ." : "I could not find any course details for your current semester.";
         }
 
         $normalizedMessage = strtolower(trim($message));
@@ -752,7 +880,9 @@ class StudentController {
                 (strpos($normalizedMessage, $courseTitle) !== false || strpos($normalizedMessage, $courseCode) !== false)
             ) {
                 $credits = rtrim(rtrim(number_format((float) $course["credits"], 1, ".", ""), "0"), ".");
-                return "{$course["course_title"]} has course code {$course["course_code"]}. It is a {$course["course_type"]} course with {$credits} credit" . ($credits === "1" ? "" : "s") . " in semester {$semester}.";
+                return self::isKannada($language)
+                    ? "{$course["course_title"]} ವಿಷಯದ course code {$course["course_code"]}. ಇದು {$semester}ನೇ ಸೆಮಿಸ್ಟರ್‌ನ {$course["course_type"]} course ಆಗಿದ್ದು {$credits} credit" . ($credits === "1" ? "" : "s") . " ಹೊಂದಿದೆ."
+                    : "{$course["course_title"]} has course code {$course["course_code"]}. It is a {$course["course_type"]} course with {$credits} credit" . ($credits === "1" ? "" : "s") . " in semester {$semester}.";
             }
         }
 
@@ -765,13 +895,15 @@ class StudentController {
             $preview .= ", and " . (count($courseLabels) - 6) . " more";
         }
 
-        return "In semester {$semester}, your subjects are {$preview}.";
+        return self::isKannada($language)
+            ? "{$semester}ನೇ ಸೆಮಿಸ್ಟರ್‌ನಲ್ಲಿ ನಿಮ್ಮ subjects: {$preview}."
+            : "In semester {$semester}, your subjects are {$preview}.";
     }
 
 
     /* ================= GET COURSE CODE ================= */
 
-   public static function getCourseCode($message) {
+   public static function getCourseCode($message, $language = "en") {
         global $conn;
 
         $stmt = $conn->prepare("
@@ -780,7 +912,7 @@ class StudentController {
         ");
 
         if (!$stmt) {
-            return "System error while fetching course information.";
+            return self::isKannada($language) ? "Course ಮಾಹಿತಿ ತರುತ್ತಿರುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while fetching course information.";
         }
 
         $stmt->execute();
@@ -801,15 +933,17 @@ class StudentController {
         $stmt->close();
 
         if ($bestMatch && $bestScore >= 60) {
-            return "The course code for " . $bestMatch['course_title'] . " is " . $bestMatch['course_code'] . ".";
+            return self::isKannada($language)
+                ? $bestMatch['course_title'] . " ವಿಷಯದ course code " . $bestMatch['course_code'] . "."
+                : "The course code for " . $bestMatch['course_title'] . " is " . $bestMatch['course_code'] . ".";
         }
 
-        return "I could not find that course code. Please say the subject name more clearly.";
+        return self::isKannada($language) ? "ಆ course code ಸಿಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು subject ಹೆಸರು ಇನ್ನಷ್ಟು ಸ್ಪಷ್ಟವಾಗಿ ಹೇಳಿ." : "I could not find that course code. Please say the subject name more clearly.";
     }
 
     /* ================= SUBJECT-WISE ATTENDANCE ================= */
 
-    public static function getSubjectAttendance($student_id, $message) {
+    public static function getSubjectAttendance($student_id, $message, $language = "en") {
         global $conn;
 
         $normalizedMessage = self::normalizeLookupText($message);
@@ -835,7 +969,7 @@ class StudentController {
         ");
 
         if (!$stmt) {
-            return "System error while fetching attendance.";
+            return self::isKannada($language) ? "Attendance ಮಾಹಿತಿ ತರುತ್ತಿರುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while fetching attendance.";
         }
 
         $stmt->bind_param("i", $student_id);
@@ -860,13 +994,18 @@ class StudentController {
         if ($bestMatch && $bestScore >= 60) {
             $percentage = round($bestMatch['percentage'], 2);
 
-            $response = "Your attendance in " . $bestMatch['course_title'] .
-                        " is $percentage percent. You attended " .
-                        $bestMatch['attended_classes'] . " out of " .
-                        $bestMatch['total_classes'] . " classes.";
+            $response = self::isKannada($language)
+                        ? $bestMatch['course_title'] . " ವಿಷಯದಲ್ಲಿ ನಿಮ್ಮ attendance $percentage ಪ್ರತಿಶತ. ನೀವು " .
+                          $bestMatch['total_classes'] . " classesಗಳಲ್ಲಿ " . $bestMatch['attended_classes'] . " classes attend ಮಾಡಿದ್ದೀರಿ."
+                        : "Your attendance in " . $bestMatch['course_title'] .
+                          " is $percentage percent. You attended " .
+                          $bestMatch['attended_classes'] . " out of " .
+                          $bestMatch['total_classes'] . " classes.";
 
             if ($percentage < 75) {
-                $response .= " Warning: Your attendance is below the required 75 percent.";
+                $response .= self::isKannada($language)
+                    ? " ಎಚ್ಚರಿಕೆ: ನಿಮ್ಮ attendance 75 ಪ್ರತಿಶತಕ್ಕಿಂತ ಕಡಿಮೆ ಇದೆ."
+                    : " Warning: Your attendance is below the required 75 percent.";
             }
 
             return $response;
@@ -876,20 +1015,22 @@ class StudentController {
             if (strpos($normalizedMessage, $phrase) !== false) {
                 if (!empty($availableSubjects)) {
                     $preview = implode(", ", array_slice($availableSubjects, 0, 4));
-                    return "Please tell me the subject name. For example, you can ask about {$preview}.";
+                    return self::isKannada($language)
+                        ? "ದಯವಿಟ್ಟು subject ಹೆಸರು ಹೇಳಿ. ಉದಾಹರಣೆಗೆ {$preview} ಬಗ್ಗೆ ಕೇಳಬಹುದು."
+                        : "Please tell me the subject name. For example, you can ask about {$preview}.";
                 }
 
-                return "Please tell me the subject name for which you want attendance.";
+                return self::isKannada($language) ? "ಯಾವ subject‌ನ attendance ಬೇಕೋ ಅದರ ಹೆಸರು ಹೇಳಿ." : "Please tell me the subject name for which you want attendance.";
             }
         }
 
-        return "I could not find attendance for that subject.";
+        return self::isKannada($language) ? "ಆ subject‌ನ attendance ಸಿಗಲಿಲ್ಲ." : "I could not find attendance for that subject.";
     }
 
 
     /* ================= OVERALL ATTENDANCE ================= */
 
-    public static function getAttendance($student_id) {
+    public static function getAttendance($student_id, $language = "en") {
         global $conn;
 
         $stmt = $conn->prepare("
@@ -899,7 +1040,7 @@ class StudentController {
         ");
 
         if (!$stmt) {
-            return "System error while fetching attendance.";
+            return self::isKannada($language) ? "Attendance ಮಾಹಿತಿ ತರುತ್ತಿರುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while fetching attendance.";
         }
 
         $stmt->bind_param("i", $student_id);
@@ -908,11 +1049,13 @@ class StudentController {
         $stmt->close();
 
         if (!$result || !$result['overall_percentage']) {
-            return "Attendance data not found.";
+            return self::isKannada($language) ? "Attendance ಮಾಹಿತಿ ಸಿಗಲಿಲ್ಲ." : "Attendance data not found.";
         }
 
         $overall = round($result['overall_percentage'], 2);
 
-        return "Your overall attendance is $overall percent.";
+        return self::isKannada($language)
+            ? "ನಿಮ್ಮ overall attendance $overall ಪ್ರತಿಶತವಾಗಿದೆ."
+            : "Your overall attendance is $overall percent.";
     }
 }

@@ -86,11 +86,19 @@ function getTranscriptionKeyterms($studentId) {
         "GMU",
         "course code",
         "subject code",
+        "payment options",
+        "payment portal",
+        "backlog",
+        "backlogs",
         "registration",
         "attendance",
         "hall ticket",
         "semester",
-        "Computer Science"
+        "Computer Science",
+        "DBMS",
+        "Operating Systems",
+        "Computer Networks",
+        "Artificial Intelligence"
     ];
 
     $studentStmt = $conn->prepare("
@@ -169,9 +177,15 @@ if (strlen($audioData) < 2048) {
     exit();
 }
 
+$requestedLanguage = trim((string) ($_POST["language"] ?? "en"));
+$allowedLanguages = ["en", "en-US", "en-IN", "hi", "hi-IN", "kn", "kn-IN", "multi"];
+if (!in_array($requestedLanguage, $allowedLanguages, true)) {
+    $requestedLanguage = "en";
+}
+
 $queryParams = [
     "model=nova-3",
-    "language=en-US",
+    "language=" . rawurlencode($requestedLanguage),
     "smart_format=true",
     "punctuate=true"
 ];

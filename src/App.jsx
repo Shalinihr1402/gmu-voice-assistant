@@ -5,6 +5,7 @@ import VoiceAssistant from "./components/VoiceAssistant"
 import Login from "./pages/Login"
 import Home from "./pages/Home"
 import Registration from "./pages/Registration"
+import PaymentPortal from "./pages/PaymentPortal"
 import Profile from "./pages/Profile"
 import Dashboard from "./pages/Dashboard"
 import RolePortal from "./pages/RolePortal"
@@ -37,6 +38,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
 
         <Route path="/home" element={<Home />} />
         <Route path="/registration" element={<Registration />} />
+        <Route path="/payment" element={<PaymentPortal />} />
         <Route path="/profile" element={<Profile />} />
         <Route
           path="/portal"

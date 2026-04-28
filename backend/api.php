@@ -61,6 +61,14 @@ if (!$input || !isset($input["message"])) {
 }
 
 $message = trim($input["message"]);
+$language = strtolower(trim((string) ($input["language"] ?? "en")));
+if (in_array($language, ["hi", "hindi", "hi-in"], true)) {
+    $language = "hi";
+} elseif (in_array($language, ["kn", "kannada", "kn-in"], true)) {
+    $language = "kn";
+} else {
+    $language = "en";
+}
 
 // Detect intent
 $classification = IntentService::classifyIntent($message, $userContext);
@@ -72,6 +80,7 @@ $intentSource = $classification["source"] ?? "unknown";
 $reply = "";
 $replySource = "unknown";
 $handledByDatabase = false;
+$dbReplyIsLocalized = false;
 
 if ($route === "database") {
     switch ($intent) {
@@ -82,9 +91,10 @@ if ($route === "database") {
                 $handledByDatabase = true;
                 break;
             }
-            $reply = StudentController::getUSN($student_id);
+            $reply = StudentController::getUSN($student_id, $language);
             $replySource = "db";
             $handledByDatabase = true;
+            $dbReplyIsLocalized = ($language === "kn");
             break;
 
         case "GET_PROFILE_SUMMARY":
@@ -94,9 +104,10 @@ if ($route === "database") {
                 $handledByDatabase = true;
                 break;
             }
-            $reply = StudentController::getProfileSummary($student_id, $message);
+            $reply = StudentController::getProfileSummary($student_id, $message, $language);
             $replySource = "db";
             $handledByDatabase = true;
+            $dbReplyIsLocalized = ($language === "kn");
             break;
 
         case "GET_SGPA":
@@ -106,9 +117,10 @@ if ($route === "database") {
                 $handledByDatabase = true;
                 break;
             }
-            $reply = StudentController::getSGPA($student_id, $message);
+            $reply = StudentController::getSGPA($student_id, $message, $language);
             $replySource = "db";
             $handledByDatabase = true;
+            $dbReplyIsLocalized = ($language === "kn");
             break;
 
         case "GET_CGPA":
@@ -118,9 +130,10 @@ if ($route === "database") {
                 $handledByDatabase = true;
                 break;
             }
-            $reply = StudentController::getCGPA($student_id);
+            $reply = StudentController::getCGPA($student_id, $language);
             $replySource = "db";
             $handledByDatabase = true;
+            $dbReplyIsLocalized = ($language === "kn");
             break;
 
         case "GET_BACKLOG_STATUS":
@@ -130,9 +143,10 @@ if ($route === "database") {
                 $handledByDatabase = true;
                 break;
             }
-            $reply = StudentController::getBacklogStatus($student_id, $message);
+            $reply = StudentController::getBacklogStatus($student_id, $message, $language);
             $replySource = "db";
             $handledByDatabase = true;
+            $dbReplyIsLocalized = ($language === "kn");
             break;
 
         case "GET_FEES_BALANCE":
@@ -142,9 +156,10 @@ if ($route === "database") {
                 $handledByDatabase = true;
                 break;
             }
-            $reply = FeeController::getFeeBalance($student_id);
+            $reply = FeeController::getFeeBalance($student_id, $language);
             $replySource = "db";
             $handledByDatabase = true;
+            $dbReplyIsLocalized = ($language === "kn");
             break;
 
         case "GET_FINAL_REGISTRATION_STATUS":
@@ -154,9 +169,10 @@ if ($route === "database") {
                 $handledByDatabase = true;
                 break;
             }
-            $reply = FeeController::getFinalRegistrationStatus($student_id);
+            $reply = FeeController::getFinalRegistrationStatus($student_id, $language);
             $replySource = "db";
             $handledByDatabase = true;
+            $dbReplyIsLocalized = ($language === "kn");
             break;
 
         case "GET_HALL_TICKET_STATUS":
@@ -166,9 +182,10 @@ if ($route === "database") {
                 $handledByDatabase = true;
                 break;
             }
-            $reply = StudentController::getHallTicketStatus($student_id, $message);
+            $reply = StudentController::getHallTicketStatus($student_id, $message, $language);
             $replySource = "db";
             $handledByDatabase = true;
+            $dbReplyIsLocalized = ($language === "kn");
             break;
 
         case "GET_COURSE_DETAILS":
@@ -178,9 +195,10 @@ if ($route === "database") {
                 $handledByDatabase = true;
                 break;
             }
-            $reply = StudentController::getCourseDetails($student_id, $message);
+            $reply = StudentController::getCourseDetails($student_id, $message, $language);
             $replySource = "db";
             $handledByDatabase = true;
+            $dbReplyIsLocalized = ($language === "kn");
             break;
 
         case "GET_ATTENDANCE":
@@ -190,9 +208,10 @@ if ($route === "database") {
                 $handledByDatabase = true;
                 break;
             }
-            $reply = StudentController::getAttendance($student_id);
+            $reply = StudentController::getAttendance($student_id, $language);
             $replySource = "db";
             $handledByDatabase = true;
+            $dbReplyIsLocalized = ($language === "kn");
             break;
 
         case "GET_SUBJECT_ATTENDANCE":
@@ -202,15 +221,17 @@ if ($route === "database") {
                 $handledByDatabase = true;
                 break;
             }
-            $reply = StudentController::getSubjectAttendance($student_id, $message);
+            $reply = StudentController::getSubjectAttendance($student_id, $message, $language);
             $replySource = "db";
             $handledByDatabase = true;
+            $dbReplyIsLocalized = ($language === "kn");
             break;
 
         case "GET_COURSE_CODE":
-            $reply = StudentController::getCourseCode($message);
+            $reply = StudentController::getCourseCode($message, $language);
             $replySource = "db";
             $handledByDatabase = true;
+            $dbReplyIsLocalized = ($language === "kn");
             break;
     }
 }
@@ -218,11 +239,19 @@ if ($route === "database") {
 if (!$handledByDatabase) {
     $intent = $handledByDatabase ? $intent : "LLM_ASSIST";
     $route = "llm";
-    $reply = LlmService::getReply($message, $userContext);
+    $reply = LlmService::getReply($message, $userContext, $language);
+} elseif (!$dbReplyIsLocalized) {
+    $reply = LlmService::adaptReplyLanguage($reply, $language, $userContext);
 }
 
 if ($replySource !== "unknown") {
-    LlmService::setLastReplyMeta($replySource);
+    $metaSource = $replySource;
+
+    if ($handledByDatabase && $dbReplyIsLocalized) {
+        $metaSource = "db_kannada";
+    }
+
+    LlmService::setLastReplyMeta($metaSource);
 }
 
 $replyMeta = LlmService::getLastReplyMeta();
