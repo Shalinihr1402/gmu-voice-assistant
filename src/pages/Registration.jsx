@@ -2,9 +2,11 @@ import { useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import './Registration.css'
 import { fetchJson } from "../utils/api"
+import { useUiLanguage } from "../utils/uiLanguage"
 
 const Registration = () => {
   const navigate = useNavigate()
+  const uiLanguage = useUiLanguage()
 
   const [student, setStudent] = useState(null)
   const [courses, setCourses] = useState([])
@@ -50,6 +52,28 @@ const Registration = () => {
     (sum, p) => sum + Number(p.balance),
     0
   )
+
+  const grievanceHelpCopy = {
+    en: {
+      heading: "Payment grievance help",
+      line1: "If your fee payment is deducted but status is not updated, open Payment, choose Payment Grievance, enter your USN, phone number, payment details, and upload proof if available.",
+      line2: "To check the update later, open Grievance Result in the same payment portal and search using your USN, phone number, or grievance number."
+    },
+    hi: {
+      heading: "पेमेंट शिकायत सहायता",
+      line1: "अगर आपकी फीस कट गई है लेकिन स्टेटस अपडेट नहीं हुआ, तो Payment खोलें, Payment Grievance चुनें, अपना यूएसएन, फोन नंबर, पेमेंट विवरण भरें, और उपलब्ध होने पर प्रूफ अपलोड करें।",
+      line2: "बाद में अपडेट देखने के लिए उसी पेमेंट पोर्टल में Grievance Result खोलें और यूएसएन, फोन नंबर, या शिकायत नंबर से खोजें।"
+    },
+    kn: {
+      heading: "ಪಾವತಿ ಅಹವಾಲು ಸಹಾಯ",
+      line1: "ನಿಮ್ಮ ಶುಲ್ಕ ಕಟ್ ಆಗಿ ಸ್ಟೇಟಸ್ ಅಪ್‌ಡೇಟ್ ಆಗದಿದ್ದರೆ Payment ತೆರೆಯಿರಿ, Payment Grievance ಆಯ್ಕೆಮಾಡಿ, ನಿಮ್ಮ ಯುಎಸ್‌ಎನ್, ಫೋನ್ ಸಂಖ್ಯೆ, ಪಾವತಿ ವಿವರಗಳನ್ನು ನಮೂದಿಸಿ, ಮತ್ತು ಪ್ರೂಫ್ ಇದ್ದರೆ ಅಪ್‌ಲೋಡ್ ಮಾಡಿ.",
+      line2: "ನಂತರದ ಅಪ್‌ಡೇಟ್ ನೋಡಲು ಅದೇ ಪೇಮೆಂಟ್ ಪೋರ್ಟಲ್‌ನಲ್ಲಿ Grievance Result ತೆರೆಯಿರಿ ಮತ್ತು ಯುಎಸ್‌ಎನ್, ಫೋನ್ ಸಂಖ್ಯೆ, ಅಥವಾ ಅಹವಾಲು ಸಂಖ್ಯೆಯಿಂದ ಹುಡುಕಿ."
+    }
+  }[uiLanguage] || {
+    heading: "Payment grievance help",
+    line1: "If your fee payment is deducted but status is not updated, open Payment, choose Payment Grievance, enter your USN, phone number, payment details, and upload proof if available.",
+    line2: "To check the update later, open Grievance Result in the same payment portal and search using your USN, phone number, or grievance number."
+  }
 
   return (
     <div className="registration-page">
@@ -187,6 +211,12 @@ const Registration = () => {
           <button onClick={() => navigate('/payment')}>
             Payment
           </button>
+        </div>
+
+        <div className="payment-help-note">
+          <h4>{grievanceHelpCopy.heading}</h4>
+          <p>{grievanceHelpCopy.line1}</p>
+          <p>{grievanceHelpCopy.line2}</p>
         </div>
 
       </main>

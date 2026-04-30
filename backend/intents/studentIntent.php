@@ -588,7 +588,7 @@ class IntentService {
 
         if (self::containsAny($message, [
             "sgpa",
-            "semester gpa",
+            "semester cgpa",
             "semester result",
             "my result",
             "result"

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import gmuLogo from "../assets/gmu-logo.png"
 import "./VoiceAssistant.css"
 import { fetchJson, getBackendUrl } from "../utils/api"
+import { getStoredUiLanguage, setStoredUiLanguage } from "../utils/uiLanguage"
 
 const MAX_RECORDING_MS = 15000
 const STREAMING_TIMESLICE_MS = 250
@@ -74,7 +75,7 @@ const VoiceAssistant = () => {
   const [errorMessage, setErrorMessage] = useState("")
   const [currentUser, setCurrentUser] = useState(null)
   const [startupStatus, setStartupStatus] = useState("")
-  const [voiceLanguage, setVoiceLanguage] = useState("en")
+  const [voiceLanguage, setVoiceLanguage] = useState(getStoredUiLanguage())
 
   const audioRef = useRef(null)
   const audioUrlRef = useRef(null)
@@ -176,6 +177,10 @@ const VoiceAssistant = () => {
   useEffect(() => {
     isProcessingRef.current = isProcessing
   }, [isProcessing])
+
+  useEffect(() => {
+    setStoredUiLanguage(voiceLanguage)
+  }, [voiceLanguage])
 
   useEffect(() => {
     fetchJson("getCurrentUser.php")
@@ -1136,6 +1141,10 @@ const VoiceAssistant = () => {
     let normalized = String(text || "").trim().toLowerCase()
 
     const replacements = [
+      [/\b(shikayat|sikayat|shikayath|complaint)\b/g, " grievance "],
+      [/शिकायत|शिकायात|ग्रिवेंस|ग्रीवेंस|गृवेंस|ग्रीयेवेंस/gu, " grievance "],
+      [/\b(ahavalu|ahavaalu|grevans|grievans)\b/g, " grievance "],
+      [/ಅಹವಾಲು|ಅಹವಾಳು|ಗ್ರೀವೆನ್ಸ್|ಗ್ರೀವನ್ಸ್|ಗ್ರಿವನ್ಸ್|ಗ್ರೀವನ್ಸ್/gu, " grievance "],
       [/\bpayment\s*(option|options|aapshan|aapshans|opshan|opshans|apshan|apshans)\b/g, "payment options"],
       [/\bpay\s*ment\s*(option|options)\b/g, "payment options"],
       [/ಪೇಮೆಂಟ್\s*(ಆಪ್ಷನ್|ಆಪ್ಷನ್ಸ್|ಆಪ್ಶನ್|ಆಪ್ಶನ್ಸ್|ಆಪ್ಷನ್ಸ್|ಆಪ್ಶನ್ಸ್)/g, " payment options "],
@@ -1164,9 +1173,206 @@ const VoiceAssistant = () => {
     return normalized
   }
 
+  const getResultSupportReply = async (text) => {
+    const normalized = (text || "").trim().toLowerCase()
+    const hasResultWord = /\b(result|results|marks|marksheet|grade sheet|gradesheet|sgpa)\b|à¤°à¤¿à¤œà¤²à¥à¤Ÿ|à¤¨à¤¤à¥€à¤œà¤¾|à¤®à¤¾à¤°à¥à¤•à¥à¤¸|à¤—à¥à¤°à¥‡à¤¡|à²«à²²à²¿à²¤à²¾à²‚à²¶|à²°à²¿à²¸à²²à³à²Ÿà³|à²®à²¾à²°à³à²•à³à²¸à³|à²—à³à²°à³‡à²¡à³/u.test(normalized)
+
+    if (!hasResultWord) {
+      return null
+    }
+
+    const isProcessQuery = /\b(how to check|how can i check|how to see|where to see|where can i see|how to get|steps|process|check result|see result)\b|à¤•à¥ˆà¤¸à¥‡|à¤•à¤¹à¤¾à¤|à¤•à¤¹à¤¾|à¤¸à¥à¤Ÿà¥‡à¤ªà¥à¤¸|à²¹à³‡à²—à³†|à²à²²à³à²²à²¿|à²¸à³à²Ÿà³†à²ªà³à²¸à³/u.test(normalized)
+
+    if (isProcessQuery) {
+      return {
+        type: "reply",
+        reply: replyInSelectedLanguage(
+          "To check your result, open Student Result under the Result button. Enter USN, select Semester, select Exam like SEE, RESIT, or RE-REGISTRATION, choose Year, choose Season as ODD or EVEN, then click Submit.",
+          "Result check karne ke liye Result button ke andar Student Result kholiye. USN dijiye, Semester select kijiye, Exam mein SEE, RESIT, ya RE-REGISTRATION chuniye, Year select kijiye, Season mein ODD ya EVEN chuniye, phir Submit kijiye.",
+          "Result nodalu Result button alli Student Result tereyiri. USN haki, Semester select madi, Exam nalli SEE, RESIT, athava RE-REGISTRATION ayke madi, Year select madi, Season nalli ODD athava EVEN ayke madi, nantara Submit madi."
+        )
+      }
+    }
+
+    const isInformationQuery = /\b(what is|show|tell|check|view|display|my|give)\b|à¤•à¥à¤¯à¤¾|à¤¦à¤¿à¤–à¤¾|à¤¬à¤¤à¤¾|à¤®à¥‡à¤°à¤¾|à²¨à²¨à³à²¨|à²¤à³‹à²°à²¿à²¸à³|à²¹à³‡à²³à²¿/u.test(normalized)
+
+    if (!isInformationQuery) {
+      return null
+    }
+
+    const profile = await loadProfileCache()
+    const knownUsn = String(profile?.usn || "").trim()
+    const enteredUsnMatch = normalized.match(/\b[a-z]{2,}[0-9]{2,}[a-z0-9]{3,}\b/i)
+    const semesterMatch = normalized.match(/\b(?:semester|sem)\s*(\d+)\b/)
+    const yearMatch = normalized.match(/\b(20\d{2}\s*-\s*\d{2})\b/)
+    const examMatch = normalized.match(/\b(see|resit|re-registration|reregistration)\b/)
+    const seasonMatch = normalized.match(/\b(odd|even)\b/)
+
+    const semesterWordMap = {
+      first: 1,
+      second: 2,
+      third: 3,
+      fourth: 4,
+      fifth: 5,
+      sixth: 6,
+      seventh: 7,
+      eighth: 8
+    }
+
+    let semesterValue = semesterMatch ? semesterMatch[1] : ""
+    if (!semesterValue) {
+      Object.entries(semesterWordMap).some(([word, value]) => {
+        if (normalized.includes(`${word} semester`) || normalized.includes(`${word} sem`)) {
+          semesterValue = String(value)
+          return true
+        }
+        return false
+      })
+    }
+
+    if (semesterValue) {
+      return null
+    }
+
+    const missingFields = []
+    if (!knownUsn && !enteredUsnMatch) missingFields.push("USN")
+    if (!semesterValue) missingFields.push("Semester")
+    if (!examMatch) missingFields.push("Exam")
+    if (!yearMatch) missingFields.push("Year")
+    if (!seasonMatch) missingFields.push("Season")
+
+    if (missingFields.length > 0) {
+      const missingList = missingFields.join(", ")
+      return {
+        type: "reply",
+        reply: replyInSelectedLanguage(
+          `I can help with your result. Please provide these details: ${missingList}. Enter USN, Semester, Exam, Year, and Season, then I can help you check it.`,
+          `Main aapka result check karne mein help kar sakta hoon. Kripya ye details dijiye: ${missingList}. USN, Semester, Exam, Year, aur Season dijiye, phir main help karunga.`,
+          `Nimma result ge nanu help madabahudu. Dayavittu ee details kodi: ${missingList}. USN, Semester, Exam, Year, mattu Season kodi, nantara nanu help maduttene.`
+        )
+      }
+    }
+
+    return null
+  }
+
   const getPaymentSupportReply = async (text) => {
     const normalized = (text || "").trim().toLowerCase()
-    const paymentIntent = /\b(payment|pay fees|pay my fees|fee payment|payment options|how can i pay|how to pay|receipt|grievance)\b/.test(normalized)
+    const detectStructuredPaymentIntent = () => {
+      const grievanceWordPattern = /\b(grievance|graviance|grevience|gradient|gradients|shikayat|sikayat|complaint|ahavalu|ahavaalu|grevans|grievans)\b|शिकायत|शिकायात|ग्रिवेंस|ग्रीवेंस|गृवेंस|ग्रीयेवेंस|ಅಹವಾಲು|ಅಹವಾಳು|ಗ್ರೀವೆನ್ಸ್|ಗ್ರೀವನ್ಸ್|ಗ್ರಿವನ್ಸ್|ಗ್ರೀವನ್ಸ್/u
+      const grievanceApplyPattern = /\b(apply|raise|submit|file|register|complain|kahan|kahaan|kaise|elli|yelli|ellii|hege|henge)\b|कहाँ|कहां|कैसे|दर्ज|जमा|ಮಾಡಿ|ಸಲ್ಲಿಸಿ|ದೂರು|ಎಲ್ಲಿ|ಹೇಗೆ/u
+      const grievanceResultPattern = /\b(check|track|result|status|history|see|view|find|dekho|dekhe|dekhna|nodi|nodu|sthiti|parinam|phalitansh)\b|देख|देखें|स्थिति|परिणाम|ನೋಡಿ|ನೋಡು|ಸ್ಥಿತಿ|ಫಲಿತಾಂಶ/u
+
+      if (/\b(how to check|where can i see|where to see|how can i see|check fee balance|see fee balance|view fee balance|balance check)\b/.test(normalized)
+        && /\b(fee|fees|balance|due|pending)\b/.test(normalized)) {
+        return "FEES_BALANCE_STEPS"
+      }
+
+      if (/\b(what is my fee balance|what is fee balance|what is the fee balance|what is due amount|how much fee pending|how much fee due|how much fee|due amount|amount due|fee balance|fees balance|pending fees|pending fee|due fees|fee due)\b/.test(normalized)) {
+        return "FEES_BALANCE_VALUE"
+      }
+
+      if (/\b(how to pay fees|how do i pay fees|where to pay fees|pay fees|pay my fees|fee payment|pay college fee|pay hostel fee)\b/.test(normalized)) {
+        return "PAY_FEES"
+      }
+
+      if (/\b(payment options|what payment options|what are the payment options|payment methods|which fees can i pay|what fees can i pay|available fee options|available payment options)\b/.test(normalized)) {
+        return "PAYMENT_OPTIONS"
+      }
+
+      if (grievanceWordPattern.test(normalized) && grievanceResultPattern.test(normalized)) {
+        return "GRIEVANCE_RESULT"
+      }
+
+      if ((grievanceWordPattern.test(normalized) && grievanceApplyPattern.test(normalized))
+        || /\braise complaint\b/.test(normalized)) {
+        return "APPLY_GRIEVANCE"
+      }
+
+      return null
+    }
+
+    const structuredIntent = detectStructuredPaymentIntent()
+
+    if (structuredIntent === "FEES_BALANCE_STEPS") {
+      return {
+        type: "reply",
+        reply: replyInSelectedLanguage(
+          "To check your fee balance, open the Registration page. In the Payment Details section, you can see total fee, paid amount, and remaining balance.",
+          "To check your fee balance, open the Registration page. In the Payment Details section, you can see total fee, paid amount, and remaining balance.",
+          "To check your fee balance, open the Registration page. In the Payment Details section, you can see total fee, paid amount, and remaining balance."
+        )
+      }
+    }
+
+    if (structuredIntent === "FEES_BALANCE_VALUE") {
+      const payments = await loadPaymentCache()
+      const hasBalanceData = Array.isArray(payments) && payments.length > 0
+      const totalBalance = hasBalanceData
+        ? payments.reduce((sum, item) => sum + Number(item.balance || 0), 0)
+        : null
+      const formattedBalance = totalBalance == null ? null : formatCurrency(totalBalance)
+
+      return {
+        type: "reply",
+        reply: replyInSelectedLanguage(
+          formattedBalance != null
+            ? `Your current pending fee balance is rupees ${formattedBalance}.`
+            : "To check your fee balance, open the Registration page and view the Payment Details section.",
+          formattedBalance != null
+            ? `Your current pending fee balance is rupees ${formattedBalance}.`
+            : "To check your fee balance, open the Registration page and view the Payment Details section.",
+          formattedBalance != null
+            ? `Your current pending fee balance is rupees ${formattedBalance}.`
+            : "To check your fee balance, open the Registration page and view the Payment Details section."
+        )
+      }
+    }
+
+    if (structuredIntent === "PAY_FEES") {
+      return {
+        type: "reply",
+        reply: replyInSelectedLanguage(
+          "To pay your fees, go to the Registration page and scroll down. Click on the Payment button. In GM Smart Pay, select the required fee option and proceed.",
+          "To pay your fees, go to the Registration page and scroll down. Click on the Payment button. In GM Smart Pay, select the required fee option and proceed.",
+          "To pay your fees, go to the Registration page and scroll down. Click on the Payment button. In GM Smart Pay, select the required fee option and proceed."
+        )
+      }
+    }
+
+    if (structuredIntent === "PAYMENT_OPTIONS") {
+      return {
+        type: "reply",
+        reply: replyInSelectedLanguage(
+          "After clicking the Payment button, you will see options like College or Tuition Fee, Hostel Fee, Skill or Late Registration Fee, Download Receipt, Payment Grievance, and Grievance Result.",
+          "After clicking the Payment button, you will see options like College or Tuition Fee, Hostel Fee, Skill or Late Registration Fee, Download Receipt, Payment Grievance, and Grievance Result.",
+          "After clicking the Payment button, you will see options like College or Tuition Fee, Hostel Fee, Skill or Late Registration Fee, Download Receipt, Payment Grievance, and Grievance Result."
+        )
+      }
+    }
+
+    if (structuredIntent === "APPLY_GRIEVANCE") {
+      return {
+        type: "reply",
+        reply: replyInSelectedLanguage(
+          "To apply for a payment grievance, go to the Registration page, click on the Payment button, then select Payment Grievance. Enter your details and submit.",
+          "To apply for a payment grievance, go to the Registration page, click on the Payment button, then select Payment Grievance. Enter your details and submit.",
+          "To apply for a payment grievance, go to the Registration page, click on the Payment button, then select Payment Grievance. Enter your details and submit."
+        )
+      }
+    }
+
+    if (structuredIntent === "GRIEVANCE_RESULT") {
+      return {
+        type: "reply",
+        reply: replyInSelectedLanguage(
+          "To check grievance result, go to the Registration page, click on the Payment button, then select Grievance Result. Enter your USN and submit.",
+          "To check grievance result, go to the Registration page, click on the Payment button, then select Grievance Result. Enter your USN and submit.",
+          "To check grievance result, go to the Registration page, click on the Payment button, then select Grievance Result. Enter your USN and submit."
+        )
+      }
+    }
+    const paymentIntent = /\b(payment|pay fees|pay my fees|fee payment|payment options|how can i pay|how to pay|receipt|grievance|graviance|grevience|gradients|shikayat|sikayat|complaint|ahavalu|ahavaalu)\b|शिकायत|ग्रिवेंस|ग्रीवेंस|ಅಹವಾಲು|ಗ್ರೀವೆನ್ಸ್/u.test(normalized)
       || /à²ªà²¾à²µà²¤à²¿|à²«à³€à²¸à³ à²ªà²¾à²µà²¤à²¿|à²ªà³‡à²®à³†à²‚à²Ÿà³|à²°à²¿à²¸à³€à²ªà³à²Ÿà³|à²—à³à²°à³€à²µà²¨à³à²¸à³|payment options/u.test(normalized)
       || /à¤ªà¥‡à¤®à¥‡à¤‚à¤Ÿ|à¤«à¥€à¤¸ à¤ªà¥‡à¤®à¥‡à¤‚à¤Ÿ|à¤°à¤¸à¥€à¤¦|à¤—à¥à¤°à¤¿à¤µà¥‡à¤‚à¤¸/u.test(normalized)
 
@@ -1197,6 +1403,36 @@ const VoiceAssistant = () => {
       ? payments.reduce((sum, item) => sum + Number(item.balance || 0), 0)
       : 0
     const formattedBalance = formatCurrency(totalBalance) || "0"
+
+    const grievanceWordPattern = /\b(grievance|graviance|grevience|gradient|gradients|shikayat|sikayat|complaint|ahavalu|ahavaalu|grevans|grievans)\b|शिकायत|शिकायात|ग्रिवेंस|ग्रीवेंस|गृवेंस|ग्रीयेवेंस|ಅಹವಾಲು|ಅಹವಾಳು|ಗ್ರೀವೆನ್ಸ್|ಗ್ರೀವನ್ಸ್|ಗ್ರಿವನ್ಸ್|ಗ್ರೀವನ್ಸ್/u
+    const grievanceApplyPattern = /\b(apply|raise|submit|file|register|complain|kahan|kahaan|kaise|elli|yelli|ellii|hege|henge)\b|कहाँ|कहां|कैसे|दर्ज|जमा|ಮಾಡಿ|ಸಲ್ಲಿಸಿ|ದೂರು|ಎಲ್ಲಿ|ಹೇಗೆ/u
+    const grievanceResultPattern = /\b(check|track|result|status|history|see|view|find|dekho|dekhe|dekhna|nodi|nodu|sthiti|parinam|phalitansh)\b|देख|देखें|स्थिति|परिणाम|ನೋಡಿ|ನೋಡು|ಸ್ಥಿತಿ|ಫಲಿತಾಂಶ/u
+    const isGrievanceResultQuery = grievanceWordPattern.test(normalized) && grievanceResultPattern.test(normalized)
+    const isGrievanceHelpQuery = (grievanceWordPattern.test(normalized) && grievanceApplyPattern.test(normalized))
+      || /\braise complaint\b/.test(normalized)
+      || /\bfee status not updated|fees status not updated|payment deducted|receipt not generated|wrong fee mapping|fee not updated\b/.test(normalized)
+
+    if (isGrievanceResultQuery) {
+      return {
+        type: "reply",
+        reply: replyInSelectedLanguage(
+          "To check your grievance result, open the payment portal and select Grievance Result. Then search with your USN, phone number, or grievance number to view the latest status and remarks.",
+          "Grievance result dekhne ke liye payment portal kholiye aur Grievance Result select kijiye. Phir apna USN, phone number, ya grievance number daal kar latest status aur remarks dekhiye.",
+          "Grievance result nodalu payment portal tereyiri mattu Grievance Result ayke madi. Nantara nimma USN, phone number, athava grievance number haki latest status mattu remarks nodi."
+        )
+      }
+    }
+
+    if (isGrievanceHelpQuery) {
+      return {
+        type: "reply",
+        reply: replyInSelectedLanguage(
+          "If your fee status is not updated, open the payment portal and choose Payment Grievance. Enter your USN, phone number, payment amount, transaction date, and issue details, then upload payment proof if you have it. After submission, use Grievance Result to track the update.",
+          "Agar fee status update nahin hua hai, payment portal me jaakar Payment Grievance kholiye. Apna USN, phone number, payment amount, transaction date, aur issue details dijiye, aur agar proof ho to upload kijiye. Submit karne ke baad Grievance Result se update check kijiye.",
+          "Nimma fee status update agilladiddare payment portal nalli Payment Grievance tereyiri. Nimma USN, phone number, payment amount, transaction date, mattu issue details kodi, proof iddare upload madi. Submit madida mele Grievance Result nalli update nodabahudu."
+        )
+      }
+    }
 
     return {
       type: "reply",
@@ -1310,6 +1546,14 @@ const VoiceAssistant = () => {
     }
 
     const intentText = normalizeVoiceIntent(cleaned)
+
+    const resultSupport = await getResultSupportReply(intentText)
+    if (resultSupport?.type === "reply") {
+      setIsProcessing(false)
+      setReplySource("local_result")
+      replyImmediately(resultSupport.reply)
+      return
+    }
 
     const paymentSupport = await getPaymentSupportReply(intentText)
     if (paymentSupport?.type === "navigate") {

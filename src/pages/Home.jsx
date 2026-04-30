@@ -52,7 +52,7 @@ const Home = () => {
             Payment Portal
           </a>
 
-          <a href="#" onClick={(e) => e.preventDefault()}>
+          <a href="#" onClick={(e) => { e.preventDefault(); navigate('/results'); }}>
             Student Result
           </a>
 
@@ -85,7 +85,7 @@ const Home = () => {
             PAYMENT PORTAL
           </button>
 
-          <button className="menu-btn">
+          <button className="menu-btn" onClick={() => navigate('/results')}>
             RESULT - SEE
           </button>
 
