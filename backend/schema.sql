@@ -327,3 +327,16 @@ INSERT INTO knowledge_base (kb_id, audience_role, topic, content) VALUES
     (5, 'dean', 'Academic Oversight', 'Dean users can use the assistant for academic planning and compliance checks.'),
     (6, 'registrar', 'Records Management', 'Registrar users can use the assistant for records-related operations and verification.'),
     (7, 'management', 'Management Insights', 'Management users can use the assistant for high-level institutional insights.');
+INSERT INTO attendance (
+    attendance_id,
+    student_id,
+    course_id,
+    total_classes,
+    attended_classes,
+    percentage
+) VALUES
+    (6, 1, 13, 35, 30, 85.71),
+    (7, 1, 14, 40, 32, 80.00),
+    (8, 1, 15, 38, 29, 76.32),
+    (9, 1, 16, 25, 22, 88.00),
+    (10, 1, 17, 30, 27, 90.00);

@@ -126,7 +126,9 @@ class IntentService {
             "course code",
             "subject code",
             "code of",
-            "code for"
+            "code for",
+            "what is the course of",
+            "which course is"
         ]
     ];
 
@@ -162,6 +164,50 @@ class IntentService {
             if ($needle !== "" && strpos($message, $needle) !== false) {
                 return true;
             }
+        }
+
+        return false;
+    }
+
+    private static function isSubjectAttendanceQuery($normalizedMessage, $rawMessage) {
+        if (strpos($normalizedMessage, "attendance") === false) {
+            return false;
+        }
+
+        if (self::containsAny($normalizedMessage, [
+            "overall attendance",
+            "my attendance",
+            "attendance percentage",
+            "attendance status",
+            "total attendance"
+        ])) {
+            return false;
+        }
+
+        if (self::containsAny($normalizedMessage, [
+            "subject attendance",
+            "subject wise attendance",
+            "attendance in",
+            "attendance of",
+            "attendance for",
+            "attendance related to",
+            "particular subject",
+            "individual subject",
+            "course subject attendance"
+        ])) {
+            return true;
+        }
+
+        if (preg_match('/\b(cs\d+[a-z0-9]*|dbms|os|cn|ai)\b/i', $normalizedMessage)) {
+            return true;
+        }
+
+        if (preg_match('/\b[a-z0-9&(). -]+\s+attendance\b/', $normalizedMessage)) {
+            return true;
+        }
+
+        if (preg_match('/à²µà²¿à²·à²¯|à²¸à²¬à³à²œà³†à²•à³à²Ÿà³|à²•à³‹à²°à³à²¸à³|à²’à²‚à²¦à³\s+à²µà²¿à²·à²¯|à²ªà²°à³à²Ÿà²¿à²•à³à²¯à³à²²à²°à³/u', $rawMessage)) {
+            return true;
         }
 
         return false;
@@ -277,6 +323,18 @@ class IntentService {
                 "intent" => "ROLE_AWARE_ASSIST",
                 "confidence" => "medium",
                 "source" => "role_policy"
+            ];
+        }
+
+        $normalizedMessage = self::normalizeIntentText($message);
+        $rawMessage = strtolower(trim((string) $message));
+
+        if (self::isSubjectAttendanceQuery($normalizedMessage, $rawMessage)) {
+            return [
+                "route" => self::DATABASE_ROUTE,
+                "intent" => "GET_SUBJECT_ATTENDANCE",
+                "confidence" => "high",
+                "source" => "subject_attendance_fast_path"
             ];
         }
 
@@ -545,6 +603,10 @@ class IntentService {
         if (
             preg_match('/\b(course|subject)\s+code\b/', $message) ||
             preg_match('/\bcode\s+(of|for)\b/', $message) ||
+            preg_match('/\bwhat\s+is\s+the\s+course\s+of\b/', $message) ||
+            preg_match('/\bwhich\s+course\s+is\b/', $message) ||
+            preg_match('/\b(particular|specific)\s+(course|subject)\b/', $message) ||
+            (strpos($message, "code") !== false && preg_match('/\b(dbms|os|cn|ai|course|subject)\b/', $message)) ||
             preg_match('/ಕೋಡ್/u', $rawMessage) ||
             preg_match('/course code|subject code/', $message)
         ) {

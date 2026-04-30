@@ -70,6 +70,58 @@ if (in_array($language, ["hi", "hindi", "hi-in"], true)) {
     $language = "en";
 }
 
+$normalizedMessage = strtolower($message);
+$hasAttendanceWord = (bool) preg_match(
+    '/\battendance\b|ಅಟೆಂಡೆನ್ಸ್|ಹಾಜರಿ|ಹಾಜರಾತಿ|attendence|atendance/u',
+    $normalizedMessage
+);
+$hasOverallAttendanceWord = (bool) preg_match(
+    '/\boverall\b|\btotal\b|ಒಟ್ಟು|ಟೋಟಲ್/u',
+    $normalizedMessage
+);
+$hasSpecificSubjectWord = (bool) preg_match(
+    '/\b(dbms|d\s*b\s*m\s*s|os|o\s*s|cn|c\s*n|ai|a\s*i|database management systems|operating systems|computer networks|dbms laboratory|artificial intelligence|cs501|cs502|cs503|cs5l1|cs5e1)\b|ಡಿಬಿಎಂಎಸ್|ಡಿಬಿಎಂಎಸ್ ಲ್ಯಾಬ್|ಆಪರೇಟಿಂಗ್ ಸಿಸ್ಟಮ್ಸ್|ಕಂಪ್ಯೂಟರ್ ನೆಟ್ವರ್ಕ್ಸ್|ಆರ್ಟಿಫಿಶಿಯಲ್ ಇಂಟೆಲಿಜೆನ್ಸ್/u',
+    $normalizedMessage
+);
+$hasCourseCodeWord = StudentController::isLikelyCourseCodeQuery($message); /*
+    '/\b(course|subject)\s+code\b|\bcode\s+(of|for)\b|\bcode\b|à²•à³‹à²¡à³|course code|subject code/u',
+    $normalizedMessage
+);
+$hasKannadaCourseCodeHint = (bool) preg_match(
+    '/ಕೋಡ್|ಕೋಡಿ|ಕೋರ್ಡ್|ಕೋರ್ಸ್ ಕೋಡ್|ಸಬ್ಜೆಕ್ಟ್ ಕೋಡ್|ವಿಷಯದ ಕೋಡ್/u',
+    $message
+);
+*/
+if ($student_id && $hasAttendanceWord && $hasSpecificSubjectWord && !$hasOverallAttendanceWord) {
+    $reply = StudentController::getSubjectAttendance($student_id, $message, $language);
+    LlmService::setLastReplyMeta($language === "kn" ? "db_kannada" : "db");
+    echo json_encode([
+        "status" => "success",
+        "intent" => "GET_SUBJECT_ATTENDANCE",
+        "route" => "database",
+        "confidence" => "high",
+        "intent_source" => "api_fast_path",
+        "reply" => $reply,
+        "reply_source" => $language === "kn" ? "db_kannada" : "db"
+    ]);
+    exit();
+}
+
+if ($hasCourseCodeWord) {
+    $reply = StudentController::getCourseCode($message, $language);
+    LlmService::setLastReplyMeta($language === "kn" ? "db_kannada" : "db");
+    echo json_encode([
+        "status" => "success",
+        "intent" => "GET_COURSE_CODE",
+        "route" => "database",
+        "confidence" => "high",
+        "intent_source" => "api_fast_path",
+        "reply" => $reply,
+        "reply_source" => $language === "kn" ? "db_kannada" : "db"
+    ]);
+    exit();
+}
+
 // Detect intent
 $classification = IntentService::classifyIntent($message, $userContext);
 $intent = $classification["intent"] ?? "UNKNOWN";
@@ -208,7 +260,15 @@ if ($route === "database") {
                 $handledByDatabase = true;
                 break;
             }
-            $reply = StudentController::getAttendance($student_id, $language);
+            $normalizedAttendanceMessage = strtolower(trim((string) $message));
+            $isExplicitOverallAttendance = (bool) preg_match(
+                '/\b(overall|total|my attendance|attendance percentage|attendance status)\b|ಒಟ್ಟು|ಒವರ್ ಆಲ್|overall|ಟೋಟಲ್/u',
+                $normalizedAttendanceMessage
+            );
+
+            $reply = $isExplicitOverallAttendance
+                ? StudentController::getAttendance($student_id, $language)
+                : StudentController::getSubjectAttendance($student_id, $message, $language);
             $replySource = "db";
             $handledByDatabase = true;
             $dbReplyIsLocalized = ($language === "kn");
