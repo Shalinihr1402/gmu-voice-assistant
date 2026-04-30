@@ -51,7 +51,7 @@ const Profile = () => {
             Student Registration
           </a>
 
-          <a href="#" onClick={(e) => e.preventDefault()}>
+          <a href="#" onClick={(e) => { e.preventDefault(); navigate('/results'); }}>
             Student Result
           </a>
 

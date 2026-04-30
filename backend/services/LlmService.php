@@ -514,7 +514,7 @@ class LlmService {
             "generationConfig" => [
                 "temperature" => 0.55,
                 "topP" => 0.9,
-                "maxOutputTokens" => 90
+                "maxOutputTokens" => 200
             ]
         ]);
 

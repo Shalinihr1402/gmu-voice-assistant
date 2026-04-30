@@ -401,6 +401,28 @@ class StudentController {
         ];
     }
 
+    private static function groupBacklogsBySemester($backlogs) {
+        $grouped = [];
+
+        foreach ($backlogs as $backlog) {
+            $semester = (int) ($backlog["semester"] ?? 0);
+            $courseTitle = trim((string) ($backlog["course_title"] ?? ""));
+
+            if ($semester <= 0 || $courseTitle === "") {
+                continue;
+            }
+
+            if (!isset($grouped[$semester])) {
+                $grouped[$semester] = [];
+            }
+
+            $grouped[$semester][] = $courseTitle;
+        }
+
+        ksort($grouped);
+        return $grouped;
+    }
+
     /* ================= GET USN ================= */
 
     public static function getUSN($student_id, $language = "en") {
@@ -613,7 +635,7 @@ class StudentController {
             return "ನಿಮ್ಮ {$semester}ನೇ ಸೆಮಿಸ್ಟರ್ SGPA {$sgpa}. ನೀವು {$totalCredits} ಕ್ರೆಡಿಟ್ ಗಳಿಸಿದ್ದೀರಿ. {$kannadaPerformanceLine}";
         }
 
-        return "In semester {$semester}, your SGPA is {$sgpa}. You have earned {$totalCredits} credits. {$performanceLine}";
+        return "In semester {$semester}, your SGPA is {$sgpa}. You have earned {$totalCredits} credits. {$performanceLine} You do not have any backlog in this semester.";
     }
 
     public static function getCGPA($student_id, $language = "en") {
@@ -739,16 +761,7 @@ class StudentController {
                 : "You do not have any current backlog. Your available result records show that you have passed all cleared semesters.";
         }
 
-        $grouped = [];
-        foreach ($backlogs as $backlog) {
-            $semester = $backlog["semester"];
-            if (!isset($grouped[$semester])) {
-                $grouped[$semester] = [];
-            }
-            $grouped[$semester][] = $backlog["course_title"];
-        }
-
-        ksort($grouped);
+        $grouped = self::groupBacklogsBySemester($backlogs);
 
         $parts = [];
         foreach ($grouped as $semester => $subjects) {
@@ -757,7 +770,7 @@ class StudentController {
 
         return self::isKannada($language)
             ? "ಈಗ ನಿಮಗೆ " . count($backlogs) . " backlog" . (count($backlogs) > 1 ? "ಗಳು ಇವೆ." : " ಇದೆ.") . " ಉಳಿದಿರುವ ವಿಷಯಗಳು: " . implode("; ", $parts) . "."
-            : "You currently have " . count($backlogs) . " backlog" . (count($backlogs) > 1 ? "s" : "") . ". Uncleared subjects are " . implode("; ", $parts) . ".";
+            : "You currently have " . count($backlogs) . " backlog" . (count($backlogs) > 1 ? "s" : "") . " across " . count($grouped) . " semester" . (count($grouped) > 1 ? "s" : "") . ". Uncleared subjects are " . implode("; ", $parts) . ".";
     }
 
     public static function getHallTicketStatus($student_id, $message = "", $language = "en") {
