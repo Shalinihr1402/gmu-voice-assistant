@@ -5,20 +5,30 @@ require_once __DIR__ . "/../../config/db.php";
 class StudentController {
     private static $courseAliases = [
         "dbms" => "database management systems",
+        "d b m s" => "database management systems",
+        "database management system" => "database management systems",
         "dbms lab" => "dbms laboratory",
+        "dbms laboratory" => "dbms laboratory",
         "ಡಿಬಿಎಮ್ಎಸ್" => "database management systems",
         "ಡಿಬಿಎಂಎಸ್" => "database management systems",
         "ಡೇಟಾಬೇಸ್ ಮ್ಯಾನೆಜ್ಮೆಂಟ್ ಸಿಸ್ಟಮ್ಸ್" => "database management systems",
         "ಡಿಬಿಎಮ್ಎಸ್ ಲ್ಯಾಬ್" => "dbms laboratory",
         "ai" => "artificial intelligence",
+        "a i" => "artificial intelligence",
         "artificial intelligence" => "artificial intelligence",
         "ಎಐ" => "artificial intelligence",
         "ಆರ್ಟಿಫಿಷಿಯಲ್ ಇಂಟೆಲಿಜೆನ್ಸ್" => "artificial intelligence",
         "os" => "operating systems",
+        "o s" => "operating systems",
+        "operating system" => "operating systems",
         "operating systems" => "operating systems",
         "ಓಎಸ್" => "operating systems",
         "ಆಪರೇಟಿಂಗ್ ಸಿಸ್ಟಮ್ಸ್" => "operating systems",
         "cn" => "computer networks",
+        "c n" => "computer networks",
+        "computer network" => "computer networks",
+        "computer net work" => "computer networks",
+        "computer net works" => "computer networks",
         "computer networks" => "computer networks",
         "ಸಿಎನ್" => "computer networks",
         "ಕಂಪ್ಯೂಟರ್ ನೆಟ್ವರ್ಕ್ಸ್" => "computer networks",
@@ -48,9 +58,29 @@ class StudentController {
 
     private static function normalizeLookupText($text) {
         $text = strtolower(trim((string) $text));
-        $text = preg_replace('/[^a-z0-9]+/', ' ', $text);
-        $text = preg_replace('/\s+/', ' ', $text);
-        return trim($text);
+        $text = preg_replace('/[^\p{L}\p{N}]+/u', ' ', $text);
+        $text = preg_replace('/\s+/u', ' ', (string) $text);
+        return trim((string) $text);
+    }
+
+    private static function canonicalizeCourseQueryTerms($text) {
+        $text = strtolower((string) $text);
+
+        $replacements = [
+            '/\x{0C95}\x{0CCB}\x{0CA1}\x{0CCD}|\x{0C95}\x{0CCB}\x{0CA1}\x{0CBF}/u' => ' code ',
+            '/\x{0CB5}\x{0CBF}\x{0CB7}\x{0CAF}|\x{0CB8}\x{0CAC}\x{0CCD}\x{0C9C}\x{0CC6}\x{0C95}\x{0CCD}\x{0C9F}\x{0CCD}/u' => ' subject ',
+            '/\x{0C95}\x{0CCB}\x{0CB0}\x{0CCD}\x{0CB8}\x{0CCD}/u' => ' course ',
+            '/\x{0C8F}\x{0CA8}\x{0CC1}|\x{0CAF}\x{0CC7}\x{0CA8}\x{0CC1}/u' => ' ',
+            '/\x{0CB9}\x{0CC7}\x{0CB3}\x{0CBF}|\x{0CB9}\x{0CC7}\x{0CB3}\x{0CC1}/u' => ' ',
+            '/\x{0C93}\x{0C8E}\x{0CB8}\x{0CCD}/u' => ' os ',
+            '/\x{0CA1}\x{0CBF}\x{0CAC}\x{0CBF}\x{0C8E}\x{0C82}\x{0C8E}\x{0CB8}\x{0CCD}/u' => ' dbms ',
+            '/\x{0C86}\x{0CAA}\x{0CB0}\x{0CC7}\x{0C9F}\x{0CBF}\x{0C82}\x{0C97}\x{0CCD}\s*\x{0CB8}\x{0CBF}\x{0CB8}\x{0CCD}\x{0C9F}\x{0CAE}\x{0CCD}(?:\x{0CB8}\x{0CCD})?/u' => ' operating systems ',
+            '/\x{0C95}\x{0C82}\x{0CAA}\x{0CCD}\x{0CAF}\x{0CC2}\x{0C9F}\x{0CB0}\x{0CCD}\s*\x{0CA8}\x{0CC6}\x{0C9F}\x{0CCD}\x{0CB5}\x{0CB0}\x{0CCD}\x{0C95}\x{0CCD}(?:\x{0CB8}\x{0CCD})?/u' => ' computer networks ',
+            '/\x{0C95}\x{0C82}\x{0CAA}\x{0CCD}\x{0CAF}\x{0CC2}\x{0C9F}\x{0CB0}\x{0CCD}\s*\x{0CA8}\x{0CC6}\x{0C9F}\x{0CCD}\s*\x{0CB5}\x{0CB0}\x{0CCD}\x{0C95}\x{0CCD}(?:\x{0CB8}\x{0CCD})?/u' => ' computer networks ',
+            '/\x{0C86}\x{0CB0}\x{0CCD}\x{0C9F}\x{0CBF}\x{0CAB}\x{0CBF}\x{0CB7}\x{0CBF}\x{0CAF}\x{0CB2}\x{0CCD}\s*\x{0C87}\x{0C82}\x{0C9F}\x{0CC6}\x{0CB2}\x{0CBF}\x{0C9C}\x{0CC6}\x{0CA8}\x{0CCD}\x{0CB8}\x{0CCD}/u' => ' artificial intelligence '
+        ];
+
+        return preg_replace(array_keys($replacements), array_values($replacements), $text);
     }
 
     private static function buildCourseShortName($courseTitle) {
@@ -72,7 +102,7 @@ class StudentController {
     }
 
     private static function stripCourseQueryNoise($text) {
-        $rawText = strtolower(trim((string) $text));
+        $rawText = self::canonicalizeCourseQueryTerms(trim((string) $text));
         $rawText = str_replace(
             [
                 "ಕೋಡ್",
@@ -114,12 +144,116 @@ class StudentController {
         ];
 
         $cleaned = preg_replace($noisePatterns, ' ', $text);
+        $cleaned = preg_replace('/\b(attendance|percentage|overall|total|in|of|for|eshtu)\b/', ' ', (string) $cleaned);
         $cleaned = preg_replace('/\s+/', ' ', (string) $cleaned);
         return trim((string) $cleaned);
     }
 
+    private static function isCourseCodeRequest($message) {
+        $normalizedMessage = self::normalizeLookupText(self::canonicalizeCourseQueryTerms($message));
+
+        if ($normalizedMessage === "") {
+            return false;
+        }
+
+        if (preg_match('/\b(course|subject)\s+code\b/', $normalizedMessage)) {
+            return true;
+        }
+
+        if (preg_match('/\bcode\s+(of|for)\b/', $normalizedMessage)) {
+            return true;
+        }
+
+        if (preg_match('/\bwhat\s+is\s+the\s+course\s+of\b/', $normalizedMessage)) {
+            return true;
+        }
+
+        if (preg_match('/\bwhich\s+course\s+is\b/', $normalizedMessage)) {
+            return true;
+        }
+
+        if (strpos($normalizedMessage, "code") !== false && preg_match('/\b(course|subject|vishaya|dbms|os|cn|ai)\b/', $normalizedMessage)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    public static function isLikelyCourseCodeQuery($message) {
+        return self::isCourseCodeRequest($message);
+    }
+
+    private static function extractKnownCourseSubject($message) {
+        $normalizedMessage = self::normalizeLookupText(self::canonicalizeCourseQueryTerms($message));
+        $rawMessage = strtolower((string) $message);
+
+        $exactPhraseMap = [
+            "ಒಎಸ್" => "operating systems",
+            "ಡಿಬಿಎಂಎಸ್" => "database management systems",
+            "ಸಿಎನ್" => "computer networks",
+            "ಎಐ" => "artificial intelligence",
+            "ಕಂಪ್ಯೂಟರ್ ನೆಟ್ವರ್ಕ್ಸ್" => "computer networks",
+            "ಕಂಪ್ಯೂಟರ್ ನೆಟ್ವರ್ಕ್" => "computer networks",
+            "ಕಂಪ್ಯೂಟರ್ ನೆಟ್ ವರ್ಕ್ಸ್" => "computer networks",
+            "ಕಂಪ್ಯೂಟರ್ ನೆಟ್ ವರ್ಕ್" => "computer networks",
+            "ಆಪರೇಟಿಂಗ್ ಸಿಸ್ಟಮ್" => "operating systems",
+            "ಆಪರೇಟಿಂಗ್ ಸಿಸ್ಟಮ್ಸ್" => "operating systems",
+            "ಡಾಟಾಬೇಸ್ ಮ್ಯಾನೇಜ್ಮೆಂಟ್ ಸಿಸ್ಟಮ್" => "database management systems",
+            "ಡಾಟಾಬೇಸ್ ಮ್ಯಾನೇಜ್ಮೆಂಟ್ ಸಿಸ್ಟಮ್ಸ್" => "database management systems",
+            "ಆರ್ಟಿಫಿಶಿಯಲ್ ಇಂಟೆಲಿಜೆನ್ಸ್" => "artificial intelligence",
+            "ಡಿಬಿಎಂಎಸ್ ಲ್ಯಾಬ್" => "dbms laboratory"
+        ];
+
+        foreach ($exactPhraseMap as $phrase => $canonical) {
+            if (strpos($message, $phrase) !== false || strpos($rawMessage, strtolower($phrase)) !== false) {
+                return $canonical;
+            }
+        }
+
+        $subjectPatterns = [
+            "database management systems" => [
+                '/\bdbms\b/u',
+                '/\bd\s*b\s*m\s*s\b/u',
+                '/\bdatabase management systems?\b/u',
+                '/\x{0CA1}\x{0CBE}\x{0C9F}\x{0CBE}\x{0CAC}\x{0CC7}\x{0CB8}\x{0CCD}\s*\x{0CAE}\x{0CCD}\x{0CAF}\x{0CBE}\x{0CA8}\x{0CC7}\x{0C9C}\x{0CCD}\x{0CAE}\x{0CC6}\x{0C82}\x{0C9F}\x{0CCD}\s*\x{0CB8}\x{0CBF}\x{0CB8}\x{0CCD}\x{0C9F}\x{0CAE}\x{0CCD}(?:\x{0CB8}\x{0CCD})?/u'
+            ],
+            "dbms laboratory" => [
+                '/\bdbms lab(?:oratory)?\b/u'
+            ],
+            "operating systems" => [
+                '/\bos\b/u',
+                '/\bo\s*s\b/u',
+                '/\boperating systems?\b/u',
+                '/\x{0C86}\x{0CAA}\x{0CB0}\x{0CC7}\x{0C9F}\x{0CBF}\x{0C82}\x{0C97}\x{0CCD}\s*\x{0CB8}\x{0CBF}\x{0CB8}\x{0CCD}\x{0C9F}\x{0CAE}\x{0CCD}(?:\x{0CB8}\x{0CCD}|\x{0CB8}\x{0CCD}\x{0CB8}\x{0CCD})?/u'
+            ],
+            "computer networks" => [
+                '/\bcn\b/u',
+                '/\bc\s*n\b/u',
+                '/\bcomputer networks?\b/u',
+                '/\bcomputer net work(s)?\b/u',
+                '/\x{0C95}\x{0C82}\x{0CAA}\x{0CCD}\x{0CAF}\x{0CC2}\x{0C9F}\x{0CB0}\x{0CCD}\s*\x{0CA8}\x{0CC6}\x{0C9F}\x{0CCD}(?:\x{0CB5}\x{0CB0}\x{0CCD}\x{0C95}\x{0CCD}|\x{0CB5}\x{0CB0}\x{0CCD}\x{0C95}\x{0CCD}\x{0CB8}\x{0CCD}|\x{0CB5}\x{0CB0}\x{0CCD}\x{0C95}\x{0CCD}\x{0CB8}\x{0CCD})/u'
+            ],
+            "artificial intelligence" => [
+                '/\bai\b/u',
+                '/\ba\s*i\b/u',
+                '/\bartificial intelligence\b/u',
+                '/\x{0C86}\x{0CB0}\x{0CCD}\x{0C9F}\x{0CBF}\x{0CAB}\x{0CBF}\x{0CB7}\x{0CBF}\x{0CAF}\x{0CB2}\x{0CCD}\s*\x{0C87}\x{0C82}\x{0C9F}\x{0CC6}\x{0CB2}\x{0CBF}\x{0C9C}\x{0CC6}\x{0CA8}\x{0CCD}\x{0CB8}\x{0CCD}/u'
+            ]
+        ];
+
+        foreach ($subjectPatterns as $canonical => $patterns) {
+            foreach ($patterns as $pattern) {
+                if (preg_match($pattern, $normalizedMessage) || preg_match($pattern, $rawMessage)) {
+                    return $canonical;
+                }
+            }
+        }
+
+        return "";
+    }
+
     private static function applyCourseAliases($text) {
-        $normalized = self::normalizeLookupText($text);
+        $normalized = self::normalizeLookupText(self::canonicalizeCourseQueryTerms($text));
 
         if ($normalized === "") {
             return "";
@@ -146,8 +280,29 @@ class StudentController {
         $normalizedCode = self::normalizeLookupText($courseCode);
         $shortName = self::normalizeLookupText(self::buildCourseShortName($courseTitle));
 
+        $directAliases = [
+            "dbms" => "database management systems",
+            "database management system" => "database management systems",
+            "database management systems" => "database management systems",
+            "dbms lab" => "dbms laboratory",
+            "os" => "operating systems",
+            "operating system" => "operating systems",
+            "operating systems" => "operating systems",
+            "computer network" => "computer networks",
+            "computer net work" => "computer networks",
+            "computer net works" => "computer networks",
+            "computer networks" => "computer networks",
+            "cn" => "computer networks",
+            "artificial intelligence" => "artificial intelligence",
+            "ai" => "artificial intelligence"
+        ];
+
         if ($normalizedQuery === "") {
             return 0;
+        }
+
+        if (isset($directAliases[$normalizedQuery]) && $normalizedTitle === $directAliases[$normalizedQuery]) {
+            return 100;
         }
 
         if ($normalizedQuery === $normalizedCode || $normalizedQuery === $shortName) {
@@ -205,6 +360,61 @@ class StudentController {
         }
 
         return 0;
+    }
+
+    private static function extractKnownAttendanceSubject($message) {
+        $normalizedMessage = self::normalizeLookupText($message);
+
+        $subjectPatterns = [
+            "database management systems" => [
+                "database management systems",
+                "dbms",
+                "d b m s",
+                "ಡಿಬಿಎಂಎಸ್"
+            ],
+            "dbms laboratory" => [
+                "dbms laboratory",
+                "dbms lab",
+                "ಡಿಬಿಎಂಎಸ್ ಲ್ಯಾಬ್"
+            ],
+            "operating systems" => [
+                "operating systems",
+                "operating system",
+                "os",
+                "o s",
+                "ಆಪರೇಟಿಂಗ್ ಸಿಸ್ಟಮ್ಸ್",
+                "ಆಪರೇಟಿಂಗ್ ಸಿಸ್ಟಮ್"
+            ],
+            "computer networks" => [
+                "computer networks",
+                "computer network",
+                "computer net work",
+                "cn",
+                "c n",
+                "ಕಂಪ್ಯೂಟರ್ ನೆಟ್ವರ್ಕ್ಸ್",
+                "ಕಂಪ್ಯೂಟರ್ ನೆಟ್ವರ್ಕ್",
+                "ಕಂಪ್ಯೂಟರ್ ನೆಟ್ ವರ್ಕ್ಸ್",
+                "ಕಂಪ್ಯೂಟರ್ ನೆಟ್ ವರ್ಕ್"
+            ],
+            "artificial intelligence" => [
+                "artificial intelligence",
+                "artificial intelligent",
+                "ai",
+                "a i",
+                "ಆರ್ಟಿಫಿಶಿಯಲ್ ಇಂಟೆಲಿಜೆನ್ಸ್"
+            ]
+        ];
+
+        foreach ($subjectPatterns as $canonical => $patterns) {
+            foreach ($patterns as $pattern) {
+                $normalizedPattern = self::normalizeLookupText($pattern);
+                if ($normalizedPattern !== "" && strpos($normalizedMessage, $normalizedPattern) !== false) {
+                    return $canonical;
+                }
+            }
+        }
+
+        return "";
     }
 
     private static function getStudentAcademicContext($student_id) {
@@ -871,9 +1081,28 @@ class StudentController {
         }
 
         $normalizedMessage = strtolower(trim($message));
+        $knownSubject = self::extractKnownCourseSubject($message);
+        $bestMatch = null;
+        $bestScore = 0;
         foreach ($courses as $course) {
             $courseTitle = strtolower($course["course_title"]);
             $courseCode = strtolower($course["course_code"]);
+
+            if (
+                $knownSubject !== "" &&
+                self::normalizeLookupText($course["course_title"]) === self::normalizeLookupText($knownSubject)
+            ) {
+                $bestMatch = $course;
+                $bestScore = 100;
+                continue;
+            }
+
+            $score = self::scoreCourseMatch($message, $course["course_title"], $course["course_code"]);
+
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $bestMatch = $course;
+            }
 
             if (
                 $normalizedMessage !== "" &&
@@ -884,6 +1113,19 @@ class StudentController {
                     ? "{$course["course_title"]} ವಿಷಯದ course code {$course["course_code"]}. ಇದು {$semester}ನೇ ಸೆಮಿಸ್ಟರ್‌ನ {$course["course_type"]} course ಆಗಿದ್ದು {$credits} credit" . ($credits === "1" ? "" : "s") . " ಹೊಂದಿದೆ."
                     : "{$course["course_title"]} has course code {$course["course_code"]}. It is a {$course["course_type"]} course with {$credits} credit" . ($credits === "1" ? "" : "s") . " in semester {$semester}.";
             }
+        }
+
+        if ($bestMatch && $bestScore >= 60) {
+            if (self::isCourseCodeRequest($message)) {
+                return self::isKannada($language)
+                    ? "{$bestMatch["course_title"]} à²µà²¿à²·à²¯à²¦ course code {$bestMatch["course_code"]}."
+                    : "The course code for {$bestMatch["course_title"]} is {$bestMatch["course_code"]}.";
+            }
+
+            $credits = rtrim(rtrim(number_format((float) $bestMatch["credits"], 1, ".", ""), "0"), ".");
+            return self::isKannada($language)
+                ? "{$bestMatch["course_title"]} à²µà²¿à²·à²¯à²¦ course code {$bestMatch["course_code"]}. à²‡à²¦à³ {$semester}à²¨à³‡ à²¸à³†à²®à²¿à²¸à³à²Ÿà²°à³â€Œà²¨ {$bestMatch["course_type"]} course à²†à²—à²¿à²¦à³à²¦à³ {$credits} credit" . ($credits === "1" ? "" : "s") . " à²¹à³Šà²‚à²¦à²¿à²¦à³†."
+                : "{$bestMatch["course_title"]} has course code {$bestMatch["course_code"]}. It is a {$bestMatch["course_type"]} course with {$credits} credit" . ($credits === "1" ? "" : "s") . " in semester {$semester}.";
         }
 
         $courseLabels = array_map(function ($course) {
@@ -906,6 +1148,8 @@ class StudentController {
    public static function getCourseCode($message, $language = "en") {
         global $conn;
 
+        $knownSubject = self::extractKnownCourseSubject($message);
+
         $stmt = $conn->prepare("
             SELECT course_code, course_title
             FROM courses
@@ -922,6 +1166,15 @@ class StudentController {
         $bestScore = 0;
 
         while ($row = $result->fetch_assoc()) {
+            if (
+                $knownSubject !== "" &&
+                self::normalizeLookupText($row['course_title']) === self::normalizeLookupText($knownSubject)
+            ) {
+                $bestMatch = $row;
+                $bestScore = 100;
+                continue;
+            }
+
             $score = self::scoreCourseMatch($message, $row['course_title'], $row['course_code']);
 
             if ($score > $bestScore) {
@@ -934,7 +1187,7 @@ class StudentController {
 
         if ($bestMatch && $bestScore >= 60) {
             return self::isKannada($language)
-                ? $bestMatch['course_title'] . " ವಿಷಯದ course code " . $bestMatch['course_code'] . "."
+                ? "ನಿಮ್ಮ " . $bestMatch['course_title'] . " subject code " . $bestMatch['course_code'] . "."
                 : "The course code for " . $bestMatch['course_title'] . " is " . $bestMatch['course_code'] . ".";
         }
 
@@ -947,6 +1200,7 @@ class StudentController {
         global $conn;
 
         $normalizedMessage = self::normalizeLookupText($message);
+        $requestedSemester = self::extractRequestedSemester($message);
         $genericAttendancePhrases = [
             "individual subject",
             "subject wise",
@@ -954,33 +1208,53 @@ class StudentController {
             "attendance in individual subject",
             "attendance in subject",
             "attendance of subject",
-            "subject attendance"
+            "subject attendance",
+            "particular subject"
         ];
+
+        $student = self::getStudentAcademicContext($student_id);
+        if (!$student) {
+            return self::isKannada($language)
+                ? "ನಿಮ್ಮ ಸೆಮಿಸ್ಟರ್ ವಿವರಗಳು ಈಗ ಸಿಗುತ್ತಿಲ್ಲ."
+                : "I could not find your current semester details.";
+        }
+
+        $semester = (int) ($requestedSemester ?: ($student["semester"] ?? 0));
 
         $stmt = $conn->prepare("
             SELECT c.course_title, 
                    c.course_code,
+                   c.semester,
                    a.total_classes, 
                    a.attended_classes, 
                    a.percentage
             FROM attendance a
             JOIN courses c ON a.course_id = c.course_id
             WHERE a.student_id = ?
+              AND c.semester = ?
         ");
 
         if (!$stmt) {
             return self::isKannada($language) ? "Attendance ಮಾಹಿತಿ ತರುತ್ತಿರುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while fetching attendance.";
         }
 
-        $stmt->bind_param("i", $student_id);
+        $stmt->bind_param("ii", $student_id, $semester);
         $stmt->execute();
         $result = $stmt->get_result();
         $availableSubjects = [];
         $bestMatch = null;
         $bestScore = 0;
+        $knownSubject = self::extractKnownAttendanceSubject($message);
 
         while ($row = $result->fetch_assoc()) {
             $availableSubjects[] = $row['course_title'];
+
+            if ($knownSubject !== "" && self::normalizeLookupText($row['course_title']) === self::normalizeLookupText($knownSubject)) {
+                $bestMatch = $row;
+                $bestScore = 100;
+                continue;
+            }
+
             $score = self::scoreCourseMatch($message, $row['course_title'], $row['course_code'] ?? "");
 
             if ($score > $bestScore) {
@@ -990,6 +1264,29 @@ class StudentController {
         }
 
         $stmt->close();
+
+        if (empty($availableSubjects)) {
+            return self::isKannada($language)
+                ? "Attendance data for semester {$semester} is not available."
+                : "Attendance data for semester {$semester} is not available.";
+        }
+
+        $cleanSubjectHint = self::applyCourseAliases(self::stripCourseQueryNoise($message));
+        $askedGenerically = false;
+
+        foreach ($genericAttendancePhrases as $phrase) {
+            if (strpos($normalizedMessage, $phrase) !== false) {
+                $askedGenerically = true;
+                break;
+            }
+        }
+
+        if ($cleanSubjectHint === "" || $askedGenerically) {
+            $preview = implode(", ", array_slice($availableSubjects, 0, 4));
+            return self::isKannada($language)
+                ? "Please tell me the exact subject name from semester {$semester}. For example, you can ask about {$preview}."
+                : "Please tell me the exact subject name from semester {$semester}. For example, you can ask about {$preview}.";
+        }
 
         if ($bestMatch && $bestScore >= 60) {
             $percentage = round($bestMatch['percentage'], 2);
@@ -1011,22 +1308,11 @@ class StudentController {
             return $response;
         }
 
-        foreach ($genericAttendancePhrases as $phrase) {
-            if (strpos($normalizedMessage, $phrase) !== false) {
-                if (!empty($availableSubjects)) {
-                    $preview = implode(", ", array_slice($availableSubjects, 0, 4));
-                    return self::isKannada($language)
-                        ? "ದಯವಿಟ್ಟು subject ಹೆಸರು ಹೇಳಿ. ಉದಾಹರಣೆಗೆ {$preview} ಬಗ್ಗೆ ಕೇಳಬಹುದು."
-                        : "Please tell me the subject name. For example, you can ask about {$preview}.";
-                }
-
-                return self::isKannada($language) ? "ಯಾವ subject‌ನ attendance ಬೇಕೋ ಅದರ ಹೆಸರು ಹೇಳಿ." : "Please tell me the subject name for which you want attendance.";
-            }
-        }
-
-        return self::isKannada($language) ? "ಆ subject‌ನ attendance ಸಿಗಲಿಲ್ಲ." : "I could not find attendance for that subject.";
+        $preview = implode(", ", array_slice($availableSubjects, 0, 4));
+        return self::isKannada($language)
+            ? "I could not find attendance for that subject in semester {$semester}. Available subjects include {$preview}."
+            : "I could not find attendance for that subject in semester {$semester}. Available subjects include {$preview}.";
     }
-
 
     /* ================= OVERALL ATTENDANCE ================= */
 
@@ -1059,3 +1345,4 @@ class StudentController {
             : "Your overall attendance is $overall percent.";
     }
 }
+

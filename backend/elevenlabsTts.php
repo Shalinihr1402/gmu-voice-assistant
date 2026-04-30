@@ -18,6 +18,8 @@ if (!isset($_SESSION['user_id']) && !isset($_SESSION['student_id'])) {
     exit();
 }
 
+require_once __DIR__ . "/config/env.php";
+
 function getEnvValue($key) {
     $value = getenv($key);
 
