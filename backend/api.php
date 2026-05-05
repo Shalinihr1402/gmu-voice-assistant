@@ -94,7 +94,16 @@ $hasKannadaCourseCodeHint = (bool) preg_match(
 */
 if ($student_id && $hasAttendanceWord && $hasSpecificSubjectWord && !$hasOverallAttendanceWord) {
     $reply = StudentController::getSubjectAttendance($student_id, $message, $language);
-    LlmService::setLastReplyMeta($language === "kn" ? "db_kannada" : "db");
+    $replySource = "db";
+
+    if ($language !== "en" && $language !== "kn" && $language !== "hi") {
+        $reply = LlmService::adaptReplyLanguage($reply, $language, $userContext);
+        $replySource = LlmService::getLastReplyMeta()["source"] ?? "translated_db";
+    } else {
+        LlmService::setLastReplyMeta($language === "kn" ? "db_kannada" : "db");
+        $replySource = $language === "kn" ? "db_kannada" : "db";
+    }
+
     echo json_encode([
         "status" => "success",
         "intent" => "GET_SUBJECT_ATTENDANCE",
@@ -102,14 +111,27 @@ if ($student_id && $hasAttendanceWord && $hasSpecificSubjectWord && !$hasOverall
         "confidence" => "high",
         "intent_source" => "api_fast_path",
         "reply" => $reply,
-        "reply_source" => $language === "kn" ? "db_kannada" : "db"
+        "reply_source" => $replySource
     ]);
     exit();
 }
 
 if ($hasCourseCodeWord) {
     $reply = StudentController::getCourseCode($message, $language);
-    LlmService::setLastReplyMeta($language === "kn" ? "db_kannada" : "db");
+    $replySource = "db";
+
+    if ($language === "hi" && preg_match('/^The course code for (.+) is ([A-Z0-9-]+)\.$/', $reply, $matches)) {
+        $reply = $matches[1] . " का कोर्स कोड " . $matches[2] . " है।";
+    }
+
+    if ($language !== "en" && $language !== "kn" && $language !== "hi") {
+        $reply = LlmService::adaptReplyLanguage($reply, $language, $userContext);
+        $replySource = LlmService::getLastReplyMeta()["source"] ?? "translated_db";
+    } else {
+        LlmService::setLastReplyMeta($language === "kn" ? "db_kannada" : "db");
+        $replySource = $language === "kn" ? "db_kannada" : "db";
+    }
+
     echo json_encode([
         "status" => "success",
         "intent" => "GET_COURSE_CODE",
@@ -117,7 +139,7 @@ if ($hasCourseCodeWord) {
         "confidence" => "high",
         "intent_source" => "api_fast_path",
         "reply" => $reply,
-        "reply_source" => $language === "kn" ? "db_kannada" : "db"
+        "reply_source" => $replySource
     ]);
     exit();
 }
@@ -240,6 +262,19 @@ if ($route === "database") {
             $dbReplyIsLocalized = ($language === "kn");
             break;
 
+        case "GET_CERTIFICATE_STATUS":
+            if (!$student_id) {
+                $reply = "Certificate status is available for student accounts after student login.";
+                $replySource = "db_guard";
+                $handledByDatabase = true;
+                break;
+            }
+            $reply = StudentController::getCertificateStatus($student_id, $message, $language);
+            $replySource = "db";
+            $handledByDatabase = true;
+            $dbReplyIsLocalized = in_array($language, ["kn", "hi"], true);
+            break;
+
         case "GET_COURSE_DETAILS":
             if (!$student_id) {
                 $reply = "Course details are available for student accounts after student login.";
@@ -271,7 +306,7 @@ if ($route === "database") {
                 : StudentController::getSubjectAttendance($student_id, $message, $language);
             $replySource = "db";
             $handledByDatabase = true;
-            $dbReplyIsLocalized = ($language === "kn");
+            $dbReplyIsLocalized = in_array($language, ["kn", "hi"], true);
             break;
 
         case "GET_SUBJECT_ATTENDANCE":
@@ -284,14 +319,14 @@ if ($route === "database") {
             $reply = StudentController::getSubjectAttendance($student_id, $message, $language);
             $replySource = "db";
             $handledByDatabase = true;
-            $dbReplyIsLocalized = ($language === "kn");
+            $dbReplyIsLocalized = in_array($language, ["kn", "hi"], true);
             break;
 
         case "GET_COURSE_CODE":
             $reply = StudentController::getCourseCode($message, $language);
             $replySource = "db";
             $handledByDatabase = true;
-            $dbReplyIsLocalized = ($language === "kn");
+            $dbReplyIsLocalized = in_array($language, ["kn", "hi"], true);
             break;
     }
 }
@@ -308,7 +343,7 @@ if ($replySource !== "unknown") {
     $metaSource = $replySource;
 
     if ($handledByDatabase && $dbReplyIsLocalized) {
-        $metaSource = "db_kannada";
+        $metaSource = $language === "kn" ? "db_kannada" : "db";
     }
 
     LlmService::setLastReplyMeta($metaSource);

@@ -117,8 +117,8 @@ const Result = () => {
           <a href="#" className="active" onClick={(event) => event.preventDefault()}>
             Student Result
           </a>
-          <a href="#" onClick={(event) => event.preventDefault()}>
-            Competency Certificate
+          <a href="#" onClick={(event) => { event.preventDefault(); navigate("/certificate") }}>
+            Digital Competency Certificate
           </a>
         </nav>
 

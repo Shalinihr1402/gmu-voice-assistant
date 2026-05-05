@@ -129,3 +129,4 @@ class KnowledgeBaseService {
         return $items;
     }
 }
+

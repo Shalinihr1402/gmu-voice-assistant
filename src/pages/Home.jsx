@@ -56,8 +56,8 @@ const Home = () => {
             Student Result
           </a>
 
-          <a href="#" onClick={(e) => e.preventDefault()}>
-            Competency Certificate
+          <a href="#" onClick={(e) => { e.preventDefault(); navigate('/certificate'); }}>
+            Digital Competency Certificate
           </a>
         </nav>
 
@@ -93,8 +93,8 @@ const Home = () => {
             STUDENT DASHBOARD
           </button>
 
-          <button className="menu-btn">
-            COMPETENCY CERTIFICATE
+          <button className="menu-btn" onClick={() => navigate('/certificate')}>
+            DIGITAL COMPETENCY CERTIFICATE
           </button>
 
           <button className="menu-btn">
