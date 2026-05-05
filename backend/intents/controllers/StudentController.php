@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . "/../../config/db.php";
+require_once __DIR__ . "/../../services/CertificateService.php";
 
 class StudentController {
     private static $courseAliases = [
@@ -49,7 +50,14 @@ class StudentController {
 
     private static function normalizeLanguage($language) {
         $language = strtolower(trim((string) $language));
+        if (in_array($language, ["hi", "hindi", "hi-in"], true)) {
+            return "hi";
+        }
         return in_array($language, ["kn", "kannada", "kn-in"], true) ? "kn" : "en";
+    }
+
+    private static function isHindi($language) {
+        return self::normalizeLanguage($language) === "hi";
     }
 
     private static function isKannada($language) {
@@ -1227,6 +1235,9 @@ class StudentController {
 
         $student = self::getStudentAcademicContext($student_id);
         if (!$student) {
+            if (self::isHindi($language)) {
+                return "मुझे अभी आपके वर्तमान सेमेस्टर की जानकारी नहीं मिली।";
+            }
             return self::isKannada($language)
                 ? "ನಿಮ್ಮ ಸೆಮಿಸ್ಟರ್ ವಿವರಗಳು ಈಗ ಸಿಗುತ್ತಿಲ್ಲ."
                 : "I could not find your current semester details.";
@@ -1248,6 +1259,9 @@ class StudentController {
         ");
 
         if (!$stmt) {
+            if (self::isHindi($language)) {
+                return "अटेंडेंस की जानकारी लेते समय सिस्टम त्रुटि हुई।";
+            }
             return self::isKannada($language) ? "Attendance ಮಾಹಿತಿ ತರುತ್ತಿರುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while fetching attendance.";
         }
 
@@ -1279,6 +1293,9 @@ class StudentController {
         $stmt->close();
 
         if (empty($availableSubjects)) {
+            if (self::isHindi($language)) {
+                return "सेमेस्टर {$semester} के लिए अटेंडेंस डेटा उपलब्ध नहीं है।";
+            }
             return self::isKannada($language)
                 ? "Attendance data for semester {$semester} is not available."
                 : "Attendance data for semester {$semester} is not available.";
@@ -1296,6 +1313,9 @@ class StudentController {
 
         if ($cleanSubjectHint === "" || $askedGenerically) {
             $preview = implode(", ", array_slice($availableSubjects, 0, 4));
+            if (self::isHindi($language)) {
+                return "कृपया सेमेस्टर {$semester} का सही विषय नाम बताइए। उदाहरण के लिए, आप {$preview} के बारे में पूछ सकते हैं।";
+            }
             return self::isKannada($language)
                 ? "Please tell me the exact subject name from semester {$semester}. For example, you can ask about {$preview}."
                 : "Please tell me the exact subject name from semester {$semester}. For example, you can ask about {$preview}.";
@@ -1304,24 +1324,36 @@ class StudentController {
         if ($bestMatch && $bestScore >= 60) {
             $percentage = round($bestMatch['percentage'], 2);
 
-            $response = self::isKannada($language)
-                        ? $bestMatch['course_title'] . " ವಿಷಯದಲ್ಲಿ ನಿಮ್ಮ attendance $percentage ಪ್ರತಿಶತ. ನೀವು " .
-                          $bestMatch['total_classes'] . " classesಗಳಲ್ಲಿ " . $bestMatch['attended_classes'] . " classes attend ಮಾಡಿದ್ದೀರಿ."
-                        : "Your attendance in " . $bestMatch['course_title'] .
-                          " is $percentage percent. You attended " .
-                          $bestMatch['attended_classes'] . " out of " .
-                          $bestMatch['total_classes'] . " classes.";
+            if (self::isHindi($language)) {
+                $response = $bestMatch['course_title'] . " में आपकी उपस्थिति $percentage प्रतिशत है। आपने "
+                    . $bestMatch['total_classes'] . " कक्षाओं में से " . $bestMatch['attended_classes'] . " कक्षाओं में उपस्थिति दी है।";
+            } else {
+                $response = self::isKannada($language)
+                            ? $bestMatch['course_title'] . " ವಿಷಯದಲ್ಲಿ ನಿಮ್ಮ attendance $percentage ಪ್ರತಿಶತ. ನೀವು " .
+                              $bestMatch['total_classes'] . " classesಗಳಲ್ಲಿ " . $bestMatch['attended_classes'] . " classes attend ಮಾಡಿದ್ದೀರಿ."
+                            : "Your attendance in " . $bestMatch['course_title'] .
+                              " is $percentage percent. You attended " .
+                              $bestMatch['attended_classes'] . " out of " .
+                              $bestMatch['total_classes'] . " classes.";
+            }
 
             if ($percentage < 75) {
-                $response .= self::isKannada($language)
-                    ? " ಎಚ್ಚರಿಕೆ: ನಿಮ್ಮ attendance 75 ಪ್ರತಿಶತಕ್ಕಿಂತ ಕಡಿಮೆ ಇದೆ."
-                    : " Warning: Your attendance is below the required 75 percent.";
+                $response .= self::isHindi($language)
+                    ? " चेतावनी: आपकी उपस्थिति आवश्यक 75 प्रतिशत से कम है।"
+                    : (
+                        self::isKannada($language)
+                            ? " ಎಚ್ಚರಿಕೆ: ನಿಮ್ಮ attendance 75 ಪ್ರತಿಶತಕ್ಕಿಂತ ಕಡಿಮೆ ಇದೆ."
+                            : " Warning: Your attendance is below the required 75 percent."
+                    );
             }
 
             return $response;
         }
 
         $preview = implode(", ", array_slice($availableSubjects, 0, 4));
+        if (self::isHindi($language)) {
+            return "मुझे सेमेस्टर {$semester} में उस विषय की अटेंडेंस नहीं मिली। उपलब्ध विषयों में {$preview} शामिल हैं।";
+        }
         return self::isKannada($language)
             ? "I could not find attendance for that subject in semester {$semester}. Available subjects include {$preview}."
             : "I could not find attendance for that subject in semester {$semester}. Available subjects include {$preview}.";
@@ -1339,6 +1371,9 @@ class StudentController {
         ");
 
         if (!$stmt) {
+            if (self::isHindi($language)) {
+                return "अटेंडेंस की जानकारी लेते समय सिस्टम त्रुटि हुई।";
+            }
             return self::isKannada($language) ? "Attendance ಮಾಹಿತಿ ತರುತ್ತಿರುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while fetching attendance.";
         }
 
@@ -1348,14 +1383,161 @@ class StudentController {
         $stmt->close();
 
         if (!$result || !$result['overall_percentage']) {
+            if (self::isHindi($language)) {
+                return "अटेंडेंस डेटा नहीं मिला।";
+            }
             return self::isKannada($language) ? "Attendance ಮಾಹಿತಿ ಸಿಗಲಿಲ್ಲ." : "Attendance data not found.";
         }
 
         $overall = round($result['overall_percentage'], 2);
 
+        if (self::isHindi($language)) {
+            return "आपकी कुल उपस्थिति $overall प्रतिशत है।";
+        }
+
         return self::isKannada($language)
             ? "ನಿಮ್ಮ overall attendance $overall ಪ್ರತಿಶತವಾಗಿದೆ."
             : "Your overall attendance is $overall percent.";
+    }
+
+    public static function getCertificateStatus($student_id, $message = "", $language = "en") {
+        $result = CertificateService::fetchCertificates();
+        $records = [];
+
+        if (($result["status"] ?? "error") !== "success") {
+            $errorMessage = $result["message"] ?? "Unable to fetch certificate information right now.";
+            $normalizedError = strtolower(trim((string) $errorMessage));
+            $requestedSubject = CertificateService::extractRequestedSubject($message);
+            $hasLiveSessionIssue =
+                strpos($normalizedError, "cookie") !== false ||
+                strpos($normalizedError, "session") !== false ||
+                strpos($normalizedError, "login") !== false ||
+                strpos($normalizedError, "authenticated") !== false;
+
+            if ($hasLiveSessionIssue) {
+                $records = CertificateService::getFallbackCertificates();
+
+                if (empty($records)) {
+                    if (self::isKannada($language)) {
+                        if ($requestedSubject !== "") {
+                            return "{$requestedSubject} competency certificate ನ live status ಈಗ ಪರಿಶೀಲಿಸಲು ಆಗುತ್ತಿಲ್ಲ. ERP ನಲ್ಲಿ Competency Certificate page ತೆರೆದು login session ಸಕ್ರಿಯವಾಗಿರುವಾಗ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.";
+                        }
+
+                        return "Competency certificate ವಿವರಗಳು ERP page ನಲ್ಲಿ student login ನಂತರ ಲಭ್ಯವಾಗುತ್ತವೆ. ನಿಮ್ಮ live certificate list ಈಗ ಸಂಪರ್ಕದಲ್ಲಿಲ್ಲ, ಆದ್ದರಿಂದ ದಯವಿಟ್ಟು ERP ನಲ್ಲಿ Competency Certificate page ತೆರೆದು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.";
+                    }
+
+                    if ($requestedSubject !== "") {
+                        return "I can't verify the live competency certificate status for {$requestedSubject} right now. Please open the ERP Competency Certificate page and try again after your ERP session is active.";
+                    }
+
+                    return "Competency certificate details are available from the ERP Competency Certificate page after student login. I can't access your live certificate list right now, so please open that ERP page once and try again.";
+                }
+            } else {
+                return self::isKannada($language)
+                    ? "Certificate ಮಾಹಿತಿ ಈಗ ಸಿಗುತ್ತಿಲ್ಲ. {$errorMessage}"
+                    : "I could not fetch certificate information right now.";
+            }
+        } else {
+            $records = $result["records"] ?? [];
+        }
+
+        if (empty($records)) {
+            return self::isKannada($language)
+                ? "ಈಗ ಯಾವುದೇ competency certificate ಸಿಗಲಿಲ್ಲ."
+                : (
+                    self::isHindi($language)
+                        ? "मुझे अभी कोई competency certificate नहीं मिला।"
+                        : "I could not find any competency certificates right now."
+                );
+        }
+
+        $subjectMatches = CertificateService::matchCertificatesBySubject($records, $message);
+        if (!empty($subjectMatches)) {
+            $record = $subjectMatches[0];
+            $subject = $record["subject"] ?? "this subject";
+            $code = $record["code"] ?? "";
+            $status = $record["status"] ?? "available";
+            $date = $record["date"] ?? "";
+
+            if (self::isKannada($language)) {
+                $reply = "{$subject}";
+                if ($code !== "") {
+                    $reply .= " ({$code})";
+                }
+                $reply .= " certificate status {$status}.";
+                if ($date !== "") {
+                    $reply .= " Date {$date}.";
+                }
+                if (!empty($record["download_url"])) {
+                    $reply .= " Download link ERP page ನಲ್ಲಿ ಲಭ್ಯವಿದೆ.";
+                }
+                return $reply;
+            }
+
+            $reply = self::isHindi($language)
+                ? "{$subject} certificate की स्थिति {$status} है।"
+                : "The certificate for {$subject}";
+            if ($code !== "") {
+                $reply = self::isHindi($language)
+                    ? "{$subject} ({$code}) certificate की स्थिति {$status} है।"
+                    : $reply . " ({$code})";
+            }
+            if ($date !== "") {
+                $reply .= self::isHindi($language) ? " तारीख {$date} है।" : " Date: {$date}.";
+            }
+            if (!empty($record["download_url"])) {
+                $reply .= self::isHindi($language)
+                    ? " डाउनलोड लिंक ERP page पर उपलब्ध है।"
+                    : " The download link is available on the ERP page.";
+            }
+            return $reply;
+        }
+
+        $totalCount = count($records);
+        $availableRecords = array_values(array_filter($records, function ($record) {
+            return ($record["status"] ?? "") === "available";
+        }));
+        $previewRecords = !empty($availableRecords) ? $availableRecords : $records;
+        $previewSubjects = array_map(function ($record) {
+            return $record["subject"] ?? "";
+        }, array_slice($previewRecords, 0, 4));
+        $previewSubjects = array_values(array_filter($previewSubjects, function ($value) {
+            return trim((string) $value) !== "";
+        }));
+        $preview = implode(", ", $previewSubjects);
+
+        if (self::isKannada($language)) {
+            $reply = "ನಿಮಗೆ ಒಟ್ಟು {$totalCount} competency certificate ದಾಖಲೆಗಳು ಸಿಕ್ಕಿವೆ.";
+            if (!empty($availableRecords)) {
+                $reply .= " Download ಮಾಡಲು ಲಭ್ಯವಿರುವವು: " . count($availableRecords) . ".";
+            }
+            if ($preview !== "") {
+                $reply .= " ಉದಾಹರಣೆಗೆ {$preview}.";
+            }
+            return $reply;
+        }
+
+        if (self::isHindi($language)) {
+            $reply = "मुझे {$totalCount} competency certificate record मिले हैं।";
+            if (!empty($availableRecords)) {
+                $reply .= " इनमें से " . count($availableRecords) . " डाउनलोड के लिए उपलब्ध हैं।";
+            }
+            if ($preview !== "") {
+                $reply .= " उपलब्ध certificate subjects हैं: {$preview}।";
+            }
+            return $reply;
+        }
+
+        $reply = "I found {$totalCount} competency certificate record";
+        $reply .= $totalCount === 1 ? "" : "s";
+        if (!empty($availableRecords)) {
+            $reply .= ", with " . count($availableRecords) . " available to download";
+        }
+        $reply .= ".";
+        if ($preview !== "") {
+            $reply .= " Available certificate subjects: {$preview}.";
+        }
+        return $reply;
     }
 }
 

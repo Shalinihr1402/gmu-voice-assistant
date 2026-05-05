@@ -10,6 +10,7 @@ class IntentService {
         "GET_ATTENDANCE" => 100,
         "GET_FINAL_REGISTRATION_STATUS" => 100,
         "GET_HALL_TICKET_STATUS" => 100,
+        "GET_CERTIFICATE_STATUS" => 98,
         "GET_PROFILE_SUMMARY" => 95,
         "GET_FEES_BALANCE" => 90,
         "GET_BACKLOG_STATUS" => 90,
@@ -95,6 +96,17 @@ class IntentService {
             "is my hall ticket generated",
             "my hall ticket status",
             "can i download hall ticket"
+        ],
+        "GET_CERTIFICATE_STATUS" => [
+            "certificate",
+            "certificates",
+            "competency certificate",
+            "digital competency certificate",
+            "competence certificate",
+            "certificate status",
+            "which certificate is available",
+            "what certificates are available",
+            "can i download certificate"
         ],
         "GET_COURSE_DETAILS" => [
             "subject",

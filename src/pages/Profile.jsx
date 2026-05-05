@@ -55,8 +55,8 @@ const Profile = () => {
             Student Result
           </a>
 
-          <a href="#" onClick={(e) => e.preventDefault()}>
-            Competency Certificate
+          <a href="#" onClick={(e) => { e.preventDefault(); navigate('/certificate'); }}>
+            Digital Competency Certificate
           </a>
         </nav>
 

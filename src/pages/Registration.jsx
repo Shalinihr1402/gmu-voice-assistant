@@ -92,6 +92,9 @@ const Registration = () => {
           <a href="#" className="active">
             Student Registration
           </a>
+          <a href="#" onClick={(e) => { e.preventDefault(); navigate('/certificate') }}>
+            Digital Competency Certificate
+          </a>
         </nav>
 
         <div className="header-user">

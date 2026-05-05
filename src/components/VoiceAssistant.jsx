@@ -1299,8 +1299,8 @@ const VoiceAssistant = () => {
         type: "reply",
         reply: replyInSelectedLanguage(
           "To check your fee balance, open the Registration page. In the Payment Details section, you can see total fee, paid amount, and remaining balance.",
-          "To check your fee balance, open the Registration page. In the Payment Details section, you can see total fee, paid amount, and remaining balance.",
-          "To check your fee balance, open the Registration page. In the Payment Details section, you can see total fee, paid amount, and remaining balance."
+          "फीस बैलेंस देखने के लिए रजिस्ट्रेशन पेज खोलिए। पेमेंट डिटेल्स सेक्शन में आप कुल फीस, जमा की गई राशि और बाकी बैलेंस देख सकते हैं।",
+          "Fee balance nodalu Registration page tereyiri. Payment Details section nalli total fee, paid amount, mattu remaining balance nodabahudu."
         )
       }
     }
@@ -1320,11 +1320,11 @@ const VoiceAssistant = () => {
             ? `Your current pending fee balance is rupees ${formattedBalance}.`
             : "To check your fee balance, open the Registration page and view the Payment Details section.",
           formattedBalance != null
-            ? `Your current pending fee balance is rupees ${formattedBalance}.`
-            : "To check your fee balance, open the Registration page and view the Payment Details section.",
+            ? `आपका वर्तमान बकाया फीस बैलेंस ${formattedBalance} रुपये है।`
+            : "फीस बैलेंस देखने के लिए रजिस्ट्रेशन पेज खोलिए और पेमेंट डिटेल्स सेक्शन देखिए।",
           formattedBalance != null
-            ? `Your current pending fee balance is rupees ${formattedBalance}.`
-            : "To check your fee balance, open the Registration page and view the Payment Details section."
+            ? `Nimma eegina pending fee balance ${formattedBalance} rupayi ide.`
+            : "Fee balance nodalu Registration page tereyiri mattu Payment Details section nodi."
         )
       }
     }
@@ -1334,8 +1334,8 @@ const VoiceAssistant = () => {
         type: "reply",
         reply: replyInSelectedLanguage(
           "To pay your fees, go to the Registration page and scroll down. Click on the Payment button. In GM Smart Pay, select the required fee option and proceed.",
-          "To pay your fees, go to the Registration page and scroll down. Click on the Payment button. In GM Smart Pay, select the required fee option and proceed.",
-          "To pay your fees, go to the Registration page and scroll down. Click on the Payment button. In GM Smart Pay, select the required fee option and proceed."
+          "फीस भरने के लिए रजिस्ट्रेशन पेज पर जाइए और नीचे स्क्रॉल कीजिए। पेमेंट बटन दबाइए। GM Smart Pay में जरूरी फीस विकल्प चुनकर आगे बढ़िए।",
+          "Fees pavatisalu Registration page ge hogi kelage scroll madi. Payment button ottiri. GM Smart Pay nalli bekaada fee option ayke madi munduvariyiri."
         )
       }
     }
@@ -1345,8 +1345,8 @@ const VoiceAssistant = () => {
         type: "reply",
         reply: replyInSelectedLanguage(
           "After clicking the Payment button, you will see options like College or Tuition Fee, Hostel Fee, Skill or Late Registration Fee, Download Receipt, Payment Grievance, and Grievance Result.",
-          "After clicking the Payment button, you will see options like College or Tuition Fee, Hostel Fee, Skill or Late Registration Fee, Download Receipt, Payment Grievance, and Grievance Result.",
-          "After clicking the Payment button, you will see options like College or Tuition Fee, Hostel Fee, Skill or Late Registration Fee, Download Receipt, Payment Grievance, and Grievance Result."
+          "पेमेंट बटन दबाने के बाद आपको College या Tuition Fee, Hostel Fee, Skill या Late Registration Fee, Download Receipt, Payment Grievance और Grievance Result जैसे विकल्प दिखेंगे।",
+          "Payment button ottida mele College athava Tuition Fee, Hostel Fee, Skill athava Late Registration Fee, Download Receipt, Payment Grievance, mattu Grievance Result tara options kanisuttave."
         )
       }
     }
@@ -1356,8 +1356,8 @@ const VoiceAssistant = () => {
         type: "reply",
         reply: replyInSelectedLanguage(
           "To apply for a payment grievance, go to the Registration page, click on the Payment button, then select Payment Grievance. Enter your details and submit.",
-          "To apply for a payment grievance, go to the Registration page, click on the Payment button, then select Payment Grievance. Enter your details and submit.",
-          "To apply for a payment grievance, go to the Registration page, click on the Payment button, then select Payment Grievance. Enter your details and submit."
+          "पेमेंट शिकायत दर्ज करने के लिए रजिस्ट्रेशन पेज पर जाइए, पेमेंट बटन दबाइए, फिर Payment Grievance चुनिए। अपनी जानकारी भरकर सबमिट कीजिए।",
+          "Payment grievance haakalu Registration page ge hogi, Payment button ottiri, nantara Payment Grievance ayke madi. Nimma details tumbi submit madi."
         )
       }
     }
@@ -1367,8 +1367,8 @@ const VoiceAssistant = () => {
         type: "reply",
         reply: replyInSelectedLanguage(
           "To check grievance result, go to the Registration page, click on the Payment button, then select Grievance Result. Enter your USN and submit.",
-          "To check grievance result, go to the Registration page, click on the Payment button, then select Grievance Result. Enter your USN and submit.",
-          "To check grievance result, go to the Registration page, click on the Payment button, then select Grievance Result. Enter your USN and submit."
+          "शिकायत का परिणाम देखने के लिए रजिस्ट्रेशन पेज पर जाइए, पेमेंट बटन दबाइए, फिर Grievance Result चुनिए। अपना USN भरकर सबमिट कीजिए।",
+          "Grievance result nodalu Registration page ge hogi, Payment button ottiri, nantara Grievance Result ayke madi. Nimma USN haki submit madi."
         )
       }
     }
@@ -1417,7 +1417,7 @@ const VoiceAssistant = () => {
         type: "reply",
         reply: replyInSelectedLanguage(
           "To check your grievance result, open the payment portal and select Grievance Result. Then search with your USN, phone number, or grievance number to view the latest status and remarks.",
-          "Grievance result dekhne ke liye payment portal kholiye aur Grievance Result select kijiye. Phir apna USN, phone number, ya grievance number daal kar latest status aur remarks dekhiye.",
+          "शिकायत का परिणाम देखने के लिए पेमेंट पोर्टल खोलिए और Grievance Result चुनिए। फिर अपना USN, फोन नंबर या शिकायत नंबर भरकर नवीनतम स्थिति और टिप्पणी देखिए।",
           "Grievance result nodalu payment portal tereyiri mattu Grievance Result ayke madi. Nantara nimma USN, phone number, athava grievance number haki latest status mattu remarks nodi."
         )
       }
@@ -1428,7 +1428,7 @@ const VoiceAssistant = () => {
         type: "reply",
         reply: replyInSelectedLanguage(
           "If your fee status is not updated, open the payment portal and choose Payment Grievance. Enter your USN, phone number, payment amount, transaction date, and issue details, then upload payment proof if you have it. After submission, use Grievance Result to track the update.",
-          "Agar fee status update nahin hua hai, payment portal me jaakar Payment Grievance kholiye. Apna USN, phone number, payment amount, transaction date, aur issue details dijiye, aur agar proof ho to upload kijiye. Submit karne ke baad Grievance Result se update check kijiye.",
+          "अगर आपकी फीस स्थिति अपडेट नहीं हुई है, तो पेमेंट पोर्टल में जाकर Payment Grievance खोलिए। अपना USN, फोन नंबर, भुगतान राशि, लेनदेन तिथि और समस्या का विवरण भरिए, और यदि प्रमाण है तो अपलोड कीजिए। सबमिट करने के बाद Grievance Result से अपडेट देखिए।",
           "Nimma fee status update agilladiddare payment portal nalli Payment Grievance tereyiri. Nimma USN, phone number, payment amount, transaction date, mattu issue details kodi, proof iddare upload madi. Submit madida mele Grievance Result nalli update nodabahudu."
         )
       }
@@ -1438,7 +1438,7 @@ const VoiceAssistant = () => {
       type: "reply",
       reply: replyInSelectedLanguage(
         `You can pay your fees from the payment portal. Available options are College or Tuition Fee, Hostel Fee, Skill or Late Registration or Other Fee, Download Receipt, Payment Grievance, and Grievance Result. Your current pending balance is rupees ${formattedBalance}.`,
-        `आप payment portal से अपनी fees भर सकते हैं। उपलब्ध options हैं College या Tuition Fee, Hostel Fee, Skill या Late Registration या Other Fee, Download Receipt, Payment Grievance, और Grievance Result। आपका current pending balance ${formattedBalance} रुपये है।`,
+        `आप पेमेंट पोर्टल से अपनी फीस भर सकते हैं। उपलब्ध विकल्प हैं College या Tuition Fee, Hostel Fee, Skill या Late Registration या Other Fee, Download Receipt, Payment Grievance और Grievance Result। आपका वर्तमान बकाया बैलेंस ${formattedBalance} रुपये है।`,
         `ನೀವು payment portal ಮೂಲಕ ನಿಮ್ಮ fees ಪಾವತಿಸಬಹುದು. ಲಭ್ಯವಿರುವ options ಎಂದರೆ College ಅಥವಾ Tuition Fee, Hostel Fee, Skill ಅಥವಾ Late Registration ಅಥವಾ Other Fee, Download Receipt, Payment Grievance ಮತ್ತು Grievance Result. ಈಗ ನಿಮ್ಮ pending balance ರೂ. ${formattedBalance}.`
       )
     }
@@ -1460,11 +1460,11 @@ const VoiceAssistant = () => {
       return totalBalance > 0
         ? replyInSelectedLanguage(
           "Your final registration is still pending because there is an outstanding fee balance.",
-          "आपका फाइनल रजिस्ट्रेशन अभी पेंडिंग है, क्योंकि फीस बैलेंस बाकी है।"
+          "आपका अंतिम रजिस्ट्रेशन अभी लंबित है, क्योंकि फीस बैलेंस बाकी है।"
         )
         : replyInSelectedLanguage(
           "Your final registration is completed successfully.",
-          "आपका फाइनल रजिस्ट्रेशन सफलतापूर्वक पूरा हो चुका है।"
+          "आपका अंतिम रजिस्ट्रेशन सफलतापूर्वक पूरा हो चुका है।"
         )
     }
 
@@ -1478,11 +1478,11 @@ const VoiceAssistant = () => {
       return totalBalance > 0
         ? replyInSelectedLanguage(
           `Your current pending fee balance is rupees ${formattedBalance}.`,
-          `आपका अभी का pending fee balance ${formattedBalance} रुपये है।`
+          `आपका वर्तमान बकाया फीस बैलेंस ${formattedBalance} रुपये है।`
         )
         : replyInSelectedLanguage(
           "You do not have any pending fee balance.",
-          "आपका कोई pending fee balance नहीं है।"
+          "आपका कोई बकाया फीस बैलेंस नहीं है।"
         )
     }
 
@@ -1702,6 +1702,7 @@ const VoiceAssistant = () => {
       if (/ಡ್ಯಾಶ್.?ಬೋರ್ಡ್|dashboard/u.test(cleaned)) return "dashboard"
       if (/ಹೋಮ್|home/u.test(cleaned)) return isStaff ? "portal" : "home"
       if (/ಪೋರ್ಟಲ್|portal/u.test(cleaned)) return "portal"
+      if (/certificate|competency|competence|ಸರ್ಟಿಫಿಕೇಟ್|ಡಿಜಿಟಲ್/u.test(cleaned)) return "certificate"
       if (/ರಿಜಿಸ್ಟ್ರೇಶನ್|ನೋಂದಣಿ|rijistreshan/u.test(cleaned) && (asksToOpenPage || !asksStatusOnly)) {
         return isStudent ? "registration" : "portal"
       }
@@ -1709,6 +1710,7 @@ const VoiceAssistant = () => {
       if (hasAnyText([/\b(dashboard|dash board)\b/, /डैशबोर्ड/])) return "dashboard"
       if (hasAnyText([/\b(home|main page)\b/, /होम/])) return isStaff ? "portal" : "home"
       if (hasAnyText([/\b(portal|role portal)\b/, /पोर्टल/])) return "portal"
+      if (hasAnyText([/\b(certificate|competency|competence|digital certificate)\b/, /सर्टिफिकेट/])) return "certificate"
       if (
         hasAnyText([
           /\b(registration|register|registation|ragistration|registration number|register number|registration nuber|register nuber)\b/,
@@ -1734,6 +1736,11 @@ const VoiceAssistant = () => {
 
       if (requestedPage === "registration" && isStudent) {
         openPageFromVoice("registration", "Opening your registration page.", "आपका registration page खोल रहा हूं।", "ನಿಮ್ಮ registration page ತೆರೆಯುತ್ತಿದ್ದೇನೆ.")
+        return
+      }
+
+      if (requestedPage === "certificate") {
+        openPageFromVoice("certificate", "Opening your digital competency certificate page.", "आपका digital competency certificate page खोल रहा हूं।", "ನಿಮ್ಮ digital competency certificate page ತೆರೆಯುತ್ತಿದ್ದೇನೆ.")
         return
       }
 
@@ -1837,6 +1844,16 @@ const VoiceAssistant = () => {
       return
     }
 
+    if ((cleaned.match(/\b(certificate|competency|competence)\b/) || /सर्टिफिकेट/.test(cleaned)) && isNavigationRequest) {
+      setIsProcessing(false)
+      if (isStudent) {
+        goToPage("certificate", replyInSelectedLanguage("Opening your digital competency certificate page.", "आपका digital competency certificate page खोल रहा हूं।", "ನಿಮ್ಮ digital competency certificate page ತೆರೆಯುತ್ತಿದ್ದೇನೆ."))
+      } else {
+        goToPage("portal", replyInSelectedLanguage("Opening your role portal.", "आपका role portal खोल रहा हूं।", "ನಿಮ್ಮ role portal ತೆರೆಯುತ್ತಿದ್ದೇನೆ."))
+      }
+      return
+    }
+
     if ((cleaned.match(/\bhome\b/) || /होम/.test(cleaned)) && isNavigationRequest) {
       setIsProcessing(false)
       goToPage(
@@ -1901,8 +1918,8 @@ const VoiceAssistant = () => {
     const welcomeMessage = isKannadaMode
       ? (
         firstName
-          ? `ನಮಸ್ಕಾರ ${firstName}. ನಾನು GMU VoiceBot ಮುಂದಿನ ಪ್ರಶ್ನೆಗೆ ಮುಂದುವರಿಯಲು, ದಯವಿಟ್ಟು GMU ವೃತ್ತಾಕಾರದ ಬಟನ್ ಅನ್ನು ಒತ್ತುವಂತೆ ವಿನಂತಿಸುತ್ತೇವೆ.`
-          : "ನಮಸ್ಕಾರ. ನಾನು GMU VoiceBot ಮುಂದಿನ ಪ್ರಶ್ನೆಗೆ ಮುಂದುವರಿಯಲು, ದಯವಿಟ್ಟು GMU ವೃತ್ತಾಕಾರದ ಬಟನ್ ಅನ್ನು ಒತ್ತುವಂತೆ ವಿನಂತಿಸುತ್ತೇವೆ."
+          ? `ನಮಸ್ಕಾರ ${firstName}. ನಾನು GMU VoiceBot. ಮತ್ತೊಮ್ಮೆ ಟ್ಯಾಪ್ ಮಾಡಿ ನಿಮ್ಮ ಪ್ರಶ್ನೆಯನ್ನು ಕೇಳಿ.`
+          : "ನಮಸ್ಕಾರ. ನಾನು GMU VoiceBot. ಮತ್ತೊಮ್ಮೆ ಟ್ಯಾಪ್ ಮಾಡಿ ನಿಮ್ಮ ಪ್ರಶ್ನೆಯನ್ನು ಕೇಳಿ."
       )
       : welcome
     setResponse(welcomeMessage)

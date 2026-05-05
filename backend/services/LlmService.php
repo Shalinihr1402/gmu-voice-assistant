@@ -131,7 +131,7 @@ class LlmService {
         $capabilitySummary = "You help with profile, fees, attendance, results, CGPA, backlog status, course details, and registration status.";
 
         $responseLanguageRules = $language === "hi"
-            ? "Reply in simple, natural Hindi for voice. Hinglish is okay for university words like profile, fees, attendance, result, course, and registration. Keep answers short, usually 1 to 3 sentences."
+            ? "Reply in simple, natural Hindi in Devanagari script for voice. Avoid Hinglish unless a university term such as USN or course code must stay unchanged. Keep answers short, usually 1 to 3 sentences."
             : ($language === "kn"
                 ? "Reply in simple, natural Kannada for voice. Kanglish is okay for university words like profile, fees, attendance, result, course, and registration. Keep answers short, usually 1 to 3 sentences."
                 : "Reply in warm, natural spoken English. Keep answers short, usually 1 to 3 sentences.");
@@ -854,7 +854,7 @@ class LlmService {
 
         $translationRequest = $language === "kn"
             ? "Convert this ERP voicebot answer into simple Kannada or Kanglish for voice. Keep names, numbers, USN, course codes, fee amounts, and university terms exactly unchanged. Reply only with the converted answer: " . $reply
-            : "Convert this ERP voicebot answer into simple Hindi/Hinglish for voice. Keep names, numbers, USN, course codes, fee amounts, and university terms exactly unchanged. Reply only with the converted answer: " . $reply;
+            : "Convert this ERP voicebot answer into simple Hindi in Devanagari script for voice. Keep names, numbers, USN, course codes, fee amounts, and essential university terms exactly unchanged. Reply only with the converted answer: " . $reply;
         $knowledgeItems = [];
 
         foreach (self::getProviderOrder() as $provider) {
