@@ -1,26 +1,18 @@
-import { useEffect, useMemo, useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { useLocation, useNavigate } from "react-router-dom"
 
 import { fetchJson } from "../utils/api"
 import "./Result.css"
 
-const EXAM_OPTIONS = ["SEE", "RESIT", "RE-REGISTRATION"]
-const SEASON_OPTIONS = ["ODD", "EVEN"]
-
-const buildAcademicYears = () => {
-  const currentYear = new Date().getFullYear()
-  const years = []
-
-  for (let start = currentYear - 5; start <= currentYear; start += 1) {
-    years.push(`${start}-${String(start + 1).slice(-2)}`)
-  }
-
-  return years.reverse()
-}
+const uniqueValues = (values) => Array.from(new Set(values.filter(Boolean)))
+const sortSemesters = (values) => [...values].sort((left, right) => Number(left) - Number(right))
+const sortAcademicYears = (values) => [...values].sort((left, right) => right.localeCompare(left))
 
 const Result = () => {
   const navigate = useNavigate()
+  const location = useLocation()
   const [student, setStudent] = useState(null)
+  const [availableSelections, setAvailableSelections] = useState([])
   const [resultData, setResultData] = useState(null)
   const [errorMessage, setErrorMessage] = useState("")
   const [loading, setLoading] = useState(true)
@@ -32,43 +24,146 @@ const Result = () => {
     year: "",
     season: ""
   })
-
-  const academicYearOptions = useMemo(() => buildAcademicYears(), [])
-  const semesterOptions = useMemo(() => {
-    const currentSemester = Number(student?.semester || 0)
-    if (!currentSemester) {
-      return []
-    }
-
-    return Array.from({ length: currentSemester }, (_, index) => String(index + 1))
-  }, [student?.semester])
+  const voicePrefillSubmittedRef = useRef(false)
 
   useEffect(() => {
-    fetchJson("getProfile.php")
-      .then((data) => {
-        if (data.error) {
+    voicePrefillSubmittedRef.current = false
+  }, [location.search])
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const voicePrefill = {
+      usn: (params.get("usn") || "").toUpperCase(),
+      semester: params.get("semester") || "",
+      exam: params.get("exam") || "",
+      year: params.get("year") || "",
+      season: params.get("season") || ""
+    }
+
+    Promise.all([
+      fetchJson("getProfile.php"),
+      fetchJson("getResultAvailability.php")
+    ])
+      .then(([profileData, availabilityData]) => {
+        if (profileData.error) {
           navigate("/")
           return
         }
 
-        setStudent(data)
+        setStudent(profileData)
+        setAvailableSelections(Array.isArray(availabilityData?.selections) ? availabilityData.selections : [])
         setForm((current) => ({
           ...current,
-          usn: data.usn || "",
-          semester: data.semester ? String(data.semester) : "",
-          year: academicYearOptions[0] || ""
+          usn: voicePrefill.usn || profileData.usn || "",
+          semester: voicePrefill.semester || current.semester || "",
+          exam: voicePrefill.exam || current.exam,
+          year: voicePrefill.year || current.year,
+          season: voicePrefill.season || current.season
         }))
         setLoading(false)
       })
       .catch(() => navigate("/"))
-  }, [academicYearOptions, navigate])
+  }, [location.search, navigate])
+
+  const semesterOptions = useMemo(() => sortSemesters(uniqueValues(
+    availableSelections.map((selection) => String(selection.semester || ""))
+  )), [availableSelections])
+
+  const examOptions = useMemo(() => uniqueValues(
+    availableSelections
+      .filter((selection) => !form.semester || String(selection.semester) === String(form.semester))
+      .map((selection) => selection.exam)
+  ), [availableSelections, form.semester])
+
+  const academicYearOptions = useMemo(() => sortAcademicYears(uniqueValues(
+    availableSelections
+      .filter((selection) => {
+        if (form.semester && String(selection.semester) !== String(form.semester)) return false
+        if (form.exam && selection.exam !== form.exam) return false
+        return true
+      })
+      .map((selection) => selection.year)
+  )), [availableSelections, form.exam, form.semester])
+
+  const seasonOptions = useMemo(() => uniqueValues(
+    availableSelections
+      .filter((selection) => {
+        if (form.semester && String(selection.semester) !== String(form.semester)) return false
+        if (form.exam && selection.exam !== form.exam) return false
+        if (form.year && selection.year !== form.year) return false
+        return true
+      })
+      .map((selection) => selection.season)
+  ), [availableSelections, form.exam, form.semester, form.year])
 
   const handleChange = (field, value) => {
-    setForm((current) => ({
-      ...current,
-      [field]: value
-    }))
+    setForm((current) => {
+      if (field === "semester") {
+        return {
+          ...current,
+          semester: value,
+          exam: "",
+          year: "",
+          season: ""
+        }
+      }
+
+      if (field === "exam") {
+        return {
+          ...current,
+          exam: value,
+          year: "",
+          season: ""
+        }
+      }
+
+      if (field === "year") {
+        return {
+          ...current,
+          year: value,
+          season: ""
+        }
+      }
+
+      return {
+        ...current,
+        [field]: value
+      }
+    })
   }
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const hasVoicePrefill = ["usn", "semester", "exam", "year", "season"].every((key) => params.get(key))
+
+    if (!hasVoicePrefill || !student || submitting || voicePrefillSubmittedRef.current) {
+      return
+    }
+
+    if (!form.usn || !form.semester || !form.exam || !form.year || !form.season) {
+      return
+    }
+
+    voicePrefillSubmittedRef.current = true
+    setSubmitting(true)
+    setErrorMessage("")
+    setResultData(null)
+
+    fetchJson("getSemesterResult.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(form)
+    })
+      .then((data) => {
+        setResultData(data)
+      })
+      .catch((error) => {
+        setErrorMessage(error.message || "Unable to fetch result right now.")
+      })
+      .finally(() => {
+        setSubmitting(false)
+      })
+  }, [form, location.search, student, submitting])
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -162,7 +257,7 @@ const Result = () => {
                 onChange={(event) => handleChange("exam", event.target.value)}
               >
                 <option value="">Select Exam</option>
-                {EXAM_OPTIONS.map((exam) => (
+                {examOptions.map((exam) => (
                   <option key={exam} value={exam}>{exam}</option>
                 ))}
               </select>
@@ -188,11 +283,20 @@ const Result = () => {
                 onChange={(event) => handleChange("season", event.target.value)}
               >
                 <option value="">Select Season</option>
-                {SEASON_OPTIONS.map((season) => (
+                {seasonOptions.map((season) => (
                   <option key={season} value={season}>{season}</option>
                 ))}
               </select>
             </label>
+
+            {!!availableSelections.length && (
+              <p className="result-availability-note">
+                Available demo result combinations:{" "}
+                {availableSelections
+                  .map((selection) => `Sem ${selection.semester} ${selection.exam} ${selection.year} ${selection.season}`)
+                  .join(" | ")}
+              </p>
+            )}
 
             {errorMessage && <p className="result-error">{errorMessage}</p>}
 

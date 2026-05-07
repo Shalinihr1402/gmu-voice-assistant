@@ -89,6 +89,17 @@
   text-align: center;
 }
 
+.result-availability-note {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(95, 29, 29, 0.16);
+  color: #5f1d1d;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
 .grade-sheet-card {
   margin-top: 30px;
   color: #2f1710;

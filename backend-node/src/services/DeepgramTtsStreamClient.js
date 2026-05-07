@@ -15,6 +15,11 @@ export class DeepgramTtsStreamClient {
         sample_rate: String(this.config.deepgramTtsSampleRate)
       });
 
+      const speed = Number(this.config.deepgramTtsSpeed);
+      if (Number.isFinite(speed) && speed > 0) {
+        params.set("speed", String(speed));
+      }
+
       this.socket = new WebSocket(`wss://api.deepgram.com/v1/speak?${params.toString()}`, {
         headers: {
           Authorization: `Token ${this.config.deepgramApiKey}`

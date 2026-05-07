@@ -12,6 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 session_start();
 require_once "config/db.php";
+require_once "services/ResultCatalogService.php";
 
 if (!isset($_SESSION['student_id'])) {
     echo json_encode(["error" => "Not logged in"]);
@@ -20,6 +21,7 @@ if (!isset($_SESSION['student_id'])) {
 
 $student_id = (int) $_SESSION['student_id'];
 $input = json_decode(file_get_contents("php://input"), true) ?: [];
+ResultCatalogService::ensureCatalogReady($conn);
 
 $usn = trim((string) ($input["usn"] ?? ""));
 $semester = (int) ($input["semester"] ?? 0);
@@ -58,6 +60,32 @@ if (!$student) {
 if ($usn !== "" && strcasecmp($usn, (string) $student["usn"]) !== 0) {
     http_response_code(404);
     echo json_encode(["error" => "USN does not match the logged in student."]);
+    exit();
+}
+
+$publishedSelection = ResultCatalogService::findPublishedSelection(
+    $conn,
+    $student_id,
+    $semester,
+    $exam,
+    $year,
+    $season
+);
+
+if (!$publishedSelection) {
+    $availableSelections = ResultCatalogService::getPublishedSelections($conn, $student_id);
+    $semesterHint = ResultCatalogService::describeSelectionsForSemester($availableSelections, $semester);
+    $message = "No published result is available for the selected semester, exam, academic year, and season.";
+
+    if ($semesterHint !== "") {
+        $message .= " Available combinations for semester {$semester}: {$semesterHint}.";
+    }
+
+    http_response_code(404);
+    echo json_encode([
+        "error" => $message,
+        "available_selections" => $availableSelections
+    ]);
     exit();
 }
 
@@ -125,10 +153,10 @@ echo json_encode([
         "current_semester" => (int) $student["semester"]
     ],
     "selection" => [
-        "semester" => $semester,
-        "exam" => $exam,
-        "year" => $year,
-        "season" => $season
+        "semester" => $publishedSelection["semester"],
+        "exam" => $publishedSelection["exam"],
+        "year" => $publishedSelection["year"],
+        "season" => $publishedSelection["season"]
     ],
     "summary" => [
         "sgpa" => $sgpa,

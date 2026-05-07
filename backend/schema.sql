@@ -101,6 +101,20 @@ CREATE TABLE results (
         ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+CREATE TABLE result_publications (
+    publication_id INT AUTO_INCREMENT PRIMARY KEY,
+    student_id INT NOT NULL,
+    semester INT NOT NULL,
+    exam_type VARCHAR(30) NOT NULL,
+    academic_year VARCHAR(20) NOT NULL,
+    season VARCHAR(10) NOT NULL,
+    publication_status VARCHAR(20) NOT NULL DEFAULT 'PUBLISHED',
+    published_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_result_publication (student_id, semester, exam_type, academic_year, season),
+    FOREIGN KEY (student_id) REFERENCES students(student_id)
+        ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 CREATE TABLE attendance (
     attendance_id INT AUTO_INCREMENT PRIMARY KEY,
     student_id INT NOT NULL,
@@ -318,6 +332,24 @@ INSERT INTO results (
     (15, 1, 5, 15, 3.0, 8.0),
     (16, 1, 5, 16, 1.5, 9.0),
     (17, 1, 5, 17, 3.0, 9.0);
+
+INSERT INTO result_publications (
+    publication_id,
+    student_id,
+    semester,
+    exam_type,
+    academic_year,
+    season,
+    publication_status,
+    published_at
+) VALUES
+    (1, 1, 1, 'SEE', '2024-25', 'ODD', 'PUBLISHED', '2025-06-12 10:00:00'),
+    (2, 1, 2, 'SEE', '2024-25', 'EVEN', 'PUBLISHED', '2025-10-24 10:00:00'),
+    (3, 1, 2, 'RESIT', '2024-25', 'EVEN', 'PUBLISHED', '2025-11-15 10:00:00'),
+    (4, 1, 3, 'SEE', '2025-26', 'ODD', 'PUBLISHED', '2026-01-18 10:00:00'),
+    (5, 1, 4, 'SEE', '2025-26', 'EVEN', 'PUBLISHED', '2026-03-05 10:00:00'),
+    (6, 1, 4, 'RESIT', '2025-26', 'EVEN', 'PUBLISHED', '2026-04-02 10:00:00'),
+    (7, 1, 5, 'SEE', '2026-27', 'ODD', 'PUBLISHED', '2026-04-20 10:00:00');
 
 INSERT INTO knowledge_base (kb_id, audience_role, topic, content) VALUES
     (1, 'student', 'Profile Access', 'Students can use the portal to view profile, course registration, payment summary, SGPA, and attendance.'),

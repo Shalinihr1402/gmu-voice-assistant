@@ -40,7 +40,7 @@ function getEnvValue($key) {
 }
 
 $apiKey = getEnvValue("DEEPGRAM_API_KEY");
-$ttsModel = getEnvValue("DEEPGRAM_TTS_MODEL") ?: "aura-2-asteria-en";
+$ttsModel = getEnvValue("DEEPGRAM_TTS_MODEL") ?: "aura-2-helena-en";
 
 if (!$apiKey) {
     http_response_code(500);

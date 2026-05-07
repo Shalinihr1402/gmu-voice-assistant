@@ -1,4 +1,4 @@
-const BACKEND_ROOT = "/gmu-voice-bot/gmu-voice-assistant/backend"
+const BACKEND_ROOT = "http://localhost:8080/gmu-voice-assistant/backend"
 const DEV_PROXY_ROOT = `/api${BACKEND_ROOT}`
 
 const getBackendRoot = () => (

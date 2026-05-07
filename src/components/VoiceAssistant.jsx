@@ -11,6 +11,24 @@ const LOCAL_SILENCE_THRESHOLD = 0.018
 const LOCAL_SILENCE_MS = 350
 const LOCAL_MIN_SPEECH_MS = 250
 const USE_BROWSER_TTS_BY_DEFAULT = true
+const RESULT_EXAM_OPTIONS = ["SEE", "RESIT", "RE-REGISTRATION"]
+const RESULT_SEASON_OPTIONS = ["ODD", "EVEN"]
+
+const createEmptyResultQuery = () => ({
+  active: false,
+  usn: "",
+  semester: "",
+  exam: "",
+  year: "",
+  season: ""
+})
+
+const createEmptySpeechRecoveryState = () => ({
+  active: false,
+  correctedText: "",
+  displayText: ""
+})
+
 const VOICE_LANGUAGE_OPTIONS = {
   en: {
     label: "English",
@@ -41,6 +59,9 @@ const PREFERRED_FEMALE_VOICE_HINTS = [
   "zira",
   "aria",
   "jenny",
+  "sonia",
+  "neerja",
+  "priya",
   "samantha",
   "victoria",
   "karen",
@@ -52,6 +73,7 @@ const PREFERRED_FEMALE_VOICE_HINTS = [
   "kalpana",
   "swara",
   "lekha",
+  "female",
   "google hindi",
   "google हिन्दी"
 ]
@@ -63,6 +85,130 @@ const LIKELY_MALE_VOICE_HINTS = [
   "alex",
   "daniel"
 ]
+const SPEECH_RECOVERY_KEYWORDS = [
+  "attendance",
+  "result",
+  "results",
+  "marks",
+  "marksheet",
+  "semester",
+  "exam",
+  "season",
+  "year",
+  "profile",
+  "payment",
+  "fees",
+  "fee",
+  "balance",
+  "registration",
+  "certificate",
+  "dashboard",
+  "timetable",
+  "schedule",
+  "subject",
+  "course",
+  "receipt",
+  "grievance",
+  "backlog",
+  "hallticket",
+  "ticket",
+  "usn",
+  "sgpa",
+  "cgpa",
+  "see",
+  "resit",
+  "reregistration",
+  "odd",
+  "even",
+  "dbms",
+  "laboratory",
+  "operating",
+  "systems",
+  "computer",
+  "networks",
+  "artificial",
+  "intelligence",
+  "software",
+  "engineering",
+  "timetable"
+]
+const SPEECH_RECOVERY_STOP_WORDS = new Set([
+  "i",
+  "me",
+  "my",
+  "mine",
+  "you",
+  "your",
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "to",
+  "for",
+  "of",
+  "in",
+  "on",
+  "at",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "do",
+  "did",
+  "does",
+  "know",
+  "about",
+  "show",
+  "tell",
+  "check",
+  "open",
+  "view",
+  "give",
+  "want",
+  "need",
+  "please",
+  "can",
+  "could",
+  "would",
+  "what",
+  "which",
+  "when",
+  "where",
+  "how",
+  "latest",
+  "have",
+  "has"
+])
+const SPEECH_RECOVERY_EXACT_REPLACEMENTS = [
+  { pattern: /\bu\s*s\s*n\b/g, replacement: "usn" },
+  { pattern: /\bd\s*b\s*m\s*s\b/g, replacement: "dbms" },
+  { pattern: /\bo\s*s\b/g, replacement: "os" },
+  { pattern: /\bc\s*n\b/g, replacement: "cn" },
+  { pattern: /\ba\s*i\b/g, replacement: "ai" },
+  { pattern: /\bs\s*e\s*e\b/g, replacement: "see" },
+  { pattern: /\bre[\s-]*registration\b/g, replacement: "reregistration" },
+  { pattern: /\bhall\s+ticket\b/g, replacement: "hallticket" },
+  { pattern: /\btime\s+table\b/g, replacement: "timetable" }
+]
+const SPOKEN_TERM_REPLACEMENTS = [
+  { pattern: /\bGMU\b/g, replacement: "G M U" },
+  { pattern: /\bUSN\b/g, replacement: "U S N" },
+  { pattern: /\bSGPA\b/g, replacement: "S G P A" },
+  { pattern: /\bCGPA\b/g, replacement: "C G P A" },
+  { pattern: /\bDBMS\b/g, replacement: "D B M S" },
+  { pattern: /\bAI\b/g, replacement: "A I" },
+  { pattern: /\bCN\b/g, replacement: "C N" },
+  { pattern: /\bOS\b/g, replacement: "O S" },
+  { pattern: /\bHOD\b/g, replacement: "H O D" },
+  { pattern: /\bERP\b/g, replacement: "E R P" },
+  { pattern: /\bSEE\b/g, replacement: "S E E" },
+  { pattern: /\bRESIT\b/g, replacement: "re-sit" },
+  { pattern: /\bRE-REGISTRATION\b/g, replacement: "re-registration" },
+  { pattern: /\bODD\b/g, replacement: "odd" },
+  { pattern: /\bEVEN\b/g, replacement: "even" }
+]
 
 const VoiceAssistant = () => {
   const [isActive, setIsActive] = useState(false)
@@ -71,6 +217,8 @@ const VoiceAssistant = () => {
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [transcript, setTranscript] = useState("")
   const [response, setResponse] = useState("")
+  const [suggestionText, setSuggestionText] = useState("")
+  const [quickActions, setQuickActions] = useState([])
   const [replySource, setReplySource] = useState("")
   const [errorMessage, setErrorMessage] = useState("")
   const [currentUser, setCurrentUser] = useState(null)
@@ -114,6 +262,9 @@ const VoiceAssistant = () => {
   const profileCacheRef = useRef(null)
   const paymentCacheRef = useRef(null)
   const coursesCacheRef = useRef(null)
+  const resultAvailabilityCacheRef = useRef(null)
+  const pendingSpeechRecoveryRef = useRef(createEmptySpeechRecoveryState())
+  const pendingResultQueryRef = useRef(createEmptyResultQuery())
 
   const navigate = useNavigate()
   const languageConfig = VOICE_LANGUAGE_OPTIONS[voiceLanguage] || VOICE_LANGUAGE_OPTIONS.en
@@ -141,7 +292,8 @@ const VoiceAssistant = () => {
     source: "Source:",
     status: isHindiMode ? "स्थिति:" : "Status:",
     you: isHindiMode ? "आप:" : "You:",
-    assistant: "Assistant:"
+    assistant: "Assistant:",
+    suggestion: "Suggestion:"
   }
 
   if (isKannadaMode) {
@@ -164,6 +316,7 @@ const VoiceAssistant = () => {
     localizedText.askAria = "ನಿಮ್ಮ ಪ್ರಶ್ನೆ ಕೇಳಲು ಒತ್ತಿಸಿ"
     localizedText.status = "ಸ್ಥಿತಿ:"
     localizedText.you = "ನೀವು:"
+    localizedText.suggestion = "Suggestion:"
   }
 
   const replyInSelectedLanguage = (english, hindi, kannada) => (
@@ -484,16 +637,17 @@ const VoiceAssistant = () => {
   const speakTextStream = async (textOrStream, options = {}) => {
     const { preferBrowser = USE_BROWSER_TTS_BY_DEFAULT } = options
     const bufferedText = typeof textOrStream === "string" ? textOrStream : ""
+    const speechText = prepareSpeechText(bufferedText)
     const shouldUseBrowserTts = preferBrowser || languageConfig.ttsProvider === "browser"
 
     if (shouldUseBrowserTts) {
-      if (bufferedText) {
-        speakWithBrowserFallback(bufferedText)
+      if (speechText) {
+        speakWithBrowserFallback(speechText)
       }
       return
     }
 
-    if (!bufferedText) {
+    if (!speechText) {
       finishSpeaking()
       return
     }
@@ -504,7 +658,7 @@ const VoiceAssistant = () => {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          text: bufferedText,
+          text: speechText,
           language: languageConfig.apiLanguage
         })
       })
@@ -541,7 +695,7 @@ const VoiceAssistant = () => {
       isSpeakingRef.current = true
       setIsSpeaking(true)
       setStartupStatus("")
-      lastSpokenTextRef.current = bufferedText
+      lastSpokenTextRef.current = speechText
 
       await playElevenLabsBlobAudio()
     } catch (error) {
@@ -551,7 +705,7 @@ const VoiceAssistant = () => {
         return
       }
 
-      speakWithBrowserFallback(bufferedText)
+      speakWithBrowserFallback(speechText)
     }
   }
 
@@ -560,12 +714,105 @@ const VoiceAssistant = () => {
       .toLowerCase()
       .replace(/[^\w\s]/g, " ")
       .replace(/\s+/g, " ")
+      .replace(/^(then|and|so|okay|ok|now|please)\s+/, "")
       .trim()
   )
+
+  const looksLikeActionableCommand = (text) => (
+    /\b(open|go|navigate|show|check|tell|view|display|pay|download|track|apply|search|see|bring|take|latest|fee|fees|balance|result|payment|receipt|grievance|profile|dashboard|registration|certificate|attendance|backlog|semester|usn|course|subject|hall ticket|cgpa|sgpa)\b/.test(text)
+  )
+
+const spellTokenForSpeech = (token) => (
+  String(token || "")
+      .replace(/-/g, " ")
+      .split("")
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim()
+  )
+
+  const normalizeAcademicYearInput = (text) => {
+    const value = String(text || "").toLowerCase().trim()
+    if (!value) {
+      return ""
+    }
+
+    const directYearRange = value.match(/\b(20\d{2})\s*(?:-|to|and|\s)\s*((?:20)?\d{2})\b/)
+    if (directYearRange) {
+      return `${directYearRange[1]}-${String(directYearRange[2]).slice(-2)}`
+    }
+
+    const sixDigitCompactYear = value.match(/\b(20\d{2})(\d{2})\b/)
+    if (sixDigitCompactYear) {
+      return `${sixDigitCompactYear[1]}-${sixDigitCompactYear[2]}`
+    }
+
+    const splitCompactYear = value.match(/\b(20\d{2})\s+(20)\s*(\d{2})\b/)
+    if (splitCompactYear) {
+      return `${splitCompactYear[1]}-${splitCompactYear[3]}`
+    }
+
+    const allYearLikeParts = value.match(/20\d{2}|\b\d{2}\b/g) || []
+    if (allYearLikeParts.length >= 2 && /^20\d{2}$/.test(allYearLikeParts[0])) {
+      return `${allYearLikeParts[0]}-${String(allYearLikeParts[1]).slice(-2)}`
+    }
+
+    return ""
+  }
+
+  const prepareSpeechText = (text) => {
+    let prepared = String(text || "").trim()
+    if (!prepared) {
+      return ""
+    }
+
+    prepared = prepared
+      .replace(/\s+/g, " ")
+      .replace(/\s*[:;]\s*/g, ", ")
+      .replace(/\s*[|/]\s*/g, " or ")
+      .replace(/\(([^)]+)\)/g, ", $1, ")
+      .replace(/\s*-\s*/g, " ")
+      .replace(/([a-z])([A-Z])/g, "$1, $2")
+      .replace(/([0-9])([A-Za-z])/g, "$1 $2")
+      .replace(/([A-Za-z])([0-9])/g, "$1 $2")
+      .replace(/\b1st\b/gi, "first")
+      .replace(/\b2nd\b/gi, "second")
+      .replace(/\b3rd\b/gi, "third")
+      .replace(/\b4th\b/gi, "fourth")
+      .replace(/\b5th\b/gi, "fifth")
+      .replace(/\b6th\b/gi, "sixth")
+      .replace(/\b7th\b/gi, "seventh")
+      .replace(/\b8th\b/gi, "eighth")
+
+    SPOKEN_TERM_REPLACEMENTS.forEach(({ pattern, replacement }) => {
+      prepared = prepared.replace(pattern, replacement)
+    })
+
+    prepared = prepared.replace(/\b([A-Z]{2,}[0-9][A-Z0-9-]*)\b/g, (token) => spellTokenForSpeech(token))
+    prepared = prepared.replace(/\b([A-Z]{2,})\b/g, (token) => {
+      if (token.length > 6) {
+        return token
+      }
+
+      return spellTokenForSpeech(token)
+    })
+
+    prepared = prepared
+      .replace(/\s*,\s*,+/g, ", ")
+      .replace(/\s+\./g, ".")
+      .replace(/\s+,/g, ",")
+      .replace(/([.!?])\s*(and|then)\s+/gi, "$1 $2 ")
+      .replace(/\s+/g, " ")
+      .trim()
+
+    return prepared
+  }
 
   const isSelfTranscript = (text) => {
     const transcriptText = normalizeText(text)
     const spokenText = normalizeText(lastSpokenTextRef.current)
+    const transcriptWords = transcriptText.split(" ").filter(Boolean)
 
     if (!transcriptText || !spokenText) {
       return false
@@ -575,11 +822,19 @@ const VoiceAssistant = () => {
       return true
     }
 
+    // Keep very short slot answers like "c" or "4th" available to the guided voice flow.
+    if (transcriptText.length <= 2 || transcriptWords.length <= 1) {
+      return false
+    }
+
+    if (looksLikeActionableCommand(transcriptText) && transcriptWords.length >= 3) {
+      return false
+    }
+
     if (spokenText.includes(transcriptText) || transcriptText.includes(spokenText)) {
       return true
     }
 
-    const transcriptWords = transcriptText.split(" ").filter(Boolean)
     if (transcriptWords.length < 4) {
       return false
     }
@@ -877,7 +1132,7 @@ const VoiceAssistant = () => {
     setIsSpeaking(false)
     window.speechSynthesis.cancel()
 
-    const utterance = new SpeechSynthesisUtterance(text)
+    const utterance = new SpeechSynthesisUtterance(prepareSpeechText(text))
     const voices = window.speechSynthesis.getVoices()
     const voiceMatchesLanguage = (voice) => (
       languageConfig.voicePrefixes.some((prefix) => String(voice.lang || "").toLowerCase().startsWith(prefix))
@@ -901,8 +1156,9 @@ const VoiceAssistant = () => {
     }
 
     utterance.lang = languageConfig.locale
-    utterance.rate = isHindiMode ? 0.96 : 1.04
-    utterance.pitch = isHindiMode ? 1.02 : 1.08
+    utterance.rate = isHindiMode ? 1.01 : 1.04
+    utterance.pitch = isHindiMode ? 1.08 : 1.1
+    utterance.volume = 1
 
     utterance.onstart = () => {
       isSpeakingRef.current = true
@@ -913,7 +1169,7 @@ const VoiceAssistant = () => {
 
     utterance.onerror = finishSpeaking
 
-    lastSpokenTextRef.current = text
+    lastSpokenTextRef.current = utterance.text
     window.speechSynthesis.speak(utterance)
   }
 
@@ -933,18 +1189,106 @@ const VoiceAssistant = () => {
         body: JSON.stringify({ message: text, language: languageConfig.apiLanguage })
       })
       setReplySource(data.reply_source || "unknown")
-      return data.reply || localizedText.noAnswer
+      return {
+        reply: data.reply || localizedText.noAnswer,
+        suggestion: data.suggestion || "",
+        quickActions: Array.isArray(data.quick_actions) ? data.quick_actions : []
+      }
     } catch {
       setReplySource("request_failed")
-      return localizedText.serverError
+      return {
+        reply: localizedText.serverError,
+        suggestion: "",
+        quickActions: []
+      }
     }
   }
 
   const replyImmediately = (text) => {
+    const localSuggestion = buildLocalSuggestionPayload(text)
+    const speechText = localSuggestion?.suggestion ? `${text} ${localSuggestion.suggestion}` : text
+
     setResponse(text)
+    setSuggestionText(localSuggestion?.suggestion || "")
+    setQuickActions(localSuggestion?.quickActions || [])
     setReplySource("")
-    void speak(text, { preferBrowser: languageConfig.ttsProvider !== "elevenlabs" })
+    void speak(speechText, { preferBrowser: languageConfig.ttsProvider !== "elevenlabs" })
     lastCommandRef.current = ""
+  }
+
+  const presentAssistantReply = (payload) => {
+    const reply = payload?.reply || localizedText.noAnswer
+    const suggestion = payload?.suggestion || ""
+    const actions = Array.isArray(payload?.quickActions) ? payload.quickActions : []
+    const speechText = suggestion ? `${reply} ${suggestion}` : reply
+
+    setResponse(reply)
+    setSuggestionText(suggestion)
+    setQuickActions(actions)
+    void speak(speechText)
+    lastCommandRef.current = ""
+  }
+
+  const buildLocalSuggestionPayload = (replyText) => {
+    const normalized = (replyText || "").toLowerCase()
+
+    if (!normalized) {
+      return null
+    }
+
+    if ((normalized.includes("pending fee") || normalized.includes("outstanding fee") || normalized.includes("remaining balance") || normalized.includes("pending balance")) && !normalized.includes("no pending")) {
+      return {
+        suggestion: replyInSelectedLanguage(
+          "Do you want to open the payment portal or check the fee breakup?",
+          "क्या आप payment portal खोलना चाहते हैं या fee breakup देखना चाहते हैं?",
+          "Payment portal ತೆರೆಯಬೇಕೆ ಅಥವಾ fee breakup ನೋಡಬೇಕೆ?"
+        ),
+        quickActions: [
+          {
+            label: replyInSelectedLanguage("Fee breakup", "Fee breakup", "Fee breakup"),
+            prompt: replyInSelectedLanguage("Show my fee breakup", "मेरा fee breakup दिखाइए", "ನನ್ನ fee breakup ತೋರಿಸಿ")
+          },
+          {
+            label: replyInSelectedLanguage("Open payment", "Payment खोलें", "Payment ತೆರೆಯಿರಿ"),
+            prompt: replyInSelectedLanguage("Open payment portal", "Payment portal खोलिए", "Payment portal ತೆರೆಯಿರಿ")
+          }
+        ]
+      }
+    }
+
+    if (normalized.includes("registration is still pending") || normalized.includes("final registration is still pending")) {
+      return {
+        suggestion: replyInSelectedLanguage(
+          "Do you want to check the exact pending fee amount?",
+          "क्या आप exact pending fee amount देखना चाहते हैं?",
+          "Exact pending fee amount ನೋಡಬೇಕೆ?"
+        ),
+        quickActions: [
+          {
+            label: replyInSelectedLanguage("Check fees", "Fees देखें", "Fees ನೋಡಿ"),
+            prompt: replyInSelectedLanguage("What is my fee balance", "मेरी fee balance क्या है", "ನನ್ನ fee balance ಎಷ್ಟು")
+          }
+        ]
+      }
+    }
+
+    if (normalized.includes("backlog")) {
+      return {
+        suggestion: replyInSelectedLanguage(
+          "Do you want to check your latest result details too?",
+          "क्या आप latest result details भी देखना चाहते हैं?",
+          "Latest result details ಕೂಡ ನೋಡಬೇಕೆ?"
+        ),
+        quickActions: [
+          {
+            label: replyInSelectedLanguage("Latest result", "Latest result", "Latest result"),
+            prompt: replyInSelectedLanguage("Show my latest result", "मेरा latest result दिखाइए", "ನನ್ನ latest result ತೋರಿಸಿ")
+          }
+        ]
+      }
+    }
+
+    return null
   }
 
   const getOrdinalLabel = (value) => {
@@ -1126,6 +1470,16 @@ const VoiceAssistant = () => {
     return data
   }
 
+  const loadResultAvailabilityCache = async () => {
+    if (resultAvailabilityCacheRef.current) {
+      return resultAvailabilityCacheRef.current
+    }
+
+    const data = await fetchJson("getResultAvailability.php")
+    resultAvailabilityCacheRef.current = data
+    return data
+  }
+
   const formatCurrency = (value) => {
     const amount = Number(value)
     if (!Number.isFinite(amount)) {
@@ -1137,17 +1491,169 @@ const VoiceAssistant = () => {
     }).format(amount)
   }
 
+  const resetPendingResultQuery = () => {
+    pendingResultQueryRef.current = createEmptyResultQuery()
+  }
+
+  const resetPendingSpeechRecovery = () => {
+    pendingSpeechRecoveryRef.current = createEmptySpeechRecoveryState()
+  }
+
+  const isAffirmativeRecoveryReply = (text) => (
+    /\b(yes|yeah|yep|correct|right|haan|han|haudu|yes please|exactly)\b|हाँ|हां|ಹೌದು/u.test(String(text || "").trim().toLowerCase())
+  )
+
+  const isNegativeRecoveryReply = (text) => (
+    /\b(no|nope|wrong|not that|cancel|nahi|nahi|illa)\b|नहीं|नहि|ಇಲ್ಲ/u.test(String(text || "").trim().toLowerCase())
+  )
+
+  const editDistance = (source, target) => {
+    const left = String(source || "")
+    const right = String(target || "")
+    const rows = left.length + 1
+    const cols = right.length + 1
+    const matrix = Array.from({ length: rows }, () => Array(cols).fill(0))
+
+    for (let row = 0; row < rows; row += 1) {
+      matrix[row][0] = row
+    }
+
+    for (let col = 0; col < cols; col += 1) {
+      matrix[0][col] = col
+    }
+
+    for (let row = 1; row < rows; row += 1) {
+      for (let col = 1; col < cols; col += 1) {
+        const cost = left[row - 1] === right[col - 1] ? 0 : 1
+        matrix[row][col] = Math.min(
+          matrix[row - 1][col] + 1,
+          matrix[row][col - 1] + 1,
+          matrix[row - 1][col - 1] + cost
+        )
+      }
+    }
+
+    return matrix[left.length][right.length]
+  }
+
+  const formatRecoveredDisplayText = (text) => (
+    String(text || "")
+      .replace(/\busn\b/gi, "USN")
+      .replace(/\bsgpa\b/gi, "SGPA")
+      .replace(/\bcgpa\b/gi, "CGPA")
+      .replace(/\bdbms\b/gi, "DBMS")
+      .replace(/\bsee\b/gi, "SEE")
+      .replace(/\bresit\b/gi, "RESIT")
+      .replace(/\breregistration\b/gi, "RE-REGISTRATION")
+      .replace(/\bodd\b/gi, "ODD")
+      .replace(/\beven\b/gi, "EVEN")
+      .replace(/\bos\b/gi, "OS")
+      .replace(/\bcn\b/gi, "CN")
+      .replace(/\bai\b/gi, "AI")
+      .trim()
+  )
+
+  const getClosestSpeechKeyword = (token) => {
+    if (!/^[a-z][a-z0-9-]{2,}$/i.test(token)) {
+      return null
+    }
+
+    let bestKeyword = null
+    let bestDistance = Number.POSITIVE_INFINITY
+
+    SPEECH_RECOVERY_KEYWORDS.forEach((keyword) => {
+      if (keyword === token) return
+      if (keyword[0] !== token[0]) return
+
+      const distance = editDistance(token, keyword)
+      const allowedDistance = token.length <= 4 ? 1 : 2
+      if (distance <= allowedDistance && distance < bestDistance) {
+        bestKeyword = keyword
+        bestDistance = distance
+      }
+    })
+
+    if (!bestKeyword) {
+      return null
+    }
+
+    return {
+      keyword: bestKeyword,
+      distance: bestDistance
+    }
+  }
+
+  const getSpeechRecoverySuggestion = (text) => {
+    const raw = String(text || "").trim().toLowerCase()
+    if (!raw) {
+      return null
+    }
+
+    let normalized = ` ${raw} `
+    SPEECH_RECOVERY_EXACT_REPLACEMENTS.forEach(({ pattern, replacement }) => {
+      normalized = normalized.replace(pattern, ` ${replacement} `)
+    })
+    normalized = normalized
+      .replace(/\s+/g, " ")
+      .trim()
+
+    const originalNormalized = normalized
+    const tokens = normalized.split(" ").filter(Boolean)
+    let changes = 0
+
+    const correctedTokens = tokens.map((token) => {
+      if (SPEECH_RECOVERY_STOP_WORDS.has(token) || /^\d+$/.test(token)) {
+        return token
+      }
+
+      const closest = getClosestSpeechKeyword(token)
+      if (!closest) {
+        return token
+      }
+
+      changes += 1
+      return closest.keyword
+    })
+
+    normalized = correctedTokens.join(" ").trim()
+
+    if (!normalized || normalized === originalNormalized || changes === 0 || changes > 2) {
+      return null
+    }
+
+    if (!normalized.split(" ").some((token, index) => token !== tokens[index])) {
+      return null
+    }
+
+    return {
+      correctedText: normalized,
+      displayText: formatRecoveredDisplayText(normalized)
+    }
+  }
+
   const normalizeVoiceIntent = (text) => {
     let normalized = String(text || "").trim().toLowerCase()
 
     const replacements = [
-      [/\b(shikayat|sikayat|shikayath|complaint)\b/g, " grievance "],
+      [/\b(shikayat|sikayat|shikayath|complaint|issue|problem|samasya)\b/g, " grievance "],
       [/शिकायत|शिकायात|ग्रिवेंस|ग्रीवेंस|गृवेंस|ग्रीयेवेंस/gu, " grievance "],
       [/\b(ahavalu|ahavaalu|grevans|grievans)\b/g, " grievance "],
       [/ಅಹವಾಲು|ಅಹವಾಳು|ಗ್ರೀವೆನ್ಸ್|ಗ್ರೀವನ್ಸ್|ಗ್ರಿವನ್ಸ್|ಗ್ರೀವನ್ಸ್/gu, " grievance "],
+      [/\b(baki fees|baaki fees|due fees|pending fees)\b/g, " fee balance "],
+      [/\b(fee balance eshtu|fees balance eshtu|nanna baki fees eshtu|nanna fee balance|fee due eshtu|due amount eshtu)\b/g, " fee balance "],
+      [/\b(usn|u s n|yu es en|uesn|yuesen|yusn|upsn|usm|usf|u s m|u s f)\b/g, " usn "],
+      [/\b(receipt download|download receipt|receipt barlilla|receipt illa|receipt not generated|receipt not received)\b/g, " download receipt "],
+      [/\b(money cut agide|payment deducted|payment cut agide|fee status update agilla|fees status update agilla|fee not updated|payment not updated)\b/g, " payment grievance "],
       [/\bpayment\s*(option|options|aapshan|aapshans|opshan|opshans|apshan|apshans)\b/g, "payment options"],
       [/\bpay\s*ment\s*(option|options)\b/g, "payment options"],
       [/ಪೇಮೆಂಟ್\s*(ಆಪ್ಷನ್|ಆಪ್ಷನ್ಸ್|ಆಪ್ಶನ್|ಆಪ್ಶನ್ಸ್|ಆಪ್ಷನ್ಸ್|ಆಪ್ಶನ್ಸ್)/g, " payment options "],
+      [/\bpayment option en ide\b/g, " payment options "],
+      [/\b(fees|fee|payment)\s+elli\s+pay\s+madodu\b/g, " how to pay fees "],
+      [/\b(payment|fees)\s+hege\s+madodu\b/g, " how to pay fees "],
+      [/\bfees pay kaise karna\b/g, " how to pay fees "],
+      [/\bpayment page open madu\b/g, " open payment page "],
+      [/\b(issue|grievance|complaint)\s+status\s+(hege\s+nododu|nodbeku|kaise\s+dekhna)\b/g, " grievance result "],
+      [/\b(grievance|complaint)\s+(hege\s+apply\s+madodu|hege\s+hakodu|kaise\s+apply\s+karna)\b/g, " apply grievance "],
       [/payment ge hogu/g, " open payment page "],
       [/payment portal ge hogu/g, " open payment page "],
       [/ಪೇಮೆಂಟ್\s*(ಪೇಜ್|ಪೋರ್ಟಲ್|ಪುಟ)\s*ಗೆ\s*(ಹೋಗು|ಹೋಗ್ಬು|ತೆರೆ)/g, " open payment page "],
@@ -1158,6 +1664,9 @@ const VoiceAssistant = () => {
       [/ಬ್ಯಾಕ್\s*(ಲಾಗ್|ಲೋಗ್|ಲಾಕ್)(್ಸ್|ಸ್)?/g, " backlog "],
       [/ಬ್ಯಾಕ್?(ಲಾಗ್|ಲೋಗ್|ಲಾಕ್)(್ಸ್|ಸ್)?/g, " backlog "],
       [/ಫೇಲ್\s*subject/g, " failed subject "],
+      [/\b(single step|singal step|single sem|sem step)\b/g, " semester "],
+      [/\b(s\s*e\s*e|s\s*ee)\b/g, " see "],
+      [/\bc\b/g, " see "],
       [/subject\s*code/g, " course code "],
       [/course\s*code/g, " course code "],
       [/ಕೋರ್ಸ್\s*ಕೋಡ್/g, " course code "],
@@ -1230,10 +1739,6 @@ const VoiceAssistant = () => {
       })
     }
 
-    if (semesterValue) {
-      return null
-    }
-
     const missingFields = []
     if (!knownUsn && !enteredUsnMatch) missingFields.push("USN")
     if (!semesterValue) missingFields.push("Semester")
@@ -1246,14 +1751,289 @@ const VoiceAssistant = () => {
       return {
         type: "reply",
         reply: replyInSelectedLanguage(
-          `I can help with your result. Please provide these details: ${missingList}. Enter USN, Semester, Exam, Year, and Season, then I can help you check it.`,
-          `Main aapka result check karne mein help kar sakta hoon. Kripya ye details dijiye: ${missingList}. USN, Semester, Exam, Year, aur Season dijiye, phir main help karunga.`,
-          `Nimma result ge nanu help madabahudu. Dayavittu ee details kodi: ${missingList}. USN, Semester, Exam, Year, mattu Season kodi, nantara nanu help maduttene.`
+          semesterValue
+            ? `I can help you check your ${getOrdinalLabel(semesterValue) || semesterValue} semester result. Please share these remaining details: ${missingList}.`
+            : `I can help you check your result. Since results are available semester-wise, please tell me your semester first, then share these details: ${missingList}.`,
+          semesterValue
+            ? `Main aapka semester ${semesterValue} ka result check karne mein help kar sakta hoon. Kripya ye baaki details dijiye: ${missingList}.`
+            : `Main aapka result check karne mein help kar sakta hoon. Kyunki result semester-wise available hota hai, kripya pehle apna Semester batayiye, phir ye details dijiye: ${missingList}.`,
+          semesterValue
+            ? `Nanu nimma ${semesterValue}ne semester result check madalu sahaya madabahudu. Dayavittu ulida details kodi: ${missingList}.`
+            : `Nimma result check madalu nanu sahaya madabahudu. Result semester-wise labhyaviruvudariinda, dayavittu modalu nimma Semester heli, nantara ee details kodi: ${missingList}.`
         )
       }
     }
 
     return null
+  }
+
+  const getGuidedResultSupportReply = async (text) => {
+    const normalized = (text || "").trim().toLowerCase()
+    const pendingQuery = pendingResultQueryRef.current
+    const hasResultWord = /\b(result|results|marks|marksheet|grade sheet|gradesheet|sgpa)\b|result|marks/u.test(normalized)
+    const hasContinuationWord = /\b(yes|yeah|haan|ha|haudu|continue|go ahead)\b|à¤¹à¤¾à¤|à²¹à³Œà²¦à³/u.test(normalized)
+    const hasStructuredSlotAnswer = /\b[a-z]{2,}[0-9]{2,}[a-z0-9]{3,}\b/i.test(normalized)
+      || /\b(?:semester|sem)\s*\d+\b/.test(normalized)
+      || /\b(first|second|third|fourth|fifth|sixth|seventh|eighth)\s+(semester|sem)\b/.test(normalized)
+      || /\b(first|second|third|fourth|fifth|sixth|seventh|eighth)\b/.test(normalized)
+      || /\b[1-8](?:st|nd|rd|th)?\b/.test(normalized)
+      || /\b(see|resit|re-registration|reregistration|odd|even)\b/.test(normalized)
+      || /\b20\d{2}\s*(?:-\s*|\s+)(?:20)?\d{2}\b/.test(normalized)
+    const explicitlyCancelsResultFlow = /\b(cancel|stop|leave|exit|skip|never mind|dont need|don't need|not result|no result|something else|another question)\b/u.test(normalized)
+    const hasStrongNonResultIntent = /\b(timetable|time table|schedule|class schedule|profile|my profile|attendance|fee|fees|payment|certificate|registration|dashboard|home|course|subject|hall ticket|usn|cgpa|backlog|grievance|receipt)\b/u.test(normalized)
+
+    if (pendingQuery.active && (explicitlyCancelsResultFlow || (hasStrongNonResultIntent && !hasResultWord && !hasStructuredSlotAnswer))) {
+      resetPendingResultQuery()
+      return null
+    }
+
+    const buildMissingFieldPrompt = (nextMissingField, nextQuery, invalidAttempt = false, fieldOptions = {}) => {
+      const examOptions = fieldOptions.examOptions?.length ? fieldOptions.examOptions : RESULT_EXAM_OPTIONS
+      const yearOptions = fieldOptions.yearOptions?.length ? fieldOptions.yearOptions : ["2024-25"]
+      const seasonOptions = fieldOptions.seasonOptions?.length ? fieldOptions.seasonOptions : RESULT_SEASON_OPTIONS
+
+      return replyInSelectedLanguage(
+      nextMissingField === "Semester"
+        ? (invalidAttempt
+          ? "I am still helping you check your result. Please tell me only the semester first. You can say fourth semester."
+          : "I can help you check your result step by step. First, please tell me which semester you want to check. You can simply say fourth semester.")
+        : nextMissingField === "Exam"
+          ? (invalidAttempt
+            ? `I am still checking your ${getOrdinalLabel(nextQuery.semester) || nextQuery.semester} semester result. Please tell me only the exam type, such as ${examOptions.join(", ")}.`
+            : `I can help you check your ${getOrdinalLabel(nextQuery.semester) || nextQuery.semester} semester result step by step. Please tell me the exam type, such as ${examOptions.join(", ")}.`)
+          : nextMissingField === "Year"
+            ? (invalidAttempt
+              ? `I am still checking your ${getOrdinalLabel(nextQuery.semester) || nextQuery.semester} semester ${nextQuery.exam} result. Please tell me only the academic year, for example ${yearOptions.join(" or ")}.`
+              : `Please tell me the academic year for your ${getOrdinalLabel(nextQuery.semester) || nextQuery.semester} semester ${nextQuery.exam} result, for example ${yearOptions.join(" or ")}.`)
+            : nextMissingField === "Season"
+              ? (invalidAttempt
+                ? `I am still checking your ${getOrdinalLabel(nextQuery.semester) || nextQuery.semester} semester ${nextQuery.exam} ${nextQuery.year} result. Please tell me only the season. You can say ${seasonOptions.join(" or ")}.`
+                : `Please tell me the season for your ${getOrdinalLabel(nextQuery.semester) || nextQuery.semester} semester ${nextQuery.exam} ${nextQuery.year} result. You can say ${seasonOptions.join(" or ")}.`)
+              : (invalidAttempt
+                ? `I am still checking your ${getOrdinalLabel(nextQuery.semester) || nextQuery.semester} semester result. Please share only your USN first.`
+                : `Please share your USN so I can check your ${getOrdinalLabel(nextQuery.semester) || nextQuery.semester} semester result.`),
+      nextMissingField === "Semester"
+        ? (invalidAttempt
+          ? "Main abhi bhi aapka result check karne mein help kar raha hoon. Kripya pehle sirf semester batayiye. Aap fourth semester keh sakte hain."
+          : "Main aapka result step by step check karne mein help kar sakta hoon. Sabse pehle batayiye ki aap kaunsa semester check karna chahte hain. Aap simply fourth semester bhi keh sakte hain.")
+        : nextMissingField === "Exam"
+          ? (invalidAttempt
+            ? `Main abhi bhi semester ${nextQuery.semester} ka result check kar raha hoon. Kripya sirf exam type batayiye, jaise ${examOptions.join(", ")}.`
+            : `Main aapka semester ${nextQuery.semester} ka result step by step check karne mein help kar sakta hoon. Kripya exam type batayiye, jaise ${examOptions.join(", ")}.`)
+          : nextMissingField === "Year"
+            ? (invalidAttempt
+              ? `Main abhi bhi semester ${nextQuery.semester} ke ${nextQuery.exam} result ke liye wait kar raha hoon. Kripya sirf academic year batayiye, jaise ${yearOptions.join(" ya ")}.`
+              : `Kripya semester ${nextQuery.semester} ke ${nextQuery.exam} result ka academic year batayiye, jaise ${yearOptions.join(" ya ")}.`)
+            : nextMissingField === "Season"
+              ? (invalidAttempt
+                ? `Main abhi bhi semester ${nextQuery.semester} ke ${nextQuery.exam} ${nextQuery.year} result ke liye wait kar raha hoon. Kripya sirf season batayiye. Aap ${seasonOptions.join(" ya ")} keh sakte hain.`
+                : `Kripya semester ${nextQuery.semester} ke ${nextQuery.exam} ${nextQuery.year} result ka season batayiye. Aap ${seasonOptions.join(" ya ")} keh sakte hain.`)
+              : (invalidAttempt
+                ? `Main abhi bhi semester ${nextQuery.semester} ka result check kar raha hoon. Kripya sirf apna USN batayiye.`
+                : `Kripya apna USN batayiye, phir main semester ${nextQuery.semester} ka result check kar sakta hoon.`),
+      nextMissingField === "Semester"
+        ? (invalidAttempt
+          ? "Nanu innu nimma result check maduttiddene. Dayavittu modalu semester matra heli. Neevu fourth semester endu helabahudu."
+          : "Nimma result step by step check madalu nanu sahaya madabahudu. Modalu yav semester result bekendu heli. Neevu fourth semester anta simple aagi helabahudu.")
+        : nextMissingField === "Exam"
+          ? (invalidAttempt
+            ? `Nanu innu nimma ${nextQuery.semester}ne semester result check maduttiddene. Dayavittu exam type matra heli, udaharanege ${examOptions.join(", ")}.`
+            : `Nanu nimma ${nextQuery.semester}ne semester result step by step check madalu sahaya madabahudu. Dayavittu exam type heli, udaharanege ${examOptions.join(", ")}.`)
+          : nextMissingField === "Year"
+            ? (invalidAttempt
+              ? `Nanu innu nimma ${nextQuery.semester}ne semester ${nextQuery.exam} result ge kayuttiddene. Dayavittu academic year matra heli, udaharanege ${yearOptions.join(" athava ")}.`
+              : `Dayavittu nimma ${nextQuery.semester}ne semester ${nextQuery.exam} result ge academic year heli, udaharanege ${yearOptions.join(" athava ")}.`)
+            : nextMissingField === "Season"
+              ? (invalidAttempt
+                ? `Nanu innu nimma ${nextQuery.semester}ne semester ${nextQuery.exam} ${nextQuery.year} result ge kayuttiddene. Dayavittu season matra heli. Neevu ${seasonOptions.join(" athava ")} endu helabahudu.`
+                : `Dayavittu nimma ${nextQuery.semester}ne semester ${nextQuery.exam} ${nextQuery.year} result ge season heli. Neevu ${seasonOptions.join(" athava ")} endu helabahudu.`)
+              : (invalidAttempt
+                ? `Nanu innu nimma ${nextQuery.semester}ne semester result check maduttiddene. Dayavittu nimma USN matra heli.`
+                : `Dayavittu nimma USN heli, nantara nanu ${nextQuery.semester}ne semester result check madabahudu.`)
+    )
+    }
+
+    if (!hasResultWord && !pendingQuery.active) {
+      return null
+    }
+
+    if (pendingQuery.active && !hasResultWord && !hasContinuationWord && !hasStructuredSlotAnswer) {
+      const activeMissingFields = []
+      if (!pendingQuery.usn) activeMissingFields.push("USN")
+      if (!pendingQuery.semester) activeMissingFields.push("Semester")
+      if (!pendingQuery.exam) activeMissingFields.push("Exam")
+      if (!pendingQuery.year) activeMissingFields.push("Year")
+      if (!pendingQuery.season) activeMissingFields.push("Season")
+      const nextMissingField = activeMissingFields[0] || "Semester"
+      return {
+        type: "reply",
+        reply: buildMissingFieldPrompt(nextMissingField, pendingQuery, true)
+      }
+    }
+
+    const isProcessQuery = /\b(how to check|how can i check|how to see|where to see|where can i see|how to get|steps|process|check result|see result)\b/u.test(normalized)
+    if (isProcessQuery) {
+      resetPendingResultQuery()
+      return {
+        type: "reply",
+        reply: replyInSelectedLanguage(
+          "To check your result, open Student Result under the Result button. Enter USN, select Semester, select Exam like SEE, RESIT, or RE-REGISTRATION, choose Year, choose Season as ODD or EVEN, then click Submit.",
+          "Result check karne ke liye Result button ke andar Student Result kholiye. USN dijiye, Semester select kijiye, Exam mein SEE, RESIT, ya RE-REGISTRATION chuniye, Year select kijiye, Season mein ODD ya EVEN chuniye, phir Submit kijiye.",
+          "Result nodalu Result button alli Student Result tereyiri. USN haki, Semester select madi, Exam nalli SEE, RESIT, athava RE-REGISTRATION ayke madi, Year select madi, Season nalli ODD athava EVEN ayke madi, nantara Submit madi."
+        )
+      }
+    }
+
+    const isInformationQuery = /\b(what is|show|tell|check|view|display|my|give|latest)\b/u.test(normalized)
+    if (!isInformationQuery && !pendingQuery.active) {
+      return null
+    }
+
+    const profile = await loadProfileCache()
+    const knownUsn = String(profile?.usn || "").trim()
+    const enteredUsnMatch = normalized.match(/\b[a-z]{2,}[0-9]{2,}[a-z0-9]{3,}\b/i)
+    const semesterMatch = normalized.match(/\b(?:semester|sem)\s*(\d+)\b/)
+    const normalizedAcademicYear = normalizeAcademicYearInput(normalized)
+    const examMatch = normalized.match(/\b(see|resit|re-registration|reregistration)\b/)
+    const seasonMatch = normalized.match(/\b(odd|even)\b/)
+    const explicitlyMentionsSemesterField = /\b(?:semester|sem)\b/.test(normalized)
+    const semesterWordMap = {
+      first: 1,
+      second: 2,
+      third: 3,
+      fourth: 4,
+      fifth: 5,
+      sixth: 6,
+      seventh: 7,
+      eighth: 8
+    }
+
+    let semesterValue = semesterMatch ? semesterMatch[1] : ""
+    if (!semesterValue && !pendingQuery.semester) {
+      const standaloneSemesterMatch = normalized.match(/\b([1-8])(?:st|nd|rd|th)?\b/)
+      if (standaloneSemesterMatch) {
+        semesterValue = standaloneSemesterMatch[1]
+      }
+    }
+    if (!semesterValue && (!pendingQuery.semester || explicitlyMentionsSemesterField)) {
+      Object.entries(semesterWordMap).some(([word, value]) => {
+        if (
+          normalized.includes(`${word} semester`) ||
+          normalized.includes(`${word} sem`) ||
+          (!pendingQuery.semester && (normalized === word || normalized.startsWith(`${word} `)))
+        ) {
+          semesterValue = String(value)
+          return true
+        }
+        return false
+      })
+    }
+
+    const normalizedExam = examMatch
+      ? (examMatch[1] === "reregistration" ? "RE-REGISTRATION" : examMatch[1].toUpperCase())
+      : ""
+    const normalizedYear = normalizedAcademicYear || ""
+    const normalizedSeason = seasonMatch ? seasonMatch[1].toUpperCase() : ""
+
+    const nextQuery = {
+      active: true,
+      usn: (enteredUsnMatch?.[0] || pendingQuery.usn || knownUsn || "").toUpperCase(),
+      semester: semesterValue || pendingQuery.semester || "",
+      exam: normalizedExam || pendingQuery.exam || "",
+      year: normalizedYear || pendingQuery.year || "",
+      season: normalizedSeason || pendingQuery.season || ""
+    }
+
+    const availabilityData = await loadResultAvailabilityCache().catch(() => null)
+    const availableSelections = Array.isArray(availabilityData?.selections) ? availabilityData.selections : []
+    const semesterSelections = nextQuery.semester
+      ? availableSelections.filter((selection) => String(selection.semester) === String(nextQuery.semester))
+      : []
+    const availableExamOptions = Array.from(new Set(semesterSelections.map((selection) => selection.exam).filter(Boolean)))
+
+    if (nextQuery.semester && nextQuery.exam && availableExamOptions.length && !availableExamOptions.includes(nextQuery.exam)) {
+      nextQuery.exam = ""
+      nextQuery.year = ""
+      nextQuery.season = ""
+    }
+
+    const examSelections = nextQuery.exam
+      ? semesterSelections.filter((selection) => selection.exam === nextQuery.exam)
+      : []
+    const availableYearOptions = Array.from(new Set(examSelections.map((selection) => selection.year).filter(Boolean)))
+
+    if (nextQuery.semester && nextQuery.exam && nextQuery.year && availableYearOptions.length && !availableYearOptions.includes(nextQuery.year)) {
+      nextQuery.year = ""
+      nextQuery.season = ""
+    }
+
+    const yearSelections = nextQuery.year
+      ? examSelections.filter((selection) => selection.year === nextQuery.year)
+      : []
+    const availableSeasonOptions = Array.from(new Set(yearSelections.map((selection) => selection.season).filter(Boolean)))
+
+    if (nextQuery.semester && nextQuery.exam && nextQuery.year && nextQuery.season && availableSeasonOptions.length && !availableSeasonOptions.includes(nextQuery.season)) {
+      nextQuery.season = ""
+    }
+
+    pendingResultQueryRef.current = nextQuery
+
+    const missingFields = []
+    if (!nextQuery.usn) missingFields.push("USN")
+    if (!nextQuery.semester) missingFields.push("Semester")
+    if (!nextQuery.exam) missingFields.push("Exam")
+    if (!nextQuery.year) missingFields.push("Year")
+    if (!nextQuery.season) missingFields.push("Season")
+
+    if (missingFields.length > 0) {
+      const nextMissingField = missingFields[0]
+      return {
+        type: "reply",
+        reply: buildMissingFieldPrompt(nextMissingField, nextQuery, false, {
+          examOptions: availableExamOptions,
+          yearOptions: availableYearOptions,
+          seasonOptions: availableSeasonOptions
+        })
+      }
+    }
+
+    resetPendingResultQuery()
+    return {
+      type: "navigate_result",
+      reply: replyInSelectedLanguage(
+        `I have the details for your ${getOrdinalLabel(nextQuery.semester) || nextQuery.semester} semester result. Opening the result page now.`,
+        `Mujhe aapke semester ${nextQuery.semester} ke result ki details mil gayi hain. Main ab result page khol raha hoon.`,
+        `Nimma ${nextQuery.semester}ne semester result ge bekaada details sigive. Nanu iga result page tereyuttiddene.`
+      ),
+      selection: {
+        usn: nextQuery.usn,
+        semester: nextQuery.semester,
+        exam: nextQuery.exam,
+        year: nextQuery.year,
+        season: nextQuery.season
+      }
+    }
+  }
+
+  const getAttendanceAnalyticsSupportReply = async (text) => {
+    const normalized = (text || "").trim().toLowerCase()
+    const asksAttendance = /\b(attendance|attendence|atendance)\b|ಹಾಜರಿ|ಹಾಜರಾತಿ|ಅಟೆಂಡೆನ್ಸ್|अटेंडेंस|उपस्थिति/u.test(normalized)
+    const asksGraphStyle = /\b(graph|chart|bar chart|statistics|stats|analytics|analysis|visual|graphical|subject wise|subject-wise|all subjects|current sem|current semester)\b|ಗ್ರಾಫ್|ಚಾರ್ಟ್|ಅನಾಲಿಟಿಕ್ಸ್|ಸ್ಟಾಟಿಸ್ಟಿಕ್ಸ್|subject wise|ग्राफ|चार्ट|स्टैटिस्टिक्स|एनालिटिक्स/u.test(normalized)
+    const asksToShow = /\b(show|display|open|view|see|take me|navigate|give me)\b|ತೋರಿಸಿ|ತೆರೆಯಿರಿ|ನೋಡಿ|दिखाइए|खोलिए|देखिए/u.test(normalized)
+
+    if (!asksAttendance || !(asksGraphStyle || asksToShow && /\b(statistics|stats|graph|chart|subject wise|subject-wise)\b/u.test(normalized))) {
+      return null
+    }
+
+    return {
+      type: "navigate",
+      page: "attendance-analytics",
+      reply: replyInSelectedLanguage(
+        "Opening your current semester subject-wise attendance graph now.",
+        "मैं अभी आपके current semester की subject-wise attendance graph खोल रहा हूँ।",
+        "Nimma current semester subject-wise attendance graph iga tereyuttiddene."
+      )
+    }
   }
 
   const getPaymentSupportReply = async (text) => {
@@ -1293,8 +2073,25 @@ const VoiceAssistant = () => {
     }
 
     const structuredIntent = detectStructuredPaymentIntent()
+    let resolvedStructuredIntent = structuredIntent
 
-    if (structuredIntent === "FEES_BALANCE_STEPS") {
+    if (!resolvedStructuredIntent) {
+      if (/\b(download receipt|receipt download|how to download receipt|receipt hege download madodu|receipt kaise download karna)\b/.test(normalized)) {
+        resolvedStructuredIntent = "DOWNLOAD_RECEIPT"
+      } else if (/\b(fee balance eshtu|fees balance eshtu|nanna baki fees eshtu|nanna fee balance|due fees eshtu|fee due eshtu|fee balance ide)\b/.test(normalized)) {
+        resolvedStructuredIntent = "FEES_BALANCE_VALUE"
+      } else if (/\b(fees elli pay madodu|payment hege madodu|fees pay kaise karna|payment kaise karna|how to do payment)\b/.test(normalized)) {
+        resolvedStructuredIntent = "PAY_FEES"
+      } else if (/\b(payment option en ide|payment options en ide)\b/.test(normalized)) {
+        resolvedStructuredIntent = "PAYMENT_OPTIONS"
+      } else if (/\b(issue status hege nododu|issue status nodbeku|complaint status nodbeku|grievance status nodbeku|grievance status hege nododu|issue status kaise dekhna)\b/.test(normalized)) {
+        resolvedStructuredIntent = "GRIEVANCE_RESULT"
+      } else if (/\b(grievance hege apply madodu|grievance hege hakodu|complaint hege hakodu|grievance kaise apply karna|complaint kaise apply karna)\b/.test(normalized)) {
+        resolvedStructuredIntent = "APPLY_GRIEVANCE"
+      }
+    }
+
+    if (resolvedStructuredIntent === "FEES_BALANCE_STEPS") {
       return {
         type: "reply",
         reply: replyInSelectedLanguage(
@@ -1305,7 +2102,7 @@ const VoiceAssistant = () => {
       }
     }
 
-    if (structuredIntent === "FEES_BALANCE_VALUE") {
+    if (resolvedStructuredIntent === "FEES_BALANCE_VALUE") {
       const payments = await loadPaymentCache()
       const hasBalanceData = Array.isArray(payments) && payments.length > 0
       const totalBalance = hasBalanceData
@@ -1329,7 +2126,7 @@ const VoiceAssistant = () => {
       }
     }
 
-    if (structuredIntent === "PAY_FEES") {
+    if (resolvedStructuredIntent === "PAY_FEES") {
       return {
         type: "reply",
         reply: replyInSelectedLanguage(
@@ -1340,7 +2137,7 @@ const VoiceAssistant = () => {
       }
     }
 
-    if (structuredIntent === "PAYMENT_OPTIONS") {
+    if (resolvedStructuredIntent === "PAYMENT_OPTIONS") {
       return {
         type: "reply",
         reply: replyInSelectedLanguage(
@@ -1351,7 +2148,18 @@ const VoiceAssistant = () => {
       }
     }
 
-    if (structuredIntent === "APPLY_GRIEVANCE") {
+    if (resolvedStructuredIntent === "DOWNLOAD_RECEIPT") {
+      return {
+        type: "reply",
+        reply: replyInSelectedLanguage(
+          "To download your receipt, open the Registration page, click the Payment button, then choose Download Receipt. Enter the needed details and download the receipt.",
+          "Receipt download karne ke liye Registration page kholiye, Payment button dabaiye, phir Download Receipt chuniye. Zaroori details dijiye aur receipt download kijiye.",
+          "Receipt download madalu Registration page tereyiri, Payment button ottiri, nantara Download Receipt ayke madi. Bekada details kodi mattu receipt download madi."
+        )
+      }
+    }
+
+    if (resolvedStructuredIntent === "APPLY_GRIEVANCE") {
       return {
         type: "reply",
         reply: replyInSelectedLanguage(
@@ -1362,7 +2170,7 @@ const VoiceAssistant = () => {
       }
     }
 
-    if (structuredIntent === "GRIEVANCE_RESULT") {
+    if (resolvedStructuredIntent === "GRIEVANCE_RESULT") {
       return {
         type: "reply",
         reply: replyInSelectedLanguage(
@@ -1380,10 +2188,11 @@ const VoiceAssistant = () => {
       return null
     }
 
-    if (/\b(open|go|navigate|take me|show me|visit|hogu|tere|open madi)\b/.test(normalized)
+    if (/\b(open|go|navigate|take me|show me|visit|hogu|tere|open madi|open madu)\b/.test(normalized)
       || normalized.includes("payment page")
       || normalized.includes("payment portal")
       || normalized.includes("payment ge hogu")
+      || normalized.includes("payment page open madu")
       || normalized.includes("ಪೇಮೆಂಟ್ ಪೇಜ್")
       || normalized.includes("ಪಾವತಿ ಪುಟ")
       || normalized.includes("पेमेंट पेज")) {
@@ -1410,7 +2219,7 @@ const VoiceAssistant = () => {
     const isGrievanceResultQuery = grievanceWordPattern.test(normalized) && grievanceResultPattern.test(normalized)
     const isGrievanceHelpQuery = (grievanceWordPattern.test(normalized) && grievanceApplyPattern.test(normalized))
       || /\braise complaint\b/.test(normalized)
-      || /\bfee status not updated|fees status not updated|payment deducted|receipt not generated|wrong fee mapping|fee not updated\b/.test(normalized)
+      || /\bfee status not updated|fees status not updated|payment deducted|receipt not generated|wrong fee mapping|fee not updated|money cut agide|payment problem ide|payment problem hai|fee status update agilla|receipt barlilla\b/.test(normalized)
 
     if (isGrievanceResultQuery) {
       return {
@@ -1509,7 +2318,7 @@ const VoiceAssistant = () => {
       )
     }
 
-    if (/\b(usn|registration number|university number)\b|यूएसएन|रजिस्ट्रेशन नंबर/.test(normalized)) {
+    if (/\b(usn|u s n|yu es en|uesn|yuesen|yusn|upsn|usm|usf|u s m|u s f|registration number|university number)\b|यूएसएन|रजिस्ट्रेशन नंबर/.test(normalized)) {
       const profile = await loadProfileCache()
       if (profile?.usn) {
         return replyInSelectedLanguage(
@@ -1522,8 +2331,27 @@ const VoiceAssistant = () => {
     return null
   }
 
-  const handleVoiceCommand = async (command) => {
+  const getDirectUsnReply = async (text) => {
+    const normalized = (text || "").toLowerCase()
+    if (!/^\s*(usn|u s n|registration number|university number)\s*[?.!]*\s*$|\b(what is|what's|tell|show|give|share|say|confirm)\b.*\b(usn|u s n|registration number|university number)\b|\bmy\s+(usn|registration number|university number)\b|यूएसएन|रजिस्ट्रेशन नंबर/.test(normalized)) {
+      return null
+    }
+
+    const profile = await loadProfileCache()
+    if (!profile?.usn) {
+      return null
+    }
+
+    return replyInSelectedLanguage(
+      `Your USN is ${profile.usn}.`,
+      `आपका USN ${profile.usn} है।`,
+      `Nimma USN ${profile.usn}.`
+    )
+  }
+
+  const handleVoiceCommand = async (command, options = {}) => {
     if (!command) return
+    const { skipSpeechRecovery = false } = options
 
     let cleaned = command.trim().toLowerCase()
 
@@ -1547,11 +2375,95 @@ const VoiceAssistant = () => {
 
     const intentText = normalizeVoiceIntent(cleaned)
 
-    const resultSupport = await getResultSupportReply(intentText)
+    if (pendingSpeechRecoveryRef.current.active && !skipSpeechRecovery) {
+      if (isAffirmativeRecoveryReply(intentText)) {
+        const correctedText = pendingSpeechRecoveryRef.current.correctedText
+        const displayText = pendingSpeechRecoveryRef.current.displayText
+        resetPendingSpeechRecovery()
+        setTranscript(displayText || correctedText)
+        setIsProcessing(false)
+        await handleVoiceCommand(correctedText, { skipSpeechRecovery: true })
+        return
+      }
+
+      if (isNegativeRecoveryReply(intentText)) {
+        resetPendingSpeechRecovery()
+        setIsProcessing(false)
+        setReplySource("local_recovery")
+        replyImmediately(replyInSelectedLanguage(
+          "Okay. Please say your question again.",
+          "ठीक है। कृपया अपना सवाल फिर से कहिए।",
+          "Sari. Dayavittu nimma prashne matte heli."
+        ))
+        return
+      }
+
+      setIsProcessing(false)
+      setReplySource("local_recovery")
+      replyImmediately(replyInSelectedLanguage(
+        "Please say yes or no so I can confirm your question.",
+        "कृपया हाँ या नहीं कहिए, ताकि मैं आपके सवाल की पुष्टि कर सकूँ।",
+        "Dayavittu haudu athava illa heli, nanu nimma prashneyannu khachitapadisabahudu."
+      ))
+      return
+    }
+
+    if (!skipSpeechRecovery) {
+      const recoverySuggestion = getSpeechRecoverySuggestion(cleaned)
+      if (recoverySuggestion && recoverySuggestion.correctedText !== intentText) {
+        pendingSpeechRecoveryRef.current = {
+          active: true,
+          correctedText: recoverySuggestion.correctedText,
+          displayText: recoverySuggestion.displayText
+        }
+        setIsProcessing(false)
+        setReplySource("local_recovery")
+        replyImmediately(replyInSelectedLanguage(
+          `Did you mean ${recoverySuggestion.displayText}? Please say yes or no.`,
+          `क्या आपका मतलब ${recoverySuggestion.displayText} था? कृपया हाँ या नहीं कहिए।`,
+          `${recoverySuggestion.displayText} andre nimma artha? Dayavittu haudu athava illa heli.`
+        ))
+        return
+      }
+    }
+
+    const directUsnReply = await getDirectUsnReply(intentText)
+    if (directUsnReply) {
+      setIsProcessing(false)
+      setReplySource("local_usn")
+      replyImmediately(directUsnReply)
+      return
+    }
+
+    const resultSupport = await getGuidedResultSupportReply(intentText)
     if (resultSupport?.type === "reply") {
       setIsProcessing(false)
       setReplySource("local_result")
       replyImmediately(resultSupport.reply)
+      return
+    }
+
+    if (resultSupport?.type === "navigate_result") {
+      setIsProcessing(false)
+      setReplySource("local_result")
+      setResponse(resultSupport.reply)
+      speak(resultSupport.reply)
+      const params = new URLSearchParams(resultSupport.selection || {})
+      setTimeout(() => navigate(`/results?${params.toString()}`), 800)
+      lastPageRef.current = "results"
+      lastCommandRef.current = ""
+      return
+    }
+
+    const attendanceAnalyticsSupport = await getAttendanceAnalyticsSupportReply(intentText)
+    if (attendanceAnalyticsSupport?.type === "navigate") {
+      setIsProcessing(false)
+      setReplySource("local_attendance_graph")
+      setResponse(attendanceAnalyticsSupport.reply)
+      speak(attendanceAnalyticsSupport.reply)
+      setTimeout(() => navigate("/attendance-analytics"), 800)
+      lastPageRef.current = "attendance-analytics"
+      lastCommandRef.current = ""
       return
     }
 
@@ -1866,22 +2778,20 @@ const VoiceAssistant = () => {
     }
 
     if (/^(how are you|who are you|thank you|thanks|good morning|good afternoon|good evening|bye|goodbye|see you|कैसे हो|आप कौन हैं|धन्यवाद|शुक्रिया|नमस्ते|बाय)$/.test(cleaned)) {
-      const reply = await askAI(intentText)
-      setResponse(reply)
-      void speak(reply)
-      lastCommandRef.current = ""
+      const replyPayload = await askAI(intentText)
+      presentAssistantReply(replyPayload)
       return
     }
 
     setIsProcessing(true)
     setResponse(localizedText.thinking)
+    setSuggestionText("")
+    setQuickActions([])
 
-    const reply = await askAI(intentText)
+    const replyPayload = await askAI(intentText)
 
     setIsProcessing(false)
-    setResponse(reply)
-    void speak(reply)
-    lastCommandRef.current = ""
+    presentAssistantReply(replyPayload)
   }
 
   useEffect(() => {
@@ -1903,7 +2813,11 @@ const VoiceAssistant = () => {
     setIsProcessing(false)
     setIsSpeaking(false)
     setReplySource("")
+    setSuggestionText("")
+    setQuickActions([])
     setStartupStatus(localizedText.tapToAsk)
+    resetPendingSpeechRecovery()
+    resetPendingResultQuery()
 
     const firstName = (currentUser?.full_name || "").trim().split(/\s+/)[0] || ""
     const welcome = firstName
@@ -1923,6 +2837,8 @@ const VoiceAssistant = () => {
       )
       : welcome
     setResponse(welcomeMessage)
+    setSuggestionText("")
+    setQuickActions([])
     setTranscript("")
     setReplySource("")
     void speak(welcomeMessage, { preferBrowser: languageConfig.ttsProvider !== "elevenlabs" })
@@ -1956,7 +2872,11 @@ const VoiceAssistant = () => {
     setIsProcessing(false)
     setIsSpeaking(false)
     setReplySource("")
+    setSuggestionText("")
+    setQuickActions([])
     setStartupStatus("")
+    resetPendingSpeechRecovery()
+    resetPendingResultQuery()
     cleanupRecorder()
     void stopCurrentSpeech()
     cleanupAudio()
@@ -1989,7 +2909,11 @@ const VoiceAssistant = () => {
                   setVoiceLanguage(key)
                   setTranscript("")
                   setResponse("")
+                  setSuggestionText("")
+                  setQuickActions([])
                   setReplySource("")
+                  resetPendingSpeechRecovery()
+                  resetPendingResultQuery()
                   setStartupStatus(
                     key === "hi"
                       ? "पूछने के लिए दबाएं"
@@ -2009,6 +2933,28 @@ const VoiceAssistant = () => {
             <p><b>{localizedText.status}</b> {statusLabel}</p>
             <p><b>{localizedText.you}</b> {transcript}</p>
             <p><b>{localizedText.assistant}</b> {response}</p>
+            {suggestionText && <p className="voice-suggestion"><b>{localizedText.suggestion}</b> {suggestionText}</p>}
+            {!!quickActions.length && (
+              <div className="voice-quick-actions">
+                {quickActions.map((action, index) => (
+                  <button
+                    key={`${action.label || "action"}-${index}`}
+                    type="button"
+                    className="voice-quick-action-btn"
+                    onClick={() => {
+                      const prompt = action?.prompt?.trim()
+                      if (!prompt) return
+                      setTranscript(prompt)
+                      setSuggestionText("")
+                      setQuickActions([])
+                      void handleVoiceCommand(prompt)
+                    }}
+                  >
+                    {action.label || action.prompt}
+                  </button>
+                ))}
+              </div>
+            )}
             {replySource && replySource !== "local_ui" && <p><b>{localizedText.source}</b> {replySource}</p>}
             {errorMessage && <p style={{ color: "red" }}>{errorMessage}</p>}
             {showTapHint && <p className="voice-hint">{localizedText.hint}</p>}

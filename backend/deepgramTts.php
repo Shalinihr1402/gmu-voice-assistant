@@ -52,6 +52,8 @@ $payload = json_encode([
     "text" => $text
 ]);
 
+$language = strtolower(trim((string) ($input["language"] ?? "en")));
+
 $voice = getenv("DEEPGRAM_TTS_MODEL");
 if (!$voice && isset($_SERVER["DEEPGRAM_TTS_MODEL"])) {
     $voice = $_SERVER["DEEPGRAM_TTS_MODEL"];
@@ -60,11 +62,29 @@ if (!$voice && isset($_ENV["DEEPGRAM_TTS_MODEL"])) {
     $voice = $_ENV["DEEPGRAM_TTS_MODEL"];
 }
 if (!$voice) {
-    $voice = "aura-2-asteria-en";
+    $voice = "aura-2-helena-en";
+}
+
+$speed = getenv("DEEPGRAM_TTS_SPEED");
+if ($speed === false || $speed === "") {
+    $speed = $_SERVER["DEEPGRAM_TTS_SPEED"] ?? $_ENV["DEEPGRAM_TTS_SPEED"] ?? "1.08";
 }
 
 $encoding = "mp3";
-$url = "https://api.deepgram.com/v1/speak?model=" . rawurlencode($voice) . "&encoding=" . rawurlencode($encoding);
+$queryParams = [
+    "model=" . rawurlencode($voice),
+    "encoding=" . rawurlencode($encoding)
+];
+
+// Deepgram speed control currently applies to supported English voices.
+if (strpos($language, "en") === 0) {
+    $numericSpeed = (float) $speed;
+    if ($numericSpeed >= 0.7 && $numericSpeed <= 1.5) {
+        $queryParams[] = "speed=" . rawurlencode(rtrim(rtrim(number_format($numericSpeed, 2, ".", ""), "0"), "."));
+    }
+}
+
+$url = "https://api.deepgram.com/v1/speak?" . implode("&", $queryParams);
 
 $ch = curl_init($url);
 curl_setopt($ch, CURLOPT_POST, true);

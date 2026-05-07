@@ -358,19 +358,7 @@ class CertificateService {
             return "";
         }
 
-        $cleaned = preg_replace(
-            '/\b(my|me|show|tell|which|what|is|are|the|a|an|certificate|certificates|competency|competence|competent|digital|download|available|to|for|of|status|can|i|have|list|name|names|named|all|any|give|display)\b/u',
-            ' ',
-            $normalized
-        );
-        $cleaned = preg_replace('/\s+/u', ' ', (string) $cleaned);
-        $cleaned = trim((string) $cleaned);
-
-        if ($cleaned === "") {
-            return "";
-        }
-
-        $tokens = array_values(array_filter(explode(' ', $cleaned), function ($token) {
+        $tokens = array_values(array_filter(explode(' ', $normalized), function ($token) {
             return trim((string) $token) !== "";
         }));
 
@@ -378,18 +366,148 @@ class CertificateService {
             return "";
         }
 
-        $genericRemainders = [
+        $stopWords = [
+            "my",
+            "me",
+            "show",
+            "tell",
+            "check",
+            "see",
+            "open",
+            "find",
+            "search",
+            "which",
+            "what",
+            "where",
+            "is",
+            "are",
+            "the",
+            "a",
+            "an",
+            "certificate",
+            "certificates",
+            "competency",
+            "competence",
+            "competent",
+            "digital",
+            "download",
+            "available",
+            "to",
+            "for",
+            "of",
+            "status",
+            "can",
+            "i",
+            "have",
             "list",
+            "lists",
             "name",
             "names",
-            "competent",
-            "competency",
-            "certificate",
-            "certificates"
+            "named",
+            "all",
+            "any",
+            "give",
+            "display",
+            "got",
+            "get",
+            "received",
+            "receive",
+            "earned",
+            "earn",
+            "completed",
+            "complete",
+            "issued",
+            "issue",
+            "downloadable",
+            "mera",
+            "meri",
+            "mere",
+            "mujhe",
+            "batao",
+            "dikhao",
+            "dekhao",
+            "dikha",
+            "kaun",
+            "kaunsa",
+            "kaunsi",
+            "kya",
+            "kahan",
+            "hai",
+            "hain",
+            "ka",
+            "ki",
+            "ke",
+            "ko",
+            "mein",
+            "liye",
+            "sartifiket",
+            "pramanpatra",
+            "प्रमाणपत्र",
+            "सर्टिफिकेट",
+            "सर्टीफिकेट",
+            "डिजिटल",
+            "डाउनलोड",
+            "उपलब्ध",
+            "स्थिति",
+            "स्टेटस",
+            "कौन",
+            "कौनसा",
+            "कौनसी",
+            "क्या",
+            "मेरा",
+            "मेरी",
+            "मेरे",
+            "मुझे",
+            "दिखाओ",
+            "बताओ",
+            "है",
+            "हैं",
+            "का",
+            "की",
+            "के",
+            "को",
+            "में",
+            "लिए",
+            "nanna",
+            "nanage",
+            "yava",
+            "yavudu",
+            "enu",
+            "heli",
+            "helu",
+            "nodu",
+            "nodi",
+            "torisu",
+            "torisi",
+            "beku",
+            "sikkide",
+            "sikkive",
+            "bandide",
+            "bandive",
+            "padediddene",
+            "padediddini",
+            "statusu",
+            "labhya",
+            "ಸರ್ಟಿಫಿಕೇಟ್",
+            "ಪ್ರಮಾಣಪತ್ರ",
+            "ಡಿಜಿಟಲ್",
+            "ಡೌನ್ಲೋಡ್",
+            "ಡೌನ್‌ಲೋಡ್",
+            "ಲಭ್ಯ",
+            "ಸ್ಥಿತಿ",
+            "ಯಾವ",
+            "ಯಾವುದು",
+            "ಏನು",
+            "ನನ್ನ",
+            "ನನಗೆ",
+            "ಹೇಳು",
+            "ಹೇಳಿ",
+            "ತೋರಿಸು",
+            "ತೋರಿಸಿ"
         ];
 
-        $meaningfulTokens = array_values(array_filter($tokens, function ($token) use ($genericRemainders) {
-            return !in_array($token, $genericRemainders, true);
+        $meaningfulTokens = array_values(array_filter($tokens, function ($token) use ($stopWords) {
+            return !in_array($token, $stopWords, true);
         }));
 
         return empty($meaningfulTokens) ? "" : implode(' ', $meaningfulTokens);

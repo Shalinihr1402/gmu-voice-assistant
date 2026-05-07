@@ -191,6 +191,10 @@ class StudentController {
         return self::isCourseCodeRequest($message);
     }
 
+    public static function inferCourseSubject($message) {
+        return self::extractKnownCourseSubject($message);
+    }
+
     private static function extractKnownCourseSubject($message) {
         $normalizedMessage = self::normalizeLookupText(self::canonicalizeCourseQueryTerms($message));
         $rawMessage = strtolower((string) $message);
@@ -425,6 +429,10 @@ class StudentController {
         return "";
     }
 
+    public static function inferAttendanceSubject($message) {
+        return self::extractKnownAttendanceSubject($message);
+    }
+
     private static function getStudentAcademicContext($student_id) {
         global $conn;
 
@@ -502,6 +510,10 @@ class StudentController {
         return null;
     }
 
+    public static function inferRequestedSemester($message) {
+        return self::extractRequestedSemester($message);
+    }
+
     private static function extractExamType($message) {
         $message = strtolower($message);
 
@@ -509,7 +521,7 @@ class StudentController {
             return "SUPPLEMENTARY";
         }
 
-        if (strpos($message, "see") !== false) {
+        if (strpos($message, "see") !== false || preg_match('/\bs\s*e\s*e\b|\bc\b/i', $message)) {
             return "SEE";
         }
 
@@ -518,6 +530,10 @@ class StudentController {
         }
 
         return null;
+    }
+
+    public static function inferExamType($message) {
+        return self::extractExamType($message);
     }
 
     private static function getLatestSemester($student_id) {
@@ -1400,6 +1416,33 @@ class StudentController {
             : "Your overall attendance is $overall percent.";
     }
 
+    private static function localizeCertificateStatus($status, $language = "en") {
+        $normalizedStatus = strtolower(trim((string) $status));
+        $normalizedLanguage = self::normalizeLanguage($language);
+
+        if ($normalizedLanguage === "hi") {
+            $map = [
+                "available" => "उपलब्ध",
+                "pending" => "लंबित",
+                "unavailable" => "उपलब्ध नहीं"
+            ];
+
+            return $map[$normalizedStatus] ?? $status;
+        }
+
+        if ($normalizedLanguage === "kn") {
+            $map = [
+                "available" => "ಲಭ್ಯ",
+                "pending" => "ಬಾಕಿ",
+                "unavailable" => "ಲಭ್ಯವಿಲ್ಲ"
+            ];
+
+            return $map[$normalizedStatus] ?? $status;
+        }
+
+        return $status;
+    }
+
     public static function getCertificateStatus($student_id, $message = "", $language = "en") {
         $result = CertificateService::fetchCertificates();
         $records = [];
@@ -1424,6 +1467,14 @@ class StudentController {
                         }
 
                         return "Competency certificate ವಿವರಗಳು ERP page ನಲ್ಲಿ student login ನಂತರ ಲಭ್ಯವಾಗುತ್ತವೆ. ನಿಮ್ಮ live certificate list ಈಗ ಸಂಪರ್ಕದಲ್ಲಿಲ್ಲ, ಆದ್ದರಿಂದ ದಯವಿಟ್ಟು ERP ನಲ್ಲಿ Competency Certificate page ತೆರೆದು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.";
+                    }
+
+                    if (self::isHindi($language)) {
+                        if ($requestedSubject !== "") {
+                            return "मैं अभी {$requestedSubject} competency certificate की live स्थिति verify नहीं कर पा रहा हूं। कृपया ERP में Competency Certificate page खोलकर login session active होने के बाद फिर से पूछिए।";
+                        }
+
+                        return "Competency certificate की जानकारी student login के बाद ERP page पर उपलब्ध होती है। मैं अभी आपकी live certificate list तक नहीं पहुंच पा रहा हूं, इसलिए कृपया ERP में Competency Certificate page एक बार खोलकर फिर से पूछिए।";
                     }
 
                     if ($requestedSubject !== "") {
@@ -1456,7 +1507,7 @@ class StudentController {
             $record = $subjectMatches[0];
             $subject = $record["subject"] ?? "this subject";
             $code = $record["code"] ?? "";
-            $status = $record["status"] ?? "available";
+            $status = self::localizeCertificateStatus($record["status"] ?? "available", $language);
             $date = $record["date"] ?? "";
 
             if (self::isKannada($language)) {

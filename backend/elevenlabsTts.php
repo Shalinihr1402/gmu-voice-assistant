@@ -185,6 +185,38 @@ function moneyToKannadaSpeech($amountText) {
 function prepareKannadaSpeechText($text) {
     $prepared = trim((string) $text);
 
+    $spokenTerms = [
+        '/\bGMU\b/u' => 'ಜಿ ಎಂ ಯು',
+        '/\bUSN\b/u' => 'ಯು ಎಸ್ ಎನ್',
+        '/\bSGPA\b/u' => 'ಎಸ್ ಜಿ ಪಿ ಎ',
+        '/\bCGPA\b/u' => 'ಸಿ ಜಿ ಪಿ ಎ',
+        '/\bDBMS\b/u' => 'ಡಿ ಬಿ ಎಂ ಎಸ್',
+        '/\bAI\b/u' => 'ಎ ಐ',
+        '/\bCN\b/u' => 'ಸಿ ಎನ್',
+        '/\bOS\b/u' => 'ಓ ಎಸ್',
+        '/\bHOD\b/u' => 'ಎಚ್ ಒ ಡಿ',
+        '/\bERP\b/u' => 'ಇ ಆರ್ ಪಿ',
+        '/\bSEE\b/u' => 'ಎಸ್ ಇ ಇ',
+        '/\bRESIT\b/u' => 'ರೀ ಸಿಟ್',
+        '/\bRE-REGISTRATION\b/u' => 'ರೀ ರಿಜಿಸ್ಟ್ರೇಶನ್',
+        '/\bODD\b/u' => 'ಆಡ್',
+        '/\bEVEN\b/u' => 'ಈವನ್'
+    ];
+
+    foreach ($spokenTerms as $pattern => $replacement) {
+        $prepared = preg_replace($pattern, $replacement, $prepared);
+    }
+
+    $prepared = preg_replace_callback(
+        '/\b([A-Z]{2,}[0-9][A-Z0-9-]*)\b/u',
+        function ($matches) {
+            $token = str_replace('-', ' ', $matches[1]);
+            $chars = preg_split('//u', $token, -1, PREG_SPLIT_NO_EMPTY);
+            return implode(' ', $chars);
+        },
+        $prepared
+    );
+
     $prepared = preg_replace_callback(
         '/(?:₹|Rs\.?|rs\.?|ರೂ\.?|ರೂಪಾಯಿ)\s*([0-9][0-9,]*(?:\.[0-9]+)?)/u',
         function ($matches) {

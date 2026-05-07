@@ -169,6 +169,40 @@
   font-size: 13px;
 }
 
+.voice-suggestion {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: #fff7dd;
+  border-left: 4px solid #b88900;
+  border-radius: 6px;
+  color: #6a4a00;
+  font-size: 13px;
+}
+
+.voice-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.voice-quick-action-btn {
+  border: 1px solid #7a1c1c;
+  background: #fff8f8;
+  color: #7a1c1c;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.voice-quick-action-btn:hover {
+  background: #7a1c1c;
+  color: #ffffff;
+}
+
 /* Assistant reply styling */
 .response-text {
   background: #fdf5e6;

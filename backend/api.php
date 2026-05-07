@@ -17,6 +17,9 @@ require_once __DIR__ . "/intents/studentIntent.php";
 require_once __DIR__ . "/intents/controllers/StudentController.php";
 require_once __DIR__ . "/intents/controllers/FeeController.php";
 require_once __DIR__ . "/services/LlmService.php";
+require_once __DIR__ . "/services/ConversationContextService.php";
+require_once __DIR__ . "/services/SmartQueryResolver.php";
+require_once __DIR__ . "/services/SuggestionService.php";
 require_once __DIR__ . "/services/UserService.php";
 require_once __DIR__ . "/config/db.php";
 
@@ -61,6 +64,7 @@ if (!$input || !isset($input["message"])) {
 }
 
 $message = trim($input["message"]);
+$originalMessage = $message;
 $language = strtolower(trim((string) ($input["language"] ?? "en")));
 if (in_array($language, ["hi", "hindi", "hi-in"], true)) {
     $language = "hi";
@@ -70,7 +74,233 @@ if (in_array($language, ["hi", "hindi", "hi-in"], true)) {
     $language = "en";
 }
 
+function detectRequestedReplyLanguage($message, $fallbackLanguage) {
+    if (preg_match('/\b(hindi|hindi me|hindi mein)\b|हिंदी|हिन्दी/u', $message)) {
+        return "hi";
+    }
+
+    if (preg_match('/\b(kannada|kannadadalli|kannada dalli)\b|ಕನ್ನಡ/u', $message)) {
+        return "kn";
+    }
+
+    if (preg_match('/\b(english|in english)\b|इंग्लिश|अंग्रेजी|ಇಂಗ್ಲಿಷ್/u', $message)) {
+        return "en";
+    }
+
+    return $fallbackLanguage;
+}
+
+function isLanguageSwitchRequest($message) {
+    return (bool) preg_match(
+        '/\b(translate|say|tell|reply|answer|speak|explain)\b.*\b(hindi|kannada|english)\b|\b(hindi|kannada|english)\b.*\b(please|bolo|mein|me|dalli|heli)\b|हिंदी में|हिन्दी में|कन्नड़ में|अंग्रेजी में|ಕನ್ನಡದಲ್ಲಿ|ಇಂಗ್ಲಿಷ್‌ನಲ್ಲಿ/u',
+        $message
+    );
+}
+
+function isShortFollowUpFragment($message) {
+    $trimmed = trim((string) $message);
+    if ($trimmed === "") {
+        return false;
+    }
+
+    $wordCount = preg_match_all('/[\p{L}\p{N}]+/u', $trimmed);
+    return $wordCount > 0 && ($wordCount <= 6 || mb_strlen($trimmed, "UTF-8") <= 40);
+}
+
+function hasSubjectLikePhrase($message) {
+    return (bool) preg_match(
+        '/\b(dbms|d\s*b\s*m\s*s|os|o\s*s|cn|c\s*n|ai|a\s*i|database management systems|operating systems|computer networks|dbms laboratory|artificial intelligence)\b|ಡಿಬಿಎಂಎಸ್|ಡಿಬಿಎಂಎಸ್ ಲ್ಯಾಬ್|ಆಪರೇಟಿಂಗ್ ಸಿಸ್ಟಮ್ಸ್|ಕಂಪ್ಯೂಟರ್ ನೆಟ್ವರ್ಕ್ಸ್|ಆರ್ಟಿಫಿಷಿಯಲ್ ಇಂಟೆಲಿಜೆನ್ಸ್|डीबीएमएस|ऑपरेटिंग सिस्टम|कंप्यूटर नेटवर्क|आर्टिफिशियल इंटेलिजेंस/u',
+        $message
+    );
+}
+
+function hasSemesterLikePhrase($message) {
+    return (bool) preg_match(
+        '/\b\d+\s*(st|nd|rd|th)?\s*sem(?:ester)?\b|\bsemester\s*\d+\b|\bsem\s*\d+\b|सेमेस्टर|ಸೆಮಿಸ್ಟರ್/u',
+        $message
+    );
+}
+
+function resolveConversationMemoryFollowUp($message, $language, $lastContext) {
+    if (empty($lastContext) || !is_array($lastContext)) {
+        return null;
+    }
+
+    $lastIntent = $lastContext["intent"] ?? "";
+    $lastReply = trim((string) ($lastContext["reply"] ?? ""));
+    $resolvedLanguage = detectRequestedReplyLanguage($message, $language);
+
+    if ($lastReply !== "" && isLanguageSwitchRequest($message)) {
+        return [
+            "type" => "translate_last_reply",
+            "language" => $resolvedLanguage,
+            "source" => "conversation_memory_translate"
+        ];
+    }
+
+    if (!isShortFollowUpFragment($message)) {
+        return null;
+    }
+
+    if (in_array($lastIntent, ["GET_ATTENDANCE", "GET_SUBJECT_ATTENDANCE"], true) && hasSubjectLikePhrase($message)) {
+        return [
+            "type" => "rewrite_message",
+            "message" => "attendance in " . trim((string) $message),
+            "source" => "conversation_memory_followup"
+        ];
+    }
+
+    if ($lastIntent === "GET_COURSE_CODE" && hasSubjectLikePhrase($message)) {
+        return [
+            "type" => "rewrite_message",
+            "message" => "course code for " . trim((string) $message),
+            "source" => "conversation_memory_followup"
+        ];
+    }
+
+    if ($lastIntent === "GET_SGPA" && hasSemesterLikePhrase($message)) {
+        return [
+            "type" => "rewrite_message",
+            "message" => "sgpa " . trim((string) $message),
+            "source" => "conversation_memory_followup"
+        ];
+    }
+
+    return null;
+}
+
+function buildExamReadinessReply($student_id, $message, $language) {
+    $registrationReply = FeeController::getFinalRegistrationStatus($student_id, "en");
+    $hallTicketReply = StudentController::getHallTicketStatus($student_id, $message, "en");
+    $backlogReply = StudentController::getBacklogStatus($student_id, $message, "en");
+
+    $registrationClear = stripos($registrationReply, "complete") !== false
+        || stripos($registrationReply, "completed successfully") !== false
+        || stripos($registrationReply, "no pending fee balance") !== false;
+    $hallTicketReady = stripos($hallTicketReply, "generated") !== false
+        || stripos($hallTicketReply, "can download") !== false
+        || stripos($hallTicketReply, "available") !== false;
+    $hasBacklogRisk = stripos($backlogReply, "backlog") !== false
+        && stripos($backlogReply, "do not have any active backlog") === false
+        && stripos($backlogReply, "no active backlog") === false;
+
+    $reply = "Here is your exam readiness summary. ";
+
+    if ($registrationClear) {
+        $reply .= "Your registration and fee clearance look okay. ";
+    } else {
+        $reply .= "Your registration or fee clearance still needs attention. ";
+    }
+
+    if ($hallTicketReady) {
+        $reply .= "Your hall ticket status looks ready for exam access. ";
+    } else {
+        $reply .= "Your hall ticket is not clearly ready yet. ";
+    }
+
+    if ($hasBacklogRisk) {
+        $reply .= "There may also be backlog-related academic risk. ";
+    } else {
+        $reply .= "I do not see a backlog warning in the current summary. ";
+    }
+
+    $reply .= "Registration summary: {$registrationReply} Hall ticket summary: {$hallTicketReply} Academic summary: {$backlogReply}";
+
+    if ($language !== "en") {
+        $reply = LlmService::adaptReplyLanguage($reply, $language, []);
+    }
+
+    return $reply;
+}
+
+$lastContext = ConversationContextService::getLastResolvedContext();
+$smartResolution = SmartQueryResolver::resolve($message, $language, $lastContext);
+
+if (is_array($smartResolution) && ($smartResolution["type"] ?? "") === "translate_last_reply") {
+    $language = $smartResolution["requested_language"] ?? $language;
+    $reply = LlmService::translateReply($lastContext["reply"] ?? "", $language, $userContext);
+    $replyMeta = LlmService::getLastReplyMeta();
+    $meta = [
+        "intent" => $smartResolution["intent"] ?? ($lastContext["intent"] ?? "MEMORY_TRANSLATE"),
+        "route" => "memory",
+        "language" => $language,
+        "reply" => $reply,
+        "reply_source" => $replyMeta["source"] ?? "memory",
+        "intent_source" => $smartResolution["source"] ?? "smart_query_language_followup"
+    ];
+    ConversationContextService::saveTurn($originalMessage, $reply, $meta);
+
+    echo json_encode([
+        "status" => "success",
+        "intent" => $meta["intent"],
+        "route" => "memory",
+        "confidence" => "high",
+        "intent_source" => $meta["intent_source"],
+        "reply" => $reply,
+        "reply_source" => $meta["reply_source"],
+        "suggestion" => null,
+        "quick_actions" => [],
+        "suggestion_priority" => null
+    ]);
+    exit();
+}
+
+$forcedIntent = null;
+$forcedRoute = null;
+$forcedConfidence = null;
+$forcedSource = null;
+$resolvedEntities = [];
+
+if (is_array($smartResolution) && ($smartResolution["type"] ?? "") === "resolved_intent") {
+    $forcedIntent = $smartResolution["intent"] ?? null;
+    $forcedRoute = $smartResolution["route"] ?? "database";
+    $forcedConfidence = $smartResolution["confidence"] ?? "medium";
+    $forcedSource = $smartResolution["source"] ?? "smart_query_resolver";
+    $resolvedEntities = $smartResolution["entities"] ?? [];
+    $language = $smartResolution["requested_language"] ?? $language;
+    $message = trim((string) ($smartResolution["rewritten_message"] ?? $message));
+}
+
+$memoryResolution = resolveConversationMemoryFollowUp($message, $language, $lastContext);
+
+if (is_array($memoryResolution) && ($memoryResolution["type"] ?? "") === "translate_last_reply") {
+    $language = $memoryResolution["language"] ?? $language;
+    $reply = LlmService::translateReply($lastContext["reply"] ?? "", $language, $userContext);
+    $replyMeta = LlmService::getLastReplyMeta();
+    $meta = [
+        "intent" => $lastContext["intent"] ?? "MEMORY_TRANSLATE",
+        "route" => "memory",
+        "language" => $language,
+        "reply" => $reply,
+        "reply_source" => $replyMeta["source"] ?? "memory",
+        "intent_source" => $memoryResolution["source"] ?? "conversation_memory_translate"
+    ];
+    ConversationContextService::saveTurn($originalMessage, $reply, $meta);
+
+    echo json_encode([
+        "status" => "success",
+        "intent" => $meta["intent"],
+        "route" => "memory",
+        "confidence" => "high",
+        "intent_source" => $meta["intent_source"],
+        "reply" => $reply,
+        "reply_source" => $meta["reply_source"],
+        "suggestion" => null,
+        "quick_actions" => [],
+        "suggestion_priority" => null
+    ]);
+    exit();
+}
+
+if (is_array($memoryResolution) && ($memoryResolution["type"] ?? "") === "rewrite_message") {
+    $message = $memoryResolution["message"];
+}
+
 $normalizedMessage = strtolower($message);
+$isExplicitUsnQuery = (bool) preg_match(
+    '/^\s*(usn|registration number|university number)\s*[\?\.!]*\s*$|\b(what(?:\s+is|\'s)?|tell|show|give|share|say|confirm)\b.*\b(usn|registration number|university number)\b|\bmy\s+(usn|registration number|university number)\b|यूएसएन|रजिस्ट्रेशन नंबर/u',
+    $normalizedMessage
+);
 $hasAttendanceWord = (bool) preg_match(
     '/\battendance\b|ಅಟೆಂಡೆನ್ಸ್|ಹಾಜರಿ|ಹಾಜರಾತಿ|attendence|atendance/u',
     $normalizedMessage
@@ -104,14 +334,30 @@ if ($student_id && $hasAttendanceWord && $hasSpecificSubjectWord && !$hasOverall
         $replySource = $language === "kn" ? "db_kannada" : "db";
     }
 
+    ConversationContextService::saveTurn($originalMessage, $reply, [
+        "intent" => "GET_SUBJECT_ATTENDANCE",
+        "route" => "database",
+        "language" => $language,
+        "reply" => $reply,
+        "reply_source" => $replySource,
+        "intent_source" => ($memoryResolution["source"] ?? "api_fast_path"),
+        "effective_message" => $message
+    ]);
+    $suggestion = SuggestionService::build("GET_SUBJECT_ATTENDANCE", $reply, $language, [
+        "subject" => StudentController::inferAttendanceSubject($message)
+    ]);
+
     echo json_encode([
         "status" => "success",
         "intent" => "GET_SUBJECT_ATTENDANCE",
         "route" => "database",
         "confidence" => "high",
-        "intent_source" => "api_fast_path",
+        "intent_source" => ($memoryResolution["source"] ?? "api_fast_path"),
         "reply" => $reply,
-        "reply_source" => $replySource
+        "reply_source" => $replySource,
+        "suggestion" => $suggestion["text"] ?? null,
+        "quick_actions" => $suggestion["quick_actions"] ?? [],
+        "suggestion_priority" => $suggestion["priority"] ?? null
     ]);
     exit();
 }
@@ -132,20 +378,84 @@ if ($hasCourseCodeWord) {
         $replySource = $language === "kn" ? "db_kannada" : "db";
     }
 
+    ConversationContextService::saveTurn($originalMessage, $reply, [
+        "intent" => "GET_COURSE_CODE",
+        "route" => "database",
+        "language" => $language,
+        "reply" => $reply,
+        "reply_source" => $replySource,
+        "intent_source" => ($memoryResolution["source"] ?? "api_fast_path"),
+        "effective_message" => $message
+    ]);
+    $suggestion = SuggestionService::build("GET_COURSE_CODE", $reply, $language, [
+        "subject" => StudentController::inferCourseSubject($message)
+    ]);
+
     echo json_encode([
         "status" => "success",
         "intent" => "GET_COURSE_CODE",
         "route" => "database",
         "confidence" => "high",
-        "intent_source" => "api_fast_path",
+        "intent_source" => ($memoryResolution["source"] ?? "api_fast_path"),
         "reply" => $reply,
-        "reply_source" => $replySource
+        "reply_source" => $replySource,
+        "suggestion" => $suggestion["text"] ?? null,
+        "quick_actions" => $suggestion["quick_actions"] ?? [],
+        "suggestion_priority" => $suggestion["priority"] ?? null
+    ]);
+    exit();
+}
+
+if (
+    $student_id &&
+    $isExplicitUsnQuery
+) {
+    $reply = StudentController::getUSN($student_id, $language);
+    $replySource = "db";
+
+    if ($language !== "en" && $language !== "kn" && $language !== "hi") {
+        $reply = LlmService::adaptReplyLanguage($reply, $language, $userContext);
+        $replySource = LlmService::getLastReplyMeta()["source"] ?? "translated_db";
+    } else {
+        LlmService::setLastReplyMeta($language === "kn" ? "db_kannada" : "db");
+        $replySource = $language === "kn" ? "db_kannada" : "db";
+    }
+
+    ConversationContextService::saveTurn($originalMessage, $reply, [
+        "intent" => "GET_USN",
+        "route" => "database",
+        "language" => $language,
+        "reply" => $reply,
+        "reply_source" => $replySource,
+        "intent_source" => ($memoryResolution["source"] ?? "api_fast_path_usn"),
+        "effective_message" => $message
+    ]);
+    $suggestion = SuggestionService::build("GET_USN", $reply, $language);
+
+    echo json_encode([
+        "status" => "success",
+        "intent" => "GET_USN",
+        "route" => "database",
+        "confidence" => "high",
+        "intent_source" => ($memoryResolution["source"] ?? "api_fast_path_usn"),
+        "reply" => $reply,
+        "reply_source" => $replySource,
+        "suggestion" => $suggestion["text"] ?? null,
+        "quick_actions" => $suggestion["quick_actions"] ?? [],
+        "suggestion_priority" => $suggestion["priority"] ?? null
     ]);
     exit();
 }
 
 // Detect intent
-$classification = IntentService::classifyIntent($message, $userContext);
+$classification = ($forcedIntent !== null)
+    ? [
+        "intent" => $forcedIntent,
+        "route" => $forcedRoute,
+        "confidence" => $forcedConfidence,
+        "source" => $forcedSource
+    ]
+    : IntentService::classifyIntent($message, $userContext);
 $intent = $classification["intent"] ?? "UNKNOWN";
 $route = $classification["route"] ?? "llm";
 $confidence = $classification["confidence"] ?? "low";
@@ -300,8 +610,12 @@ if ($route === "database") {
                 '/\b(overall|total|my attendance|attendance percentage|attendance status)\b|ಒಟ್ಟು|ಒವರ್ ಆಲ್|overall|ಟೋಟಲ್/u',
                 $normalizedAttendanceMessage
             );
+            $hasSubjectAttendancePhrase = (bool) preg_match(
+                '/\battendance\s+(?:in|of|for)\b/u',
+                $normalizedAttendanceMessage
+            );
 
-            $reply = $isExplicitOverallAttendance
+            $reply = ($isExplicitOverallAttendance && !$hasSubjectAttendancePhrase)
                 ? StudentController::getAttendance($student_id, $language)
                 : StudentController::getSubjectAttendance($student_id, $message, $language);
             $replySource = "db";
@@ -328,6 +642,19 @@ if ($route === "database") {
             $handledByDatabase = true;
             $dbReplyIsLocalized = in_array($language, ["kn", "hi"], true);
             break;
+
+        case "GET_EXAM_READINESS":
+            if (!$student_id) {
+                $reply = "Exam readiness is available for student accounts after student login.";
+                $replySource = "db_guard";
+                $handledByDatabase = true;
+                break;
+            }
+            $reply = buildExamReadinessReply($student_id, $message, $language);
+            $replySource = "db";
+            $handledByDatabase = true;
+            $dbReplyIsLocalized = in_array($language, ["kn", "hi"], true);
+            break;
     }
 }
 
@@ -350,13 +677,40 @@ if ($replySource !== "unknown") {
 }
 
 $replyMeta = LlmService::getLastReplyMeta();
+$finalIntentSource = $memoryResolution["source"] ?? $intentSource;
+$conversationMeta = [
+    "intent" => $intent,
+    "route" => $route,
+    "language" => $language,
+    "reply" => $reply,
+    "reply_source" => $replyMeta["source"] ?? "unknown",
+    "intent_source" => $finalIntentSource,
+    "effective_message" => $message,
+    "subject" => $resolvedEntities["subject"] ?? ($lastContext["subject"] ?? ""),
+    "semester" => $resolvedEntities["semester"] ?? ($lastContext["semester"] ?? null),
+    "exam_type" => $resolvedEntities["exam_type"] ?? ($lastContext["exam_type"] ?? null)
+];
+$suggestion = SuggestionService::build($intent, $reply, $language, $conversationMeta);
+
+if ($suggestion) {
+    $conversationMeta["suggestion"] = $suggestion;
+}
+
+if ($handledByDatabase) {
+    ConversationContextService::saveTurn($originalMessage, $reply, $conversationMeta);
+} else {
+    ConversationContextService::setLastResolvedContext($conversationMeta);
+}
 
 echo json_encode([
     "status" => "success",
     "intent" => $intent,
     "route" => $route,
     "confidence" => $confidence,
-    "intent_source" => $intentSource,
+    "intent_source" => $finalIntentSource,
     "reply" => $reply,
-    "reply_source" => $replyMeta["source"] ?? "unknown"
+    "reply_source" => $replyMeta["source"] ?? "unknown",
+    "suggestion" => $suggestion["text"] ?? null,
+    "quick_actions" => $suggestion["quick_actions"] ?? [],
+    "suggestion_priority" => $suggestion["priority"] ?? null
 ]);

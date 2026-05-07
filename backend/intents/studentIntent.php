@@ -187,16 +187,6 @@ class IntentService {
         }
 
         if (self::containsAny($normalizedMessage, [
-            "overall attendance",
-            "my attendance",
-            "attendance percentage",
-            "attendance status",
-            "total attendance"
-        ])) {
-            return false;
-        }
-
-        if (self::containsAny($normalizedMessage, [
             "subject attendance",
             "subject wise attendance",
             "attendance in",
@@ -214,15 +204,73 @@ class IntentService {
             return true;
         }
 
-        if (preg_match('/\b[a-z0-9&(). -]+\s+attendance\b/', $normalizedMessage)) {
-            return true;
-        }
-
         if (preg_match('/à²µà²¿à²·à²¯|à²¸à²¬à³à²œà³†à²•à³à²Ÿà³|à²•à³‹à²°à³à²¸à³|à²’à²‚à²¦à³\s+à²µà²¿à²·à²¯|à²ªà²°à³à²Ÿà²¿à²•à³à²¯à³à²²à²°à³/u', $rawMessage)) {
             return true;
         }
 
+        if (self::containsAny($normalizedMessage, [
+            "overall attendance",
+            "my attendance",
+            "attendance percentage",
+            "attendance status",
+            "total attendance"
+        ])) {
+            return false;
+        }
+
         return false;
+    }
+
+    private static function isCertificateQuery($normalizedMessage, $rawMessage) {
+        $hasCertificateWord =
+            self::containsAny($normalizedMessage, [
+                "certificate",
+                "certificates",
+                "competency certificate",
+                "digital competency certificate",
+                "digital certificate",
+                "competence certificate",
+                "certification"
+            ]) ||
+            preg_match('/सर्टिफिकेट|सर्टीफिकेट|प्रमाणपत्र/u', $rawMessage) ||
+            preg_match('/ಸರ್ಟಿಫಿಕೇಟ್|ಪ್ರಮಾಣಪತ್ರ/u', $rawMessage);
+
+        if ($hasCertificateWord) {
+            return true;
+        }
+
+        $hasCertificateContext =
+            self::containsAny($normalizedMessage, [
+                "competency",
+                "digital competency",
+                "earned certificate",
+                "my certificate list",
+                "available certificate",
+                "download certificate",
+                "certificate status",
+                "technical skills certificate",
+                "co curricular certificate"
+            ]);
+
+        if (!$hasCertificateContext) {
+            return false;
+        }
+
+        return self::containsAny($normalizedMessage, [
+            "show",
+            "tell",
+            "list",
+            "available",
+            "download",
+            "status",
+            "got",
+            "received",
+            "earned",
+            "have",
+            "my",
+            "which",
+            "what"
+        ]);
     }
 
     private static function canonicalizeHindiIntentTerms($message) {
@@ -253,11 +301,19 @@ class IntentService {
             '/मेरा|मेरी|मेरे|अपना|अपनी|आपका|आपकी/u' => ' my '
         ];
 
-        return preg_replace(
+        $message = preg_replace(
             array_keys($replacements),
             array_values($replacements),
             (string) $message
         );
+        $message = preg_replace('/\b(usn|u\s*s\s*n|yu\s*es\s*en|uesn|yuesen|yusn|upsn|usm|usf|u\s*s\s*m|u\s*s\s*f)\b/u', ' usn ', (string) $message);
+
+        $message = preg_replace('/सर्टिफिकेट|सर्टीफिकेट|प्रमाणपत्र/u', ' certificate ', (string) $message);
+        $message = preg_replace('/डिजिटल/u', ' digital ', (string) $message);
+        $message = preg_replace('/डाउनलोड/u', ' download ', (string) $message);
+        $message = preg_replace('/उपलब्ध/u', ' available ', (string) $message);
+
+        return $message;
     }
 
     private static function canonicalizeKannadaIntentTerms($message) {
@@ -297,6 +353,12 @@ class IntentService {
             array_values($replacements),
             (string) $message
         );
+        $message = preg_replace('/\b(usn|u\s*s\s*n|yu\s*es\s*en|uesn|yuesen|yusn|upsn|usm|usf|u\s*s\s*m|u\s*s\s*f)\b/u', ' usn ', (string) $message);
+
+        $message = preg_replace('/ಸರ್ಟಿಫಿಕೇಟ್|ಪ್ರಮಾಣಪತ್ರ/u', ' certificate ', (string) $message);
+        $message = preg_replace('/ಡಿಜಿಟಲ್/u', ' digital ', (string) $message);
+        $message = preg_replace('/ಡೌನ್ಲೋಡ್|ಡೌನ್‌ಲೋಡ್/u', ' download ', (string) $message);
+        $message = preg_replace('/ಲಭ್ಯ/u', ' available ', (string) $message);
 
         $message = str_replace(
             [
@@ -553,6 +615,10 @@ class IntentService {
             return "GET_USN";
         }
 
+        if (self::isCertificateQuery($message, $rawMessage)) {
+            return "GET_CERTIFICATE_STATUS";
+        }
+
         if (self::containsAny($message, ["hall ticket", "hallticket"])) {
             return "GET_HALL_TICKET_STATUS";
         }
@@ -639,6 +705,10 @@ class IntentService {
         }
 
         if (strpos($message, "attendance") !== false) {
+            if (preg_match('/\battendance\s+(?:in|of|for)\b/', $message)) {
+                return "GET_SUBJECT_ATTENDANCE";
+            }
+
             $overallAttendanceHints = [
                 "my attendance",
                 "overall attendance",
@@ -652,13 +722,6 @@ class IntentService {
                 if (strpos($message, $hint) !== false) {
                     return "GET_ATTENDANCE";
                 }
-            }
-
-            if (
-                preg_match('/\b[a-z0-9&(). -]+\s+attendance\b/', $message) ||
-                preg_match('/\battendance\s+(?:in|of|for)\b/', $message)
-            ) {
-                return "GET_SUBJECT_ATTENDANCE";
             }
 
             return "GET_ATTENDANCE";

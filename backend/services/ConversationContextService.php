@@ -12,6 +12,10 @@ class ConversationContextService {
         if (!isset($_SESSION["voicebot_summary"]) || !is_string($_SESSION["voicebot_summary"])) {
             $_SESSION["voicebot_summary"] = "";
         }
+
+        if (!isset($_SESSION["voicebot_last_context"]) || !is_array($_SESSION["voicebot_last_context"])) {
+            $_SESSION["voicebot_last_context"] = [];
+        }
     }
 
     public static function getRecentMessages() {
@@ -29,11 +33,12 @@ class ConversationContextService {
 
         return [
             "summary" => self::getSummary(),
-            "recent_messages" => self::getRecentMessages()
+            "recent_messages" => self::getRecentMessages(),
+            "last_context" => self::getLastResolvedContext()
         ];
     }
 
-    public static function saveTurn($userMessage, $assistantReply) {
+    public static function saveTurn($userMessage, $assistantReply, $meta = []) {
         self::ensureSessionState();
 
         $_SESSION["voicebot_history"][] = [
@@ -42,15 +47,31 @@ class ConversationContextService {
         ];
         $_SESSION["voicebot_history"][] = [
             "role" => "assistant",
-            "text" => trim((string) $assistantReply)
+            "text" => trim((string) $assistantReply),
+            "meta" => is_array($meta) ? $meta : []
         ];
 
+        if (is_array($meta) && !empty($meta)) {
+            self::setLastResolvedContext($meta);
+        }
+
         self::compactHistoryIfNeeded();
+    }
+
+    public static function getLastResolvedContext() {
+        self::ensureSessionState();
+        return $_SESSION["voicebot_last_context"];
+    }
+
+    public static function setLastResolvedContext($context) {
+        self::ensureSessionState();
+        $_SESSION["voicebot_last_context"] = is_array($context) ? $context : [];
     }
 
     public static function clear() {
         $_SESSION["voicebot_history"] = [];
         $_SESSION["voicebot_summary"] = "";
+        $_SESSION["voicebot_last_context"] = [];
     }
 
     private static function compactHistoryIfNeeded() {

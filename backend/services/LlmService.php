@@ -251,6 +251,251 @@ class LlmService {
         return ["gemini"];
     }
 
+    private static function matchesAnyPattern($message, $patterns) {
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $message)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function logModelFailure($provider, $stage, $message, $language = "en", $userContext = [], $details = []) {
+        $payload = [
+            "event" => "llm_failure",
+            "provider" => (string) $provider,
+            "stage" => (string) $stage,
+            "language" => self::normalizeLanguage($language),
+            "role" => $userContext["role_key"] ?? "student",
+            "user_id" => $userContext["student_id"] ?? ($userContext["user_id"] ?? null),
+            "message_preview" => mb_substr(trim((string) $message), 0, 180, "UTF-8"),
+            "details" => $details
+        ];
+
+        error_log("GMU_VOICEBOT_LLM_FAILURE " . json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    private static function detectFallbackTopic($message) {
+        $message = mb_strtolower(trim((string) $message), "UTF-8");
+
+        $topicPatterns = [
+            "attendance" => [
+                '/\battendance\b|\battendence\b|\batendance\b|\bhajari\b|अटेंडेंस|उपस्थिति|ಹಾಜರಿ|ಅಟೆಂಡೆನ್ಸ್/iu'
+            ],
+            "result" => [
+                '/\bresult\b|\bsgpa\b|\bcgpa\b|\bgpa\b|परिणाम|रिजल्ट|ಎಸ್‌ಜಿಪಿಎ|ಸಿಜಿಪಿಎ|ಫಲಿತಾಂಶ|ರಿಸಲ್ಟ್/iu'
+            ],
+            "fees" => [
+                '/\bfee\b|\bfees\b|\bbalance\b|\bdue\b|\bpending amount\b|फीस|शुल्क|बाकाया|ಫೀಸ್|ಶುಲ್ಕ|ಬಾಕಿ/iu'
+            ],
+            "registration" => [
+                '/\bregistration\b|\bfinal registration\b|\bregistered\b|रजिस्ट्रेशन|पंजीकरण|ನೋಂದಣಿ|ರಿಜಿಸ್ಟ್ರೇಶನ್/iu'
+            ],
+            "hall_ticket" => [
+                '/\bhall\s*ticket\b|\bhallticket\b|\badmit\s*card\b|हॉल\s*टिकट|प्रवेश\s*पत्र|ಹಾಲ್\s*ಟಿಕೆಟ್/iu'
+            ],
+            "profile" => [
+                '/\bprofile\b|\bwho am i\b|\bsemester\b|\bdepartment\b|\bbranch\b|\busn\b|प्रोफाइल|सेमेस्टर|विभाग|यूएसएन|ಪ್ರೊಫೈಲ್|ಸೆಮಿಸ್ಟರ್|ವಿಭಾಗ|ಯುಎಸ್ಎನ್/iu'
+            ],
+            "course" => [
+                '/\bcourse\b|\bsubject\b|\bcourse code\b|\bsubject code\b|\bcode\b|कोर्स|विषय|कोड|ಕೋರ್ಸ್|ವಿಷಯ|ಕೋಡ್/iu'
+            ],
+            "certificate" => [
+                '/\bcertificate\b|\bcertificates\b|सर्टिफिकेट|प्रमाणपत्र|ಸರ್ಟಿಫಿಕೆಟ್|ಪ್ರಮಾಣಪತ್ರ/iu'
+            ]
+        ];
+
+        foreach ($topicPatterns as $topic => $patterns) {
+            if (self::matchesAnyPattern($message, $patterns)) {
+                return $topic;
+            }
+        }
+
+        return null;
+    }
+
+    private static function buildTopicGuidanceReply($topic, $language, $role) {
+        $language = self::normalizeLanguage($language);
+
+        $replies = [
+            "en" => [
+                "attendance" => "It sounds like you are asking about attendance. You can ask: what is my overall attendance, or what is my attendance in DBMS?",
+                "result" => "It looks like this is about results. You can ask: what is my SGPA, what is my CGPA, or do I have any backlogs?",
+                "fees" => "This seems related to fees. You can ask: what is my fee balance, how much amount is due, or is any payment pending?",
+                "registration" => "This sounds like a registration query. You can ask: is my final registration complete, or what is my registration status?",
+                "hall_ticket" => "This looks like a hall ticket query. You can ask: is my hall ticket generated, or can I download my hall ticket?",
+                "profile" => "This seems related to your student profile. You can ask: what is my USN, which semester am I in, or what is my department?",
+                "course" => "It sounds like you are asking about courses. You can ask: what are my subjects, or what is the course code for DBMS?",
+                "certificate" => "This seems related to certificates. You can ask: what certificates are available, or can I download my certificate?"
+            ],
+            "hi" => [
+                "attendance" => "Lagta hai aap attendance ke baare mein pooch rahe hain. Aap pooch sakte hain: meri overall attendance kya hai, ya DBMS mein meri attendance kitni hai?",
+                "result" => "Yeh result se juda hua sawaal lag raha hai. Aap pooch sakte hain: mera SGPA kya hai, mera CGPA kya hai, ya kya mere backlogs hain?",
+                "fees" => "Yeh fees se related query lag rahi hai. Aap pooch sakte hain: mera fee balance kya hai, kitni amount due hai, ya koi payment pending hai kya?",
+                "registration" => "Yeh registration se related lag raha hai. Aap pooch sakte hain: mera final registration complete hai kya, ya mera registration status kya hai?",
+                "hall_ticket" => "Yeh hall ticket query lag rahi hai. Aap pooch sakte hain: mera hall ticket generate hua hai kya, ya kya main hall ticket download kar sakta hoon?",
+                "profile" => "Yeh aapke student profile se related lag raha hai. Aap pooch sakte hain: mera USN kya hai, main kis semester mein hoon, ya mera department kya hai?",
+                "course" => "Lagta hai aap courses ya subjects ke baare mein pooch rahe hain. Aap pooch sakte hain: mere subjects kya hain, ya DBMS ka course code kya hai?",
+                "certificate" => "Yeh certificate se related lag raha hai. Aap pooch sakte hain: kaun se certificates available hain, ya kya main apna certificate download kar sakta hoon?"
+            ],
+            "kn" => [
+                "attendance" => "Idu attendance bagge iruva prashne anta toruttide. Neevu kelabahudu: nanna overall attendance eshtu, athava DBMS nalli nanna attendance eshtu?",
+                "result" => "Idu result bagge iruva prashne anta toruttide. Neevu kelabahudu: nanna SGPA eshtu, nanna CGPA eshtu, athava nanage backlog ideya?",
+                "fees" => "Idu fees sambandhita prashne anta toruttide. Neevu kelabahudu: nanna fee balance eshtu, eshtu amount due ide, athava yavude payment pending ideya?",
+                "registration" => "Idu registration bagge iruva prashne anta toruttide. Neevu kelabahudu: nanna final registration complete aagideya, athava nanna registration status yenu?",
+                "hall_ticket" => "Idu hall ticket query anta toruttide. Neevu kelabahudu: nanna hall ticket generate aagideya, athava nanu hall ticket download madabahuda?",
+                "profile" => "Idu nimma student profile ge sambandhisida prashne anta toruttide. Neevu kelabahudu: nanna USN yenu, nanu yaava semester nalli iddini, athava nanna department yenu?",
+                "course" => "Idu course athava subject bagge iruva prashne anta toruttide. Neevu kelabahudu: nanna subjects yavuvu, athava DBMS course code yenu?",
+                "certificate" => "Idu certificate bagge iruva prashne anta toruttide. Neevu kelabahudu: yaava certificates available ive, athava nanu nanna certificate download madabahuda?"
+            ]
+        ];
+
+        if (isset($replies[$language][$topic])) {
+            return $replies[$language][$topic];
+        }
+
+        return self::getRoleHelpMessage($role, $language);
+    }
+
+    private static function detectEntityHint($message) {
+        $message = mb_strtolower(trim((string) $message), "UTF-8");
+
+        $entityPatterns = [
+            "dbms" => [
+                '/\bdbms\b|\bdatabase\b|\bdatabase management\b|ಡಿಬಿಎಂಎಸ್|डेटाबेस/u'
+            ],
+            "software" => [
+                '/\bsoftware\b|\bsoftware engineering\b|\bse subject\b|\bse attendance\b/u'
+            ],
+            "os" => [
+                '/\bos\b|\boperating system\b|\boperating systems\b|ಆಪರೇಟಿಂಗ್|ऑपरेटिंग/u'
+            ],
+            "cn" => [
+                '/\bcn\b|\bcomputer network\b|\bcomputer networks\b|ನೆಟ್ವರ್ಕ್|नेटवर्क/u'
+            ],
+            "network" => [
+                '/\bnetwork\b|\bnetworks\b|\bnetworking\b/u'
+            ],
+            "ai" => [
+                '/\bai\b|\bartificial intelligence\b|ಕೃತಕ ಬುದ್ಧಿಮತ್ತೆ|आर्टिफिशियल इंटेलिजेंस/u'
+            ],
+            "fees" => [
+                '/\bfee\b|\bfees\b|\bbalance\b|\bdue\b|ಫೀಸ್|फीस/u'
+            ],
+            "result" => [
+                '/\bresult\b|\bsgpa\b|\bcgpa\b|\bgrade\b|\bmarks\b|ರಿಸಲ್ಟ್|रिजल्ट/u'
+            ],
+            "attendance" => [
+                '/\battendance\b|\battendence\b|\batendance\b|ಹಾಜರಿ|अटेंडेंस/u'
+            ],
+            "profile" => [
+                '/\bprofile\b|\busn\b|\bsemester\b|\bdepartment\b|ಪ್ರೊಫೈಲ್|प्रोफाइल/u'
+            ],
+            "certificate" => [
+                '/\bcertificate\b|\bcertificates\b|ಸರ್ಟಿಫಿಕೇಟ್|सर्टिफिकेट/u'
+            ],
+            "receipt" => [
+                '/\breceipt\b|\breceipts\b|\bpayment receipt\b|\bfee receipt\b/u'
+            ],
+            "grievance" => [
+                '/\bgrievance\b|\bcomplaint\b|\braise issue\b/u'
+            ],
+            "hall_ticket" => [
+                '/\bhall\s*ticket\b|\bhallticket\b|\badmit\s*card\b/u'
+            ],
+            "payment" => [
+                '/\bpayment\b|\breceipt\b|\bgrievance\b|ಪಾವತಿ|पेमेंट/u'
+            ]
+        ];
+
+        foreach ($entityPatterns as $entity => $patterns) {
+            if (self::matchesAnyPattern($message, $patterns)) {
+                return $entity;
+            }
+        }
+
+        return null;
+    }
+
+    private static function buildEntityGuidanceReply($entity, $language) {
+        $language = self::normalizeLanguage($language);
+
+        $replies = [
+            "en" => [
+                "dbms" => "If you mean DBMS, I can help with DBMS attendance, the DBMS course code, or your subject-wise attendance. You can ask: what is my attendance in DBMS, or what is the course code for DBMS?",
+                "software" => "If you mean Software Engineering, I can help with attendance, course code, or subject details. You can ask: what is my attendance in Software Engineering, or what is the course code for Software Engineering?",
+                "os" => "If you mean Operating Systems, I can help with attendance, course code, or subject details. You can ask: what is my attendance in OS, or what is the course code for OS?",
+                "cn" => "If you mean Computer Networks, I can help with attendance, course code, or subject details. You can ask: what is my attendance in CN, or what is the course code for CN?",
+                "network" => "If you mean Networks, I can help with network subject attendance, course code, or subject details. You can ask: what is my attendance in Computer Networks, or what is the course code for CN?",
+                "ai" => "If you mean Artificial Intelligence, I can help with attendance, course code, or subject details. You can ask: what is my attendance in AI, or what is the course code for AI?",
+                "fees" => "This seems related to fees or payment. You can ask: what is my fee balance, show my fee breakup, or open the payment portal.",
+                "result" => "This seems related to results. You can ask: show my 4th semester result, what is my SGPA, or do I have any backlogs?",
+                "attendance" => "This seems related to attendance. You can ask: what is my overall attendance, show my subject-wise attendance graph, or what is my attendance in DBMS?",
+                "profile" => "This seems related to your profile. You can ask: what is my USN, which semester am I in, or tell me about my profile.",
+                "certificate" => "This seems related to certificates. You can ask: what certificates are available, or open my certificate page.",
+                "payment" => "This seems related to payment help. You can ask: open payment portal, download receipt, or apply payment grievance.",
+                "receipt" => "This seems related to receipts. You can ask: download my payment receipt, show my latest receipt, or open the receipt page.",
+                "grievance" => "This seems related to grievances. You can ask: apply payment grievance, check my grievance status, or open the grievance page.",
+                "hall_ticket" => "This seems related to hall ticket help. You can ask: is my hall ticket generated, can I download my hall ticket, or open the hall ticket page."
+            ],
+            "hi" => [
+                "dbms" => "अगर आपका मतलब DBMS है, तो मैं DBMS attendance, course code, या subject-wise attendance में मदद कर सकता हूँ। आप पूछ सकते हैं: DBMS में मेरी attendance क्या है, या DBMS का course code क्या है?",
+                "os" => "अगर आपका मतलब Operating Systems है, तो मैं attendance, course code, या subject details में मदद कर सकता हूँ। आप पूछ सकते हैं: OS में मेरी attendance क्या है, या OS का course code क्या है?",
+                "cn" => "अगर आपका मतलब Computer Networks है, तो मैं attendance, course code, या subject details में मदद कर सकता हूँ। आप पूछ सकते हैं: CN में मेरी attendance क्या है, या CN का course code क्या है?",
+                "ai" => "अगर आपका मतलब Artificial Intelligence है, तो मैं attendance, course code, या subject details में मदद कर सकता हूँ। आप पूछ सकते हैं: AI में मेरी attendance क्या है, या AI का course code क्या है?",
+                "fees" => "यह fees या payment से जुड़ा लग रहा है। आप पूछ सकते हैं: मेरी fee balance क्या है, fee breakup दिखाइए, या payment portal खोलिए।",
+                "result" => "यह result से जुड़ा लग रहा है। आप पूछ सकते हैं: मेरा 4th semester result दिखाइए, मेरा SGPA क्या है, या क्या मेरे backlogs हैं?",
+                "attendance" => "यह attendance से जुड़ा लग रहा है। आप पूछ सकते हैं: मेरी overall attendance क्या है, subject-wise attendance graph दिखाइए, या DBMS में मेरी attendance क्या है?",
+                "profile" => "यह आपकी profile से जुड़ा लग रहा है। आप पूछ सकते हैं: मेरा USN क्या है, मैं किस semester में हूँ, या मेरी profile बताइए।",
+                "certificate" => "यह certificate से जुड़ा लग रहा है। आप पूछ सकते हैं: कौन से certificates available हैं, या certificate page खोलिए।",
+                "payment" => "यह payment help से जुड़ा लग रहा है। आप पूछ सकते हैं: payment portal खोलिए, receipt download कीजिए, या payment grievance apply कीजिए।"
+            ],
+            "kn" => [
+                "dbms" => "Nimma artha DBMS andre, nanu DBMS attendance, course code, athava subject-wise attendance bagge sahaya madabahudu. Neevu kelabahudu: DBMS nalli nanna attendance eshtu, athava DBMS course code yenu?",
+                "os" => "Nimma artha Operating Systems andre, nanu attendance, course code, athava subject details bagge sahaya madabahudu. Neevu kelabahudu: OS nalli nanna attendance eshtu, athava OS course code yenu?",
+                "cn" => "Nimma artha Computer Networks andre, nanu attendance, course code, athava subject details bagge sahaya madabahudu. Neevu kelabahudu: CN nalli nanna attendance eshtu, athava CN course code yenu?",
+                "ai" => "Nimma artha Artificial Intelligence andre, nanu attendance, course code, athava subject details bagge sahaya madabahudu. Neevu kelabahudu: AI nalli nanna attendance eshtu, athava AI course code yenu?",
+                "fees" => "Idu fees athava payment ge sambandhisida prashne anisutte. Neevu kelabahudu: nanna fee balance eshtu, fee breakup torisu, athava payment portal tereyiri.",
+                "result" => "Idu result ge sambandhisida prashne anisutte. Neevu kelabahudu: nanna 4th semester result torisu, nanna SGPA eshtu, athava nanage backlog ideya?",
+                "attendance" => "Idu attendance ge sambandhisida prashne anisutte. Neevu kelabahudu: nanna overall attendance eshtu, subject-wise attendance graph torisu, athava DBMS nalli nanna attendance eshtu?",
+                "profile" => "Idu nimma profile ge sambandhisida prashne anisutte. Neevu kelabahudu: nanna USN yenu, nanu yaava semester nalli iddini, athava nanna profile heli.",
+                "certificate" => "Idu certificate ge sambandhisida prashne anisutte. Neevu kelabahudu: yaava certificates available ive, athava certificate page tereyiri.",
+                "payment" => "Idu payment help ge sambandhisida prashne anisutte. Neevu kelabahudu: payment portal tereyiri, receipt download madi, athava payment grievance apply madi."
+            ]
+        ];
+
+        if (isset($replies[$language][$entity])) {
+            return $replies[$language][$entity];
+        }
+
+        $extendedReplies = [
+            "en" => [
+                "software" => "If you mean Software Engineering, I can help with attendance, course code, or subject details. You can ask: what is my attendance in Software Engineering, or what is the course code for Software Engineering?",
+                "network" => "If you mean Networks, I can help with network subject attendance, course code, or subject details. You can ask: what is my attendance in Computer Networks, or what is the course code for CN?",
+                "receipt" => "This seems related to receipts. You can ask: download my payment receipt, show my latest receipt, or open the receipt page.",
+                "grievance" => "This seems related to grievances. You can ask: apply payment grievance, check my grievance status, or open the grievance page.",
+                "hall_ticket" => "This seems related to hall ticket help. You can ask: is my hall ticket generated, can I download my hall ticket, or open the hall ticket page."
+            ],
+            "hi" => [
+                "software" => "Agar aapka matlab Software Engineering hai, to main attendance, course code, ya subject details mein madad kar sakta hoon. Aap pooch sakte hain: Software Engineering mein meri attendance kya hai, ya iska course code kya hai?",
+                "network" => "Agar aap network subject ke baare mein pooch rahe hain, to main Computer Networks attendance, course code, ya subject details mein madad kar sakta hoon. Aap pooch sakte hain: Computer Networks mein meri attendance kya hai, ya CN ka course code kya hai?",
+                "receipt" => "Yeh receipt se juda lag raha hai. Aap pooch sakte hain: meri payment receipt download kijiye, latest receipt dikhaiye, ya receipt page kholiye.",
+                "grievance" => "Yeh grievance se juda lag raha hai. Aap pooch sakte hain: payment grievance apply kijiye, grievance status batayiye, ya grievance page kholiye.",
+                "hall_ticket" => "Yeh hall ticket help se juda lag raha hai. Aap pooch sakte hain: mera hall ticket generate hua hai kya, hall ticket download kijiye, ya hall ticket page kholiye."
+            ],
+            "kn" => [
+                "software" => "Nimma artha Software Engineering andre, nanu attendance, course code, athava subject details bagge sahaya madabahudu. Neevu kelabahudu: Software Engineering nalli nanna attendance eshtu, athava adara course code yenu?",
+                "network" => "Nimma artha network subject andre, nanu Computer Networks attendance, course code, athava subject details bagge sahaya madabahudu. Neevu kelabahudu: Computer Networks nalli nanna attendance eshtu, athava CN course code yenu?",
+                "receipt" => "Idu receipt ge sambandhisida prashne anisutte. Neevu kelabahudu: nanna payment receipt download madi, latest receipt torisu, athava receipt page tereyiri.",
+                "grievance" => "Idu grievance ge sambandhisida prashne anisutte. Neevu kelabahudu: payment grievance apply madi, grievance status heli, athava grievance page tereyiri.",
+                "hall_ticket" => "Idu hall ticket help ge sambandhisida prashne anisutte. Neevu kelabahudu: nanna hall ticket generate aagideya, hall ticket download madi, athava hall ticket page tereyiri."
+            ]
+        ];
+
+        return $extendedReplies[$language][$entity] ?? null;
+    }
+
     private static function localFallback($message, $userContext = null, $language = "en") {
         $message = strtolower(trim($message));
         $role = $userContext["role_key"] ?? "student";
@@ -273,6 +518,19 @@ class LlmService {
                 }
             }
 
+            $topic = self::detectFallbackTopic($message);
+            if ($topic !== null) {
+                return self::buildTopicGuidanceReply($topic, "hi", $role);
+            }
+
+            $entityHint = self::detectEntityHint($message);
+            if ($entityHint !== null) {
+                $entityReply = self::buildEntityGuidanceReply($entityHint, "hi");
+                if ($entityReply) {
+                    return $entityReply;
+                }
+            }
+
             return self::getRoleHelpMessage($role, "hi");
         }
 
@@ -290,6 +548,19 @@ class LlmService {
             foreach ($patterns as $pattern => $reply) {
                 if (preg_match($pattern, $message)) {
                     return $reply;
+                }
+            }
+
+            $topic = self::detectFallbackTopic($message);
+            if ($topic !== null) {
+                return self::buildTopicGuidanceReply($topic, "kn", $role);
+            }
+
+            $entityHint = self::detectEntityHint($message);
+            if ($entityHint !== null) {
+                $entityReply = self::buildEntityGuidanceReply($entityHint, "kn");
+                if ($entityReply) {
+                    return $entityReply;
                 }
             }
 
@@ -314,6 +585,19 @@ class LlmService {
         foreach ($patterns as $pattern => $reply) {
             if (preg_match($pattern, $message)) {
                 return $reply;
+            }
+        }
+
+        $topic = self::detectFallbackTopic($message);
+        if ($topic !== null) {
+            return self::buildTopicGuidanceReply($topic, "en", $role);
+        }
+
+        $entityHint = self::detectEntityHint($message);
+        if ($entityHint !== null) {
+            $entityReply = self::buildEntityGuidanceReply($entityHint, "en");
+            if ($entityReply) {
+                return $entityReply;
             }
         }
 
@@ -370,6 +654,56 @@ class LlmService {
         ];
 
         return ($helpMap[$role] ?? "I can help you with university information and role-based assistance.") . " What would you like to know?";
+    }
+
+    public static function translateReply($reply, $targetLanguage = "en", $userContext = []) {
+        $targetLanguage = self::normalizeLanguage($targetLanguage);
+        $reply = trim((string) $reply);
+
+        if ($reply === "") {
+            return "";
+        }
+
+        if ($targetLanguage === "en") {
+            $translationRequest = "Convert this university voicebot answer into simple natural English for voice. Keep names, numbers, USN, course codes, fee amounts, and university terms exactly unchanged. Reply only with the converted answer: " . $reply;
+        } elseif ($targetLanguage === "kn") {
+            $translationRequest = "Convert this university voicebot answer into simple Kannada or Kanglish for voice. Keep names, numbers, USN, course codes, fee amounts, and university terms exactly unchanged. Reply only with the converted answer: " . $reply;
+        } else {
+            $translationRequest = "Convert this university voicebot answer into simple Hindi in Devanagari script for voice. Keep names, numbers, USN, course codes, fee amounts, and essential university terms exactly unchanged. Reply only with the converted answer: " . $reply;
+        }
+
+        foreach (self::getProviderOrder() as $provider) {
+            $translatedReply = null;
+
+            if ($provider === "gemini") {
+                $translatedReply = self::callGemini($translationRequest, $userContext, [], $targetLanguage);
+            }
+
+            if ($provider === "openai") {
+                $translatedReply = self::callOpenAI($translationRequest, $userContext, [], $targetLanguage);
+            }
+
+            if ($translatedReply) {
+                self::$lastReplyMeta = [
+                    "source" => $provider . "_translated_reply"
+                ];
+                return $translatedReply;
+            }
+        }
+
+        self::$lastReplyMeta = [
+            "source" => "local_translated_reply"
+        ];
+
+        if ($targetLanguage === "hi") {
+            return self::localTranslateToHindi($reply);
+        }
+
+        if ($targetLanguage === "kn") {
+            return self::localTranslateToKannada($reply);
+        }
+
+        return $reply;
     }
 
     private static function callOpenAI($message, $userContext, $knowledgeItems, $language = "en") {
@@ -474,6 +808,7 @@ class LlmService {
         $apiKey = self::getEnvValue("GEMINI_API_KEY") ?: self::getEnvValue("GOOGLE_API_KEY");
 
         if (!$apiKey) {
+            self::logModelFailure("gemini", "missing_api_key", $message, $language, $userContext);
             return null;
         }
 
@@ -531,9 +866,23 @@ class LlmService {
 
         $response = curl_exec($ch);
         $statusCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
         curl_close($ch);
 
-        if ($response === false || $statusCode >= 400) {
+        if ($response === false) {
+            self::logModelFailure("gemini", "curl_exec_failed", $message, $language, $userContext, [
+                "model" => $model,
+                "curl_error" => $curlError
+            ]);
+            return null;
+        }
+
+        if ($statusCode >= 400) {
+            self::logModelFailure("gemini", "http_error", $message, $language, $userContext, [
+                "model" => $model,
+                "status_code" => $statusCode,
+                "response_preview" => mb_substr(trim((string) $response), 0, 300, "UTF-8")
+            ]);
             return null;
         }
 
@@ -541,6 +890,11 @@ class LlmService {
         $parts = $data["candidates"][0]["content"]["parts"] ?? null;
 
         if (!is_array($parts)) {
+            self::logModelFailure("gemini", "missing_parts", $message, $language, $userContext, [
+                "model" => $model,
+                "status_code" => $statusCode,
+                "response_preview" => mb_substr(trim((string) $response), 0, 300, "UTF-8")
+            ]);
             return null;
         }
 
@@ -553,10 +907,23 @@ class LlmService {
         }
 
         if (empty($texts)) {
+            self::logModelFailure("gemini", "empty_texts", $message, $language, $userContext, [
+                "model" => $model,
+                "status_code" => $statusCode
+            ]);
             return null;
         }
 
-        return self::finalizeHostedReply(implode(" ", $texts));
+        $finalReply = self::finalizeHostedReply(implode(" ", $texts));
+
+        if ($finalReply === null) {
+            self::logModelFailure("gemini", "invalid_final_reply", $message, $language, $userContext, [
+                "model" => $model,
+                "raw_reply_preview" => mb_substr(trim(implode(" ", $texts)), 0, 300, "UTF-8")
+            ]);
+        }
+
+        return $finalReply;
     }
 
     private static function callPythonFallback($message) {
@@ -852,41 +1219,11 @@ class LlmService {
             return $reply;
         }
 
-        $translationRequest = $language === "kn"
-            ? "Convert this ERP voicebot answer into simple Kannada or Kanglish for voice. Keep names, numbers, USN, course codes, fee amounts, and university terms exactly unchanged. Reply only with the converted answer: " . $reply
-            : "Convert this ERP voicebot answer into simple Hindi in Devanagari script for voice. Keep names, numbers, USN, course codes, fee amounts, and essential university terms exactly unchanged. Reply only with the converted answer: " . $reply;
-        $knowledgeItems = [];
-
-        foreach (self::getProviderOrder() as $provider) {
-            $translatedReply = null;
-
-            if ($provider === "gemini") {
-                $translatedReply = self::callGemini($translationRequest, $userContext, $knowledgeItems, $language);
-            }
-
-            if ($provider === "openai") {
-                $translatedReply = self::callOpenAI($translationRequest, $userContext, $knowledgeItems, $language);
-            }
-
-            if ($translatedReply) {
-                self::$lastReplyMeta = [
-                    "source" => $provider . "_translated_db"
-                ];
-                return $translatedReply;
-            }
-        }
-
+        $translatedReply = self::translateReply($reply, $language, $userContext);
+        $meta = self::getLastReplyMeta();
         self::$lastReplyMeta = [
-            "source" => "local_translated_db"
+            "source" => str_replace("_translated_reply", "_translated_db", $meta["source"] ?? "translated_db")
         ];
-        if ($language === "hi") {
-            return self::localTranslateToHindi($reply);
-        }
-
-        if ($language === "kn") {
-            return self::localTranslateToKannada($reply);
-        }
-
-        return $reply;
+        return $translatedReply;
     }
 }
