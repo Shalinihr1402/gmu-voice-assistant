@@ -169,6 +169,41 @@
   font-size: 13px;
 }
 
+.voice-suggestions {
+  margin-top: 14px;
+}
+
+.voice-suggestions-label {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #7a1c1c;
+}
+
+.voice-suggestion-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.voice-suggestion-chip {
+  border: 1px solid #d4af37;
+  background: #fffaf0;
+  color: #7a1c1c;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+  line-height: 1.35;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.voice-suggestion-chip:hover {
+  background: #fff1c9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(122, 28, 28, 0.12);
+}
+
 /* Assistant reply styling */
 .response-text {
   background: #fdf5e6;

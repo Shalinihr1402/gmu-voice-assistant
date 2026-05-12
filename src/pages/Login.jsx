@@ -48,23 +48,30 @@ const Login = ({ setIsAuthenticated }) => {
   return (
     <div className="login-container">
       <div className="login-card">
-        <h2>GM UNIVERSITY</h2>
+        <h1>GM UNIVERSITY</h1>
         <p className="login-subtitle">University Voice Assistant Login</p>
 
-        <form onSubmit={handleLogin}>
+        <form className="login-form" onSubmit={handleLogin}>
           <div className="input-group">
-            <label>Login ID / Aadhaar</label>
+            <label htmlFor="loginId">Login ID / Aadhaar</label>
             <input
+              id="loginId"
               type="text"
+              inputMode="numeric"
+              placeholder="123412341234"
+              autoComplete="username"
               value={loginId}
               onChange={(e) => setLoginId(e.target.value)}
             />
           </div>
 
           <div className="input-group">
-            <label>Password</label>
+            <label htmlFor="password">Password</label>
             <input
+              id="password"
               type="password"
+              placeholder="Enter your password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />

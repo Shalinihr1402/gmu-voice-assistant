@@ -38,17 +38,9 @@ function loadLocalEnvFile($filePath) {
             $value = substr($value, 1, -1);
         }
 
-        if (getenv($key) === false) {
-            putenv($key . '=' . $value);
-        }
-
-        if (!isset($_ENV[$key])) {
-            $_ENV[$key] = $value;
-        }
-
-        if (!isset($_SERVER[$key])) {
-            $_SERVER[$key] = $value;
-        }
+        putenv($key . '=' . $value);
+        $_ENV[$key] = $value;
+        $_SERVER[$key] = $value;
     }
 
     $loadedFiles[$filePath] = true;

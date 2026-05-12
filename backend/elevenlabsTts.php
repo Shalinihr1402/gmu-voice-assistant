@@ -263,12 +263,12 @@ function optimizeKannadaVoiceReply($text) {
     return rtrim($spoken, " .,") . ".";
 }
 
-$apiKey = getEnvValue("ELEVENLABS_API_KEY");
+$apiKey = getEnvValue("ELEVENLABS_KANNADA_API_KEY") ?: getEnvValue("ELEVENLABS_API_KEY");
 if (!$apiKey) {
     http_response_code(500);
     header("Content-Type: application/json");
     echo json_encode([
-        "error" => "ElevenLabs API key is missing. Set ELEVENLABS_API_KEY in your server environment."
+        "error" => "ElevenLabs API key is missing. Set ELEVENLABS_KANNADA_API_KEY or ELEVENLABS_API_KEY in your server environment."
     ]);
     exit();
 }
@@ -392,15 +392,18 @@ if ($isGetRequest) {
         exit();
     }
 
-    if ($statusCode >= 400 && !$bodyStarted) {
-        http_response_code($statusCode);
-        header("Content-Type: application/json");
-        $data = json_decode($errorBuffer, true);
-        echo json_encode([
-            "error" => $data["detail"]["message"] ?? $data["message"] ?? "ElevenLabs TTS failed."
-        ]);
-        exit();
-    }
+if ($statusCode >= 400 && !$bodyStarted) {
+    http_response_code($statusCode);
+    header("Content-Type: application/json");
+    $data = json_decode($errorBuffer, true);
+    $errorMessage = $data["detail"]["message"] ?? $data["message"] ?? "ElevenLabs TTS failed.";
+    error_log("ElevenLabs Kannada TTS failed for voice id '{$voiceId}' with status {$statusCode}: {$errorMessage}");
+    echo json_encode([
+        "error" => $errorMessage,
+        "voice_id" => $voiceId
+    ]);
+    exit();
+}
 
     exit();
 }
@@ -425,8 +428,11 @@ if ($statusCode >= 400) {
     http_response_code($statusCode);
     header("Content-Type: application/json");
     $data = json_decode($response, true);
+    $errorMessage = $data["detail"]["message"] ?? $data["message"] ?? "ElevenLabs TTS failed.";
+    error_log("ElevenLabs Kannada TTS failed for voice id '{$voiceId}' with status {$statusCode}: {$errorMessage}");
     echo json_encode([
-        "error" => $data["detail"]["message"] ?? $data["message"] ?? "ElevenLabs TTS failed."
+        "error" => $errorMessage,
+        "voice_id" => $voiceId
     ]);
     exit();
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useLocation, useNavigate } from "react-router-dom"
 import gmuLogo from "../assets/gmu-logo.png"
 import "./VoiceAssistant.css"
 import { fetchJson, getBackendUrl } from "../utils/api"
@@ -63,6 +63,64 @@ const LIKELY_MALE_VOICE_HINTS = [
   "alex",
   "daniel"
 ]
+const DEFAULT_SUGGESTION_CHIPS = {
+  en: [
+    "Show my profile",
+    "What is my fee status?",
+    "Tell me my attendance",
+    "How do I check my result?"
+  ],
+  hi: [
+    "मेरा प्रोफाइल दिखाओ",
+    "मेरी फीस स्थिति क्या है?",
+    "मेरी अटेंडेंस बताओ",
+    "रिजल्ट कैसे चेक करूं?"
+  ],
+  kn: [
+    "ನನ್ನ ಪ್ರೊಫೈಲ್ ತೋರಿಸಿ",
+    "ನನ್ನ ಫೀಸ್ ಸ್ಥಿತಿ ಏನು?",
+    "ನನ್ನ ಹಾಜರಾತಿ ಹೇಳಿ",
+    "ರಿಸಲ್ಟ್ ಹೇಗೆ ನೋಡಬೇಕು?"
+  ]
+}
+const FALLBACK_SUGGESTION_CHIPS = {
+  profile: {
+    en: ["What details are in my profile?", "Which department am I in?", "Which semester am I in now?", "Open my profile page"],
+    hi: ["मेरी प्रोफाइल में कौन-कौन सी जानकारी है?", "मैं किस विभाग में हूं?", "मैं अभी किस सेमेस्टर में हूं?", "मेरा प्रोफाइल पेज खोलो"],
+    kn: ["ನನ್ನ ಪ್ರೊಫೈಲ್‌ನಲ್ಲಿ ಯಾವ ಮಾಹಿತಿಯಿದೆ?", "ನಾನು ಯಾವ ವಿಭಾಗದಲ್ಲಿದ್ದೇನೆ?", "ನಾನು ಈಗ ಯಾವ ಸೆಮಿಸ್ಟರ್‌ನಲ್ಲಿ ಇದ್ದೇನೆ?", "ನನ್ನ ಪ್ರೊಫೈಲ್ ಪುಟ ತೆರೆ"]
+  },
+  fees: {
+    en: ["What is my pending fee amount?", "How can I pay my fees?", "Open the payment page", "How do I raise a payment grievance?"],
+    hi: ["मेरी बकाया फीस कितनी है?", "मैं फीस कैसे भरूं?", "पेमेंट पेज खोलो", "पेमेंट grievance कैसे दर्ज करूं?"],
+    kn: ["ನನ್ನ ಬಾಕಿ ಫೀಸ್ ಎಷ್ಟು ಇದೆ?", "ನಾನು ಫೀಸ್ ಹೇಗೆ ಪಾವತಿಸಬೇಕು?", "ಪೇಮೆಂಟ್ ಪುಟ ತೆರೆ", "ಪೇಮೆಂಟ್ grievance ಹೇಗೆ ಸಲ್ಲಿಸಬೇಕು?"]
+  },
+  attendance: {
+    en: ["What is my overall attendance?", "Attendance for which subject can you check?", "Tell attendance for DBMS", "How do I improve attendance?"],
+    hi: ["मेरी कुल अटेंडेंस कितनी है?", "आप किस subject की attendance बता सकते हैं?", "DBMS की attendance बताओ", "अटेंडेंस कैसे सुधारूं?"],
+    kn: ["ನನ್ನ ಒಟ್ಟು ಹಾಜರಾತಿ ಎಷ್ಟು?", "ನೀವು ಯಾವ subject‌ನ ಹಾಜರಾತಿ ಹೇಳಬಹುದು?", "DBMS ಹಾಜರಾತಿ ಹೇಳಿ", "ಹಾಜರಾತಿ ಹೇಗೆ ಹೆಚ್ಚಿಸಬಹುದು?"]
+  },
+  results: {
+    en: ["How do I check semester results?", "Can you calculate my CGPA?", "What exam options are available in result page?", "Open the result page"],
+    hi: ["सेमेस्टर रिजल्ट कैसे चेक करूं?", "क्या आप मेरा CGPA निकाल सकते हैं?", "रिजल्ट पेज में कौन-कौन से exam options हैं?", "रिजल्ट पेज खोलो"],
+    kn: ["ಸೆಮಿಸ್ಟರ್ ರಿಸಲ್ಟ್ ಹೇಗೆ ನೋಡಬೇಕು?", "ನನ್ನ CGPA ಲೆಕ್ಕ ಹಾಕಬಹುದಾ?", "ರಿಸಲ್ಟ್ ಪುಟದಲ್ಲಿ ಯಾವ exam options ಇವೆ?", "ರಿಸಲ್ಟ್ ಪುಟ ತೆರೆ"]
+  },
+  courses: {
+    en: ["What courses are in my semester?", "Tell me the course code for DBMS", "Which subjects do I have now?", "What is the credit for this subject?"],
+    hi: ["मेरे सेमेस्टर में कौन-कौन से courses हैं?", "DBMS का course code बताओ", "अभी मेरे कौन-कौन से subjects हैं?", "इस subject के credits कितने हैं?"],
+    kn: ["ನನ್ನ ಸೆಮಿಸ್ಟರ್‌ನಲ್ಲಿ ಯಾವ ಯಾವ courses ಇವೆ?", "DBMS course code ಹೇಳಿ", "ಈಗ ನನಗೆ ಯಾವ subjects ಇವೆ?", "ಈ subject‌ಗೆ ಎಷ್ಟು credits ಇವೆ?"]
+  },
+  registration: {
+    en: ["Is my registration completed?", "Open the registration page", "What documents do I need for registration?", "How do I check registration status?"],
+    hi: ["क्या मेरी registration पूरी हो गई है?", "registration page खोलो", "registration के लिए कौन से documents चाहिए?", "registration status कैसे चेक करूं?"],
+    kn: ["ನನ್ನ registration ಪೂರ್ಣಗೊಂಡಿದೆಯಾ?", "registration ಪುಟ ತೆರೆ", "registrationಗೆ ಯಾವ documents ಬೇಕು?", "registration status ಹೇಗೆ ನೋಡಬೇಕು?"]
+  },
+  certificates: {
+    en: ["Show my competency certificates", "Open the certificate page", "Do I have any digital certificate?", "How can I download my certificate?"],
+    hi: ["मेरे competency certificates दिखाओ", "certificate page खोलो", "क्या मेरे पास कोई digital certificate है?", "मैं certificate कैसे download करूं?"],
+    kn: ["ನನ್ನ competency certificates ತೋರಿಸಿ", "certificate ಪುಟ ತೆರೆ", "ನನ್ನ ಬಳಿ ಯಾವುದಾದರೂ digital certificate ಇದೆಯಾ?", "certificate ಹೇಗೆ download ಮಾಡಬೇಕು?"]
+  },
+  general: DEFAULT_SUGGESTION_CHIPS
+}
 
 const VoiceAssistant = () => {
   const [isActive, setIsActive] = useState(false)
@@ -76,6 +134,7 @@ const VoiceAssistant = () => {
   const [currentUser, setCurrentUser] = useState(null)
   const [startupStatus, setStartupStatus] = useState("")
   const [voiceLanguage, setVoiceLanguage] = useState(getStoredUiLanguage())
+  const [activeSuggestionTopic, setActiveSuggestionTopic] = useState("")
 
   const audioRef = useRef(null)
   const audioUrlRef = useRef(null)
@@ -114,8 +173,14 @@ const VoiceAssistant = () => {
   const profileCacheRef = useRef(null)
   const paymentCacheRef = useRef(null)
   const coursesCacheRef = useRef(null)
+  const interactionIdRef = useRef(0)
+  const aiAbortControllerRef = useRef(null)
+  const ttsAbortControllerRef = useRef(null)
+  const navigationTimeoutRef = useRef(null)
+  const previousPathnameRef = useRef(null)
 
   const navigate = useNavigate()
+  const location = useLocation()
   const languageConfig = VOICE_LANGUAGE_OPTIONS[voiceLanguage] || VOICE_LANGUAGE_OPTIONS.en
   const isHindiMode = voiceLanguage === "hi"
   const isKannadaMode = voiceLanguage === "kn"
@@ -169,6 +234,89 @@ const VoiceAssistant = () => {
   const replyInSelectedLanguage = (english, hindi, kannada) => (
     isKannadaMode ? (kannada || english) : isHindiMode ? hindi : english
   )
+  const getSuggestionChips = (language, topic = "") => {
+    const normalizedLanguage = VOICE_LANGUAGE_OPTIONS[language] ? language : "en"
+    const topicKey = topic && FALLBACK_SUGGESTION_CHIPS[topic] ? topic : "general"
+
+    if (topicKey === "general" && !topic) {
+      return DEFAULT_SUGGESTION_CHIPS[normalizedLanguage] || DEFAULT_SUGGESTION_CHIPS.en
+    }
+
+    return (
+      FALLBACK_SUGGESTION_CHIPS[topicKey]?.[normalizedLanguage]
+      || FALLBACK_SUGGESTION_CHIPS.general[normalizedLanguage]
+      || DEFAULT_SUGGESTION_CHIPS.en
+    )
+  }
+
+  const detectSuggestionTopic = (text = "", intent = "", replySourceValue = "") => {
+    const normalized = String(text || "").trim().toLowerCase()
+    const normalizedIntent = String(intent || "").toUpperCase()
+    const normalizedReplySource = String(replySourceValue || "").toLowerCase()
+
+    if (normalizedIntent.includes("ATTENDANCE") || /\b(attendance|present|absent|percentage)\b|हाजिरी|अटेंडेंस|ಹಾಜರಾತಿ/u.test(normalized)) {
+      return "attendance"
+    }
+
+    if (
+      normalizedIntent.includes("FEE")
+      || normalizedIntent.includes("PAYMENT")
+      || /\b(fee|fees|payment|paid|due|balance|grievance)\b|फीस|पेमेंट|भुगतान|ಫೀಸ್|ಪೇಮೆಂಟ್|ಗ್ರೀವನ್ಸ್/u.test(normalized)
+    ) {
+      return "fees"
+    }
+
+    if (
+      normalizedIntent.includes("RESULT")
+      || normalizedIntent.includes("CGPA")
+      || normalizedIntent.includes("SGPA")
+      || /\b(result|results|marks|cgpa|sgpa|grade|exam)\b|रिजल्ट|मार्क्स|सीजीपीए|एसजीपीए|ರಿಸಲ್ಟ್|ಅಂಕ|ಸಿಜಿಪಿಎ/u.test(normalized)
+    ) {
+      return "results"
+    }
+
+    if (
+      normalizedIntent.includes("COURSE")
+      || normalizedIntent.includes("SUBJECT")
+      || /\b(course|courses|subject|subjects|syllabus|credit|credits|dbms|os|cn|ai)\b|कोर्स|सब्जेक्ट|विषय|ಕೋರ್ಸ್|ವಿಷಯ/u.test(normalized)
+    ) {
+      return "courses"
+    }
+
+    if (normalizedIntent.includes("CERTIFICATE") || /\b(certificate|certificates|competency|digital certificate)\b|सर्टिफिकेट|ಪ್ರಮಾಣಪತ್ರ|ಸರ್ಟಿಫಿಕೇಟ್/u.test(normalized)) {
+      return "certificates"
+    }
+
+    if (normalizedIntent.includes("REGISTRATION") || /\b(registration|register|registered)\b|रजिस्ट्रेशन|पंजीकरण|ನೋಂದಣಿ|ರಿಜಿಸ್ಟ್ರೇಶನ್/u.test(normalized)) {
+      return "registration"
+    }
+
+    if (
+      normalizedIntent.includes("PROFILE")
+      || normalizedIntent.includes("SEMESTER")
+      || normalizedIntent.includes("DEPARTMENT")
+      || /\b(profile|department|branch|semester|usn|who am i)\b|प्रोफाइल|विभाग|सेमेस्टर|ಪ್ರೊಫೈಲ್|ವಿಭಾಗ|ಸೆಮಿಸ್ಟರ್/u.test(normalized)
+    ) {
+      return "profile"
+    }
+
+    if (normalizedReplySource.includes("fallback")) {
+      return "general"
+    }
+
+    return ""
+  }
+
+  const isFallbackResponse = ({ intent = "", route = "", replySourceValue = "" }) => {
+    const normalizedIntent = String(intent || "").toUpperCase()
+    const normalizedRoute = String(route || "").toLowerCase()
+    const normalizedReplySource = String(replySourceValue || "").toLowerCase()
+
+    return (
+      normalizedReplySource.includes("fallback")
+      || (normalizedRoute === "llm" && (normalizedIntent === "UNKNOWN" || normalizedIntent === "ROLE_AWARE_ASSIST"))
+    )
+  }
 
   useEffect(() => {
     isActiveRef.current = isActive
@@ -276,6 +424,38 @@ const VoiceAssistant = () => {
       URL.revokeObjectURL(audioUrlRef.current)
       audioUrlRef.current = null
     }
+  }
+
+  const clearPendingNavigation = () => {
+    if (navigationTimeoutRef.current) {
+      clearTimeout(navigationTimeoutRef.current)
+      navigationTimeoutRef.current = null
+    }
+  }
+
+  const invalidateCurrentInteraction = () => {
+    interactionIdRef.current += 1
+    clearPendingNavigation()
+
+    if (aiAbortControllerRef.current) {
+      aiAbortControllerRef.current.abort()
+      aiAbortControllerRef.current = null
+    }
+
+    if (ttsAbortControllerRef.current) {
+      ttsAbortControllerRef.current.abort()
+      ttsAbortControllerRef.current = null
+    }
+  }
+
+  const isInteractionStale = (interactionId) => interactionId !== interactionIdRef.current
+
+  const scheduleNavigation = (path) => {
+    clearPendingNavigation()
+    navigationTimeoutRef.current = window.setTimeout(() => {
+      navigationTimeoutRef.current = null
+      navigate(path)
+    }, 800)
   }
 
   const stopInterruptMonitor = async () => {
@@ -435,6 +615,27 @@ const VoiceAssistant = () => {
     setStartupStatus("")
   }
 
+  const cancelAssistantActivity = async ({ preserveActive = true } = {}) => {
+    invalidateCurrentInteraction()
+    isSpeakingRef.current = false
+    isProcessingRef.current = false
+    lastSpokenTextRef.current = ""
+    setIsProcessing(false)
+    setIsSpeaking(false)
+    setReplySource("")
+    setStartupStatus("")
+
+    if (!preserveActive) {
+      setIsActive(false)
+      isActiveRef.current = false
+    }
+
+    cleanupRecorder({ ignoreTranscript: true })
+    await stopCurrentSpeech()
+    cleanupAudio()
+    window.speechSynthesis.cancel()
+  }
+
   const resetStreamingTranscript = () => {
     finalTranscriptRef.current = ""
     interimTranscriptRef.current = ""
@@ -485,24 +686,29 @@ const VoiceAssistant = () => {
     const { preferBrowser = USE_BROWSER_TTS_BY_DEFAULT } = options
     const bufferedText = typeof textOrStream === "string" ? textOrStream : ""
     const shouldUseBrowserTts = preferBrowser || languageConfig.ttsProvider === "browser"
+    const interactionId = interactionIdRef.current
 
     if (shouldUseBrowserTts) {
-      if (bufferedText) {
+      if (bufferedText && !isInteractionStale(interactionId)) {
         speakWithBrowserFallback(bufferedText)
       }
       return
     }
 
-    if (!bufferedText) {
+    if (!bufferedText || isInteractionStale(interactionId)) {
       finishSpeaking()
       return
     }
 
     const playElevenLabsBlobAudio = async () => {
+      const controller = new AbortController()
+      ttsAbortControllerRef.current = controller
+
       const response = await fetch(getBackendUrl("elevenlabsTts.php"), {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           text: bufferedText,
           language: languageConfig.apiLanguage
@@ -524,6 +730,14 @@ const VoiceAssistant = () => {
       }
 
       const audioBlob = await response.blob()
+      if (ttsAbortControllerRef.current === controller) {
+        ttsAbortControllerRef.current = null
+      }
+
+      if (isInteractionStale(interactionId)) {
+        return
+      }
+
       const audioUrl = URL.createObjectURL(audioBlob)
       audioUrlRef.current = audioUrl
 
@@ -545,6 +759,11 @@ const VoiceAssistant = () => {
 
       await playElevenLabsBlobAudio()
     } catch (error) {
+      if (error?.name === "AbortError" || isInteractionStale(interactionId)) {
+        finishSpeaking()
+        return
+      }
+
       if (isKannadaMode) {
         finishSpeaking()
         setErrorMessage(error?.message || "Kannada speech synthesis is unavailable right now.")
@@ -921,30 +1140,78 @@ const VoiceAssistant = () => {
     const { preferBrowser = languageConfig.ttsProvider !== "elevenlabs" && USE_BROWSER_TTS_BY_DEFAULT } = options
 
     if (!text) return
+    if (!isActiveRef.current || isInteractionStale(interactionIdRef.current)) return
 
     await speakTextStream(text, { preferBrowser })
   }
 
   const askAI = async (text) => {
     try {
+      const interactionId = interactionIdRef.current
+      const controller = new AbortController()
+      aiAbortControllerRef.current = controller
       const data = await fetchJson("api.php", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({ message: text, language: languageConfig.apiLanguage })
       })
-      setReplySource(data.reply_source || "unknown")
-      return data.reply || localizedText.noAnswer
-    } catch {
+
+      if (aiAbortControllerRef.current === controller) {
+        aiAbortControllerRef.current = null
+      }
+
+      if (isInteractionStale(interactionId)) {
+        return { reply: "", suggestionTopic: "" }
+      }
+
+      const nextReplySource = data.reply_source || "unknown"
+      const suggestionTopic = isFallbackResponse({
+        intent: data.intent,
+        route: data.route,
+        replySourceValue: nextReplySource
+      })
+        ? (detectSuggestionTopic(text, data.intent, nextReplySource) || "general")
+        : ""
+
+      setReplySource(nextReplySource)
+      return {
+        reply: data.reply || localizedText.noAnswer,
+        suggestionTopic
+      }
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        return { reply: "", suggestionTopic: "" }
+      }
+
       setReplySource("request_failed")
-      return localizedText.serverError
+      return { reply: localizedText.serverError, suggestionTopic: "" }
     }
   }
 
   const replyImmediately = (text) => {
+    if (!text || !isActiveRef.current) {
+      return
+    }
+
     setResponse(text)
+    setActiveSuggestionTopic("")
     setReplySource("")
     void speak(text, { preferBrowser: languageConfig.ttsProvider !== "elevenlabs" })
     lastCommandRef.current = ""
+  }
+
+  const handleSuggestionChipClick = async (chipText) => {
+    if (!chipText || !isActiveRef.current || isListening || isProcessing) {
+      return
+    }
+
+    if (isSpeakingRef.current) {
+      await stopCurrentSpeech()
+    }
+
+    setTranscript(chipText)
+    await handleVoiceCommand(chipText)
   }
 
   const getOrdinalLabel = (value) => {
@@ -1524,6 +1791,7 @@ const VoiceAssistant = () => {
 
   const handleVoiceCommand = async (command) => {
     if (!command) return
+    const interactionId = ++interactionIdRef.current
 
     let cleaned = command.trim().toLowerCase()
 
@@ -1548,6 +1816,7 @@ const VoiceAssistant = () => {
     const intentText = normalizeVoiceIntent(cleaned)
 
     const resultSupport = await getResultSupportReply(intentText)
+    if (isInteractionStale(interactionId) || !isActiveRef.current) return
     if (resultSupport?.type === "reply") {
       setIsProcessing(false)
       setReplySource("local_result")
@@ -1556,11 +1825,13 @@ const VoiceAssistant = () => {
     }
 
     const paymentSupport = await getPaymentSupportReply(intentText)
+    if (isInteractionStale(interactionId) || !isActiveRef.current) return
     if (paymentSupport?.type === "navigate") {
       setIsProcessing(false)
+      setActiveSuggestionTopic("")
       setResponse(paymentSupport.reply)
       speak(paymentSupport.reply)
-      setTimeout(() => navigate("/payment"), 800)
+      scheduleNavigation("/payment")
       lastPageRef.current = "payment"
       lastCommandRef.current = ""
       return
@@ -1613,7 +1884,7 @@ const VoiceAssistant = () => {
         setIsProcessing(false)
         setResponse(message)
         speak(message)
-        setTimeout(() => navigate("/" + (isStudentUser ? "dashboard" : "portal")), 800)
+        scheduleNavigation("/" + (isStudentUser ? "dashboard" : "portal"))
         lastPageRef.current = isStudentUser ? "dashboard" : "portal"
         lastCommandRef.current = ""
         return
@@ -1629,7 +1900,7 @@ const VoiceAssistant = () => {
         setIsProcessing(false)
         setResponse(message)
         speak(message)
-        setTimeout(() => navigate("/" + target), 800)
+        scheduleNavigation("/" + target)
         lastPageRef.current = target
         lastCommandRef.current = ""
         return
@@ -1645,7 +1916,7 @@ const VoiceAssistant = () => {
         setIsProcessing(false)
         setResponse(message)
         speak(message)
-        setTimeout(() => navigate("/" + target), 800)
+        scheduleNavigation("/" + target)
         lastPageRef.current = target
         lastCommandRef.current = ""
         return
@@ -1661,7 +1932,7 @@ const VoiceAssistant = () => {
         setIsProcessing(false)
         setResponse(message)
         speak(message)
-        setTimeout(() => navigate("/" + target), 800)
+        scheduleNavigation("/" + target)
         lastPageRef.current = target
         lastCommandRef.current = ""
         return
@@ -1673,10 +1944,7 @@ const VoiceAssistant = () => {
       const message = replyInSelectedLanguage(englishMessage, hindiMessage, kannadaMessage)
       setResponse(message)
       speak(message)
-
-      setTimeout(() => {
-        navigate("/" + page)
-      }, 800)
+      scheduleNavigation("/" + page)
 
       lastPageRef.current = page
       lastCommandRef.current = ""
@@ -1770,6 +2038,7 @@ const VoiceAssistant = () => {
     }
 
     const fastDatabaseReply = await getFastDatabaseReply(intentText)
+    if (isInteractionStale(interactionId) || !isActiveRef.current) return
     if (fastDatabaseReply) {
       setIsProcessing(false)
       setReplySource("fast_db")
@@ -1778,12 +2047,10 @@ const VoiceAssistant = () => {
     }
 
     const goToPage = (page, message) => {
+      setActiveSuggestionTopic("")
       setResponse(message)
       speak(message)
-
-      setTimeout(() => {
-        navigate("/" + page)
-      }, 800)
+      scheduleNavigation("/" + page)
 
       lastPageRef.current = page
       lastCommandRef.current = ""
@@ -1866,9 +2133,10 @@ const VoiceAssistant = () => {
     }
 
     if (/^(how are you|who are you|thank you|thanks|good morning|good afternoon|good evening|bye|goodbye|see you|कैसे हो|आप कौन हैं|धन्यवाद|शुक्रिया|नमस्ते|बाय)$/.test(cleaned)) {
-      const reply = await askAI(intentText)
-      setResponse(reply)
-      void speak(reply)
+      const aiResponse = await askAI(intentText)
+      setActiveSuggestionTopic(aiResponse.suggestionTopic || "")
+      setResponse(aiResponse.reply)
+      void speak(aiResponse.reply)
       lastCommandRef.current = ""
       return
     }
@@ -1876,16 +2144,31 @@ const VoiceAssistant = () => {
     setIsProcessing(true)
     setResponse(localizedText.thinking)
 
-    const reply = await askAI(intentText)
+    const aiResponse = await askAI(intentText)
+    if (isInteractionStale(interactionId) || !isActiveRef.current || !aiResponse.reply) return
 
     setIsProcessing(false)
-    setResponse(reply)
-    void speak(reply)
+    setActiveSuggestionTopic(aiResponse.suggestionTopic || "")
+    setResponse(aiResponse.reply)
+    void speak(aiResponse.reply)
     lastCommandRef.current = ""
   }
 
   useEffect(() => {
+    if (previousPathnameRef.current === null) {
+      previousPathnameRef.current = location.pathname
+      return
+    }
+
+    if (previousPathnameRef.current !== location.pathname) {
+      previousPathnameRef.current = location.pathname
+      void cancelAssistantActivity()
+    }
+  }, [location.pathname])
+
+  useEffect(() => {
     return () => {
+      invalidateCurrentInteraction()
       cleanupRecorder()
       void stopInterruptMonitor()
       void stopStreamingTts({ clearRemote: false })
@@ -1903,6 +2186,7 @@ const VoiceAssistant = () => {
     setIsProcessing(false)
     setIsSpeaking(false)
     setReplySource("")
+    setActiveSuggestionTopic("")
     setStartupStatus(localizedText.tapToAsk)
 
     const firstName = (currentUser?.full_name || "").trim().split(/\s+/)[0] || ""
@@ -1948,19 +2232,7 @@ const VoiceAssistant = () => {
   }
 
   const closeAssistant = () => {
-    setIsActive(false)
-    isActiveRef.current = false
-    isSpeakingRef.current = false
-    lastSpokenTextRef.current = ""
-    isProcessingRef.current = false
-    setIsProcessing(false)
-    setIsSpeaking(false)
-    setReplySource("")
-    setStartupStatus("")
-    cleanupRecorder()
-    void stopCurrentSpeech()
-    cleanupAudio()
-    window.speechSynthesis.cancel()
+    void cancelAssistantActivity({ preserveActive: false })
   }
 
   const statusLabel = isSpeaking
@@ -1971,6 +2243,10 @@ const VoiceAssistant = () => {
         ? localizedText.thinking
         : startupStatus || localizedText.tapToAsk
   const showTapHint = isActive && !isListening && !isProcessing && !isSpeaking
+  const suggestionChips = getSuggestionChips(voiceLanguage, activeSuggestionTopic)
+  const suggestionHeading = activeSuggestionTopic
+    ? replyInSelectedLanguage("Try a follow-up:", "यह अगला सवाल पूछ सकते हैं:", "ಇವುಗಳಲ್ಲಿ ಮುಂದಿನ ಪ್ರಶ್ನೆ ಕೇಳಬಹುದು:")
+    : replyInSelectedLanguage("Try asking:", "यह सवाल पूछ सकते हैं:", "ಈ ಪ್ರಶ್ನೆಗಳು ಕೇಳಬಹುದು:")
 
   return (
     <div className="voice-assistant-container">
@@ -2012,6 +2288,25 @@ const VoiceAssistant = () => {
             {replySource && replySource !== "local_ui" && <p><b>{localizedText.source}</b> {replySource}</p>}
             {errorMessage && <p style={{ color: "red" }}>{errorMessage}</p>}
             {showTapHint && <p className="voice-hint">{localizedText.hint}</p>}
+            {showTapHint && suggestionChips.length > 0 && (
+              <div className="voice-suggestions">
+                <p className="voice-suggestions-label">{suggestionHeading}</p>
+                <div className="voice-suggestion-chip-list">
+                  {suggestionChips.map((chip) => (
+                    <button
+                      key={chip}
+                      type="button"
+                      className="voice-suggestion-chip"
+                      onClick={() => {
+                        void handleSuggestionChipClick(chip)
+                      }}
+                    >
+                      {chip}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
