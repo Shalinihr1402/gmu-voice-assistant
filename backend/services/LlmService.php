@@ -86,6 +86,51 @@ class LlmService {
         return "Conversation memory summary:\n" . $summary;
     }
 
+    private static function buildPreferenceContextBlock($contextPayload) {
+        $preferences = $contextPayload["preferences"] ?? [];
+        if (!is_array($preferences) || empty($preferences)) {
+            return "";
+        }
+
+        $lines = [];
+        $preferredLanguage = trim((string) ($preferences["preferred_language"] ?? ""));
+        $lastTopic = trim((string) ($preferences["last_topic"] ?? ""));
+        $lastIntent = trim((string) ($preferences["last_intent"] ?? ""));
+        $lastSubject = trim((string) ($preferences["last_subject"] ?? ""));
+        $lastSemester = $preferences["last_semester"] ?? null;
+        $lastExamType = trim((string) ($preferences["last_exam_type"] ?? ""));
+
+        if ($preferredLanguage !== "") {
+            $lines[] = "Preferred reply language: {$preferredLanguage}.";
+        }
+
+        if ($lastTopic !== "") {
+            $lines[] = "Last topic discussed: {$lastTopic}.";
+        }
+
+        if ($lastIntent !== "") {
+            $lines[] = "Last resolved intent: {$lastIntent}.";
+        }
+
+        if ($lastSubject !== "") {
+            $lines[] = "Last subject mentioned: {$lastSubject}.";
+        }
+
+        if ($lastSemester !== null && $lastSemester !== "") {
+            $lines[] = "Last semester referenced: {$lastSemester}.";
+        }
+
+        if ($lastExamType !== "") {
+            $lines[] = "Last exam type referenced: {$lastExamType}.";
+        }
+
+        if (empty($lines)) {
+            return "";
+        }
+
+        return "Remembered user preferences and recent context:\n" . implode(" ", $lines);
+    }
+
     private static function normalizeLanguage($language) {
         $language = strtolower(trim((string) $language));
         if (in_array($language, ["hi", "hindi", "hi-in"], true)) {
@@ -127,6 +172,7 @@ class LlmService {
 
         $knowledgeSummary = self::buildKnowledgeContextBlock($knowledgeItems);
         $memorySummary = self::buildMemoryContextBlock($contextPayload);
+        $preferenceSummary = self::buildPreferenceContextBlock($contextPayload);
 
         $capabilitySummary = "You help with profile, fees, attendance, results, CGPA, backlog status, course details, and registration status.";
 
@@ -152,6 +198,10 @@ class LlmService {
 
         if ($memorySummary !== "") {
             $prompt .= "\n\n" . $memorySummary;
+        }
+
+        if ($preferenceSummary !== "") {
+            $prompt .= "\n\n" . $preferenceSummary;
         }
 
         if ($knowledgeSummary !== "") {
@@ -1160,6 +1210,12 @@ class LlmService {
         self::$lastReplyMeta = [
             "source" => "unknown"
         ];
+        $baseMeta = [
+            "intent" => "LLM_ASSIST",
+            "route" => "llm",
+            "language" => $language,
+            "effective_message" => trim((string) $message)
+        ];
 
         if (!isset($_SESSION)) {
             self::clearConversationHistory();
@@ -1189,7 +1245,7 @@ class LlmService {
                 self::$lastReplyMeta = [
                     "source" => $provider
                 ];
-                ConversationContextService::saveTurn($message, $reply);
+                ConversationContextService::saveTurn($message, $reply, $baseMeta);
                 return $reply;
             }
         }
@@ -1199,7 +1255,7 @@ class LlmService {
             self::$lastReplyMeta = [
                 "source" => "python_fallback"
             ];
-            ConversationContextService::saveTurn($message, $pythonReply);
+            ConversationContextService::saveTurn($message, $pythonReply, $baseMeta);
             return $pythonReply;
         }
 
@@ -1207,7 +1263,7 @@ class LlmService {
             "source" => "local_fallback"
         ];
         $fallbackReply = self::localFallback($message, $userContext, $language);
-        ConversationContextService::saveTurn($message, $fallbackReply);
+        ConversationContextService::saveTurn($message, $fallbackReply, $baseMeta);
         return $fallbackReply;
     }
 

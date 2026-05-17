@@ -192,6 +192,8 @@ const SPEECH_RECOVERY_EXACT_REPLACEMENTS = [
   { pattern: /\bhall\s+ticket\b/g, replacement: "hallticket" },
   { pattern: /\btime\s+table\b/g, replacement: "timetable" }
 ]
+const containsIndicScript = (text) => /[\u0900-\u097F\u0C80-\u0CFF]/u.test(String(text || ""))
+
 const SPOKEN_TERM_REPLACEMENTS = [
   { pattern: /\bGMU\b/g, replacement: "G M U" },
   { pattern: /\bUSN\b/g, replacement: "U S N" },
@@ -604,15 +606,18 @@ const VoiceAssistant = () => {
   )
 
   const submitStreamingTranscript = async (text) => {
-    const cleanedText = (text || "").trim().toLowerCase()
+    const cleanedText = (text || "").trim()
+    const commandText = containsIndicScript(cleanedText)
+      ? cleanedText
+      : cleanedText.toLowerCase()
 
-    if (!cleanedText || transcriptSubmittedRef.current || !isActiveRef.current) {
+    if (!commandText || transcriptSubmittedRef.current || !isActiveRef.current) {
       return
     }
 
     transcriptSubmittedRef.current = true
-    setTranscript(cleanedText)
-    await handleVoiceCommand(cleanedText)
+    setTranscript(commandText)
+    await handleVoiceCommand(commandText)
   }
 
   const appendFinalTranscript = (nextText) => {
@@ -709,14 +714,20 @@ const VoiceAssistant = () => {
     }
   }
 
-  const normalizeText = (text) => (
-    (text || "")
-      .toLowerCase()
-      .replace(/[^\w\s]/g, " ")
+  const normalizeText = (text) => {
+    const value = String(text || "").trim()
+    if (!value) {
+      return ""
+    }
+
+    const lowercased = containsIndicScript(value) ? value : value.toLowerCase()
+
+    return lowercased
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
       .replace(/\s+/g, " ")
-      .replace(/^(then|and|so|okay|ok|now|please)\s+/, "")
+      .replace(/^(then|and|so|okay|ok|now|please)\s+/u, "")
       .trim()
-  )
+  }
 
   const looksLikeActionableCommand = (text) => (
     /\b(open|go|navigate|show|check|tell|view|display|pay|download|track|apply|search|see|bring|take|latest|fee|fees|balance|result|payment|receipt|grievance|profile|dashboard|registration|certificate|attendance|backlog|semester|usn|course|subject|hall ticket|cgpa|sgpa)\b/.test(text)
@@ -812,7 +823,6 @@ const spellTokenForSpeech = (token) => (
   const isSelfTranscript = (text) => {
     const transcriptText = normalizeText(text)
     const spokenText = normalizeText(lastSpokenTextRef.current)
-    const transcriptWords = transcriptText.split(" ").filter(Boolean)
 
     if (!transcriptText || !spokenText) {
       return false
@@ -821,6 +831,12 @@ const spellTokenForSpeech = (token) => (
     if (transcriptText === spokenText) {
       return true
     }
+
+    if (containsIndicScript(text) || containsIndicScript(lastSpokenTextRef.current)) {
+      return false
+    }
+
+    const transcriptWords = transcriptText.split(" ").filter(Boolean)
 
     // Keep very short slot answers like "c" or "4th" available to the guided voice flow.
     if (transcriptText.length <= 2 || transcriptWords.length <= 1) {
@@ -895,7 +911,11 @@ const spellTokenForSpeech = (token) => (
           }
 
           recognitionTranscriptRef.current = combinedTranscript
-          setTranscript(combinedTranscript.toLowerCase())
+          setTranscript(
+            containsIndicScript(combinedTranscript)
+              ? combinedTranscript
+              : combinedTranscript.toLowerCase()
+          )
 
           const lastResult = event.results[event.results.length - 1]
           if (lastResult?.isFinal) {
@@ -936,7 +956,9 @@ const spellTokenForSpeech = (token) => (
 
           if (isSelfTranscript(finalText)) {
             setIsProcessing(false)
-            setTranscript(finalText.toLowerCase())
+            setTranscript(
+              containsIndicScript(finalText) ? finalText : finalText.toLowerCase()
+            )
             setResponse(localizedText.nextQuestion)
             setReplySource("")
             lastCommandRef.current = ""
@@ -1086,7 +1108,9 @@ const spellTokenForSpeech = (token) => (
 
           if (isSelfTranscript(finalText)) {
             setIsProcessing(false)
-            setTranscript(finalText.toLowerCase())
+            setTranscript(
+              containsIndicScript(finalText) ? finalText : finalText.toLowerCase()
+            )
             setResponse(localizedText.nextQuestion)
             setReplySource("")
             lastCommandRef.current = ""
@@ -1584,6 +1608,10 @@ const spellTokenForSpeech = (token) => (
   }
 
   const getSpeechRecoverySuggestion = (text) => {
+    if (isHindiMode || isKannadaMode || containsIndicScript(text)) {
+      return null
+    }
+
     const raw = String(text || "").trim().toLowerCase()
     if (!raw) {
       return null
@@ -1632,11 +1660,21 @@ const spellTokenForSpeech = (token) => (
   }
 
   const normalizeVoiceIntent = (text) => {
-    let normalized = String(text || "").trim().toLowerCase()
+    const trimmed = String(text || "").trim()
+    let normalized = containsIndicScript(trimmed) ? trimmed : trimmed.toLowerCase()
 
     const replacements = [
       [/\b(shikayat|sikayat|shikayath|complaint|issue|problem|samasya)\b/g, " grievance "],
       [/शिकायत|शिकायात|ग्रिवेंस|ग्रीवेंस|गृवेंस|ग्रीयेवेंस/gu, " grievance "],
+      [/फीस|फी|शुल्क|बकाया/u, " fee "],
+      [/अटेंडेंस|हाजिरी|उपस्थिति/u, " attendance "],
+      [/रिजल्ट|परिणाम|नतीजा|मार्क्स|अंक/u, " result "],
+      [/रजिस्ट्रेशन|पंजीकरण/u, " registration "],
+      [/प्रोफाइल|प्रोफ़ाइल/u, " profile "],
+      [/सर्टिफिकेट|प्रमाणपत्र/u, " certificate "],
+      [/सेमेस्टर/u, " semester "],
+      [/पेमेंट|भुगतान/u, " payment "],
+      [/हॉल\s*टिकट|प्रवेश\s*पत्र/u, " hall ticket "],
       [/\b(ahavalu|ahavaalu|grevans|grievans)\b/g, " grievance "],
       [/ಅಹವಾಲು|ಅಹವಾಳು|ಗ್ರೀವೆನ್ಸ್|ಗ್ರೀವನ್ಸ್|ಗ್ರಿವನ್ಸ್|ಗ್ರೀವನ್ಸ್/gu, " grievance "],
       [/\b(baki fees|baaki fees|due fees|pending fees)\b/g, " fee balance "],
@@ -2353,13 +2391,16 @@ const spellTokenForSpeech = (token) => (
     if (!command) return
     const { skipSpeechRecovery = false } = options
 
-    let cleaned = command.trim().toLowerCase()
+    const trimmedCommand = command.trim()
+    let cleaned = containsIndicScript(trimmedCommand)
+      ? trimmedCommand
+      : trimmedCommand.toLowerCase()
 
     if (cleaned === lastCommandRef.current) return
     lastCommandRef.current = cleaned
 
     cleaned = cleaned
-      .replace(/\b(hi|hii|hello|hey)\b/g, "")
+      .replace(/\b(hi|hii|hello|hey)\b/gu, "")
       .replace(/\b(namaskara|namaskaraa|dayavittu|assistantu|voice bot)\b/g, "")
       .replace(/\bassistant\b/g, "")
       .replace(/\b(can you|could you|please)\b/g, "")

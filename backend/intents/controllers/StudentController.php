@@ -75,6 +75,10 @@ class StudentController {
         $text = strtolower((string) $text);
 
         $replacements = [
+            '/\bcore\s+score\b/u' => ' course code ',
+            '/\bcorse\s+code\b/u' => ' course code ',
+            '/\bcore\s+code\b/u' => ' course code ',
+            '/\bcourse\s+score\b/u' => ' course code ',
             '/\x{0C95}\x{0CCB}\x{0CA1}\x{0CCD}|\x{0C95}\x{0CCB}\x{0CA1}\x{0CBF}/u' => ' code ',
             '/\x{0CB5}\x{0CBF}\x{0CB7}\x{0CAF}|\x{0CB8}\x{0CAC}\x{0CCD}\x{0C9C}\x{0CC6}\x{0C95}\x{0CCD}\x{0C9F}\x{0CCD}/u' => ' subject ',
             '/\x{0C95}\x{0CCB}\x{0CB0}\x{0CCD}\x{0CB8}\x{0CCD}/u' => ' course ',
@@ -161,6 +165,13 @@ class StudentController {
         $normalizedMessage = self::normalizeLookupText(self::canonicalizeCourseQueryTerms($message));
 
         if ($normalizedMessage === "") {
+            return false;
+        }
+
+        if (
+            strpos($normalizedMessage, "attendance") !== false &&
+            strpos($normalizedMessage, "code") === false
+        ) {
             return false;
         }
 
@@ -313,6 +324,10 @@ class StudentController {
             return 0;
         }
 
+        if (mb_strlen($normalizedQuery, "UTF-8") <= 1) {
+            return 0;
+        }
+
         if (isset($directAliases[$normalizedQuery]) && $normalizedTitle === $directAliases[$normalizedQuery]) {
             return 100;
         }
@@ -321,7 +336,10 @@ class StudentController {
             return 100;
         }
 
-        if (strpos($normalizedTitle, $normalizedQuery) !== false || strpos($normalizedQuery, $normalizedTitle) !== false) {
+        if (
+            mb_strlen($normalizedQuery, "UTF-8") >= 2 &&
+            (strpos($normalizedTitle, $normalizedQuery) !== false || strpos($normalizedQuery, $normalizedTitle) !== false)
+        ) {
             return 95;
         }
 
@@ -331,11 +349,24 @@ class StudentController {
         $matchedWords = 0;
         foreach ($queryWords as $queryWord) {
             foreach ($titleWords as $titleWord) {
+                $queryWordLength = mb_strlen($queryWord, "UTF-8");
+                $titleWordLength = mb_strlen($titleWord, "UTF-8");
+
                 if (
                     $queryWord === $titleWord ||
-                    strpos($titleWord, $queryWord) !== false ||
-                    strpos($queryWord, $titleWord) !== false ||
-                    levenshtein($queryWord, $titleWord) <= 2
+                    (
+                        $queryWordLength >= 2 &&
+                        $titleWordLength >= 2 &&
+                        (
+                            strpos($titleWord, $queryWord) !== false ||
+                            strpos($queryWord, $titleWord) !== false
+                        )
+                    ) ||
+                    (
+                        $queryWordLength >= 3 &&
+                        $titleWordLength >= 3 &&
+                        levenshtein($queryWord, $titleWord) <= 2
+                    )
                 ) {
                     $matchedWords += 1;
                     break;
@@ -367,11 +398,119 @@ class StudentController {
         }
 
         $titleDistance = levenshtein($normalizedQuery, $normalizedTitle);
-        if ($titleDistance <= 3) {
+        if (mb_strlen($normalizedQuery, "UTF-8") >= 3 && $titleDistance <= 3) {
             return 68;
         }
 
         return 0;
+    }
+
+    private static function getCoursePromptLabel($courseTitle) {
+        $normalizedTitle = self::normalizeLookupText($courseTitle);
+
+        $labels = [
+            "database management systems" => "DBMS",
+            "dbms laboratory" => "DBMS lab",
+            "operating systems" => "OS",
+            "computer networks" => "CN",
+            "artificial intelligence" => "AI"
+        ];
+
+        return $labels[$normalizedTitle] ?? trim((string) $courseTitle);
+    }
+
+    private static function buildClarificationPayload($intent, $courseTitle, $language = "en") {
+        $label = self::getCoursePromptLabel($courseTitle);
+
+        if ($intent === "GET_COURSE_CODE") {
+            $correctedText = "course code for " . strtolower($label);
+            $displayText = "course code for " . $label;
+        } else {
+            $correctedText = strtolower($label) . " attendance";
+            $displayText = $label . " attendance";
+        }
+
+        if (self::isHindi($language)) {
+            $reply = "क्या आपका मतलब {$displayText} था? कृपया हाँ या नहीं कहिए।";
+        } elseif (self::isKannada($language)) {
+            $reply = "{$displayText} andre nimma artha? Dayavittu haudu athava illa heli.";
+        } else {
+            $reply = "Did you mean {$displayText}? Please say yes or no.";
+        }
+
+        return [
+            "reply" => $reply,
+            "corrected_text" => $correctedText,
+            "display_text" => $displayText
+        ];
+    }
+
+    private static function findShortQueryClarificationCandidate($intent, $message, $rows, $language = "en") {
+        $normalizedQuery = self::applyCourseAliases(self::stripCourseQueryNoise($message));
+
+        if ($normalizedQuery === "" || mb_strlen($normalizedQuery, "UTF-8") > 2) {
+            return null;
+        }
+
+        $matches = [];
+
+        foreach ($rows as $row) {
+            $label = self::normalizeLookupText(self::getCoursePromptLabel($row["course_title"] ?? ""));
+            $code = self::normalizeLookupText($row["course_code"] ?? "");
+            $shortName = self::normalizeLookupText(self::buildCourseShortName($row["course_title"] ?? ""));
+
+            if (
+                strpos($label, $normalizedQuery) === 0 ||
+                ($code !== "" && strpos($code, $normalizedQuery) === 0) ||
+                ($shortName !== "" && strpos($shortName, $normalizedQuery) === 0)
+            ) {
+                $matches[self::normalizeLookupText($row["course_title"] ?? "")] = $row;
+            }
+        }
+
+        if (count($matches) !== 1) {
+            return null;
+        }
+
+        $candidate = array_values($matches)[0];
+        return self::buildClarificationPayload($intent, $candidate["course_title"] ?? "", $language);
+    }
+
+    private static function maybeBuildClarificationFromScores($intent, $message, $bestMatch, $bestScore, $secondBestScore, $language = "en") {
+        if (!$bestMatch) {
+            return null;
+        }
+
+        $normalizedQuery = self::applyCourseAliases(self::stripCourseQueryNoise($message));
+
+        if ($normalizedQuery === "") {
+            return null;
+        }
+
+        if (mb_strlen($normalizedQuery, "UTF-8") <= 1) {
+            return self::buildClarificationPayload($intent, $bestMatch["course_title"] ?? "", $language);
+        }
+
+        if ($bestScore < 45 || $bestScore >= 90) {
+            return null;
+        }
+
+        if ($secondBestScore > 0 && ($bestScore - $secondBestScore) < 8) {
+            return null;
+        }
+
+        $normalizedMessage = self::normalizeLookupText($message);
+        $normalizedTitle = self::normalizeLookupText($bestMatch["course_title"] ?? "");
+        $promptLabel = self::normalizeLookupText(self::getCoursePromptLabel($bestMatch["course_title"] ?? ""));
+
+        if (
+            $normalizedTitle !== "" &&
+            (strpos($normalizedMessage, $normalizedTitle) !== false || ($promptLabel !== "" && strpos($normalizedMessage, $promptLabel) !== false))
+        ) {
+            return null;
+        }
+
+        return self::buildClarificationPayload($intent, $bestMatch["course_title"] ?? "", $language);
     }
 
     private static function extractKnownAttendanceSubject($message) {
@@ -819,7 +958,9 @@ class StudentController {
 
     public static function getSGPA($student_id, $message = "", $language = "en") {
         $requestedSemester = self::extractRequestedSemester($message);
-        $semester = $requestedSemester ?: self::getLatestSemester($student_id);
+        $student = self::getStudentAcademicContext($student_id);
+        $currentSemester = (int) ($student["semester"] ?? 0);
+        $semester = $requestedSemester ?: ($currentSemester ?: self::getLatestSemester($student_id));
 
         if (!$semester) {
             return self::isKannada($language) ? "ಫಲಿತಾಂಶದ ಮಾಹಿತಿ ಸಿಗಲಿಲ್ಲ." : "No result information found.";
@@ -1180,6 +1321,49 @@ class StudentController {
     }
 
 
+    public static function getCourseCodeClarification($message, $language = "en") {
+        global $conn;
+
+        $stmt = $conn->prepare("
+            SELECT course_code, course_title
+            FROM courses
+        ");
+
+        if (!$stmt) {
+            return null;
+        }
+
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        $bestMatch = null;
+        $bestScore = 0;
+        $secondBestScore = 0;
+        $rows = [];
+
+        while ($row = $result->fetch_assoc()) {
+            $rows[] = $row;
+            $score = self::scoreCourseMatch($message, $row['course_title'], $row['course_code']);
+
+            if ($score > $bestScore) {
+                $secondBestScore = $bestScore;
+                $bestScore = $score;
+                $bestMatch = $row;
+            } elseif ($score > $secondBestScore) {
+                $secondBestScore = $score;
+            }
+        }
+
+        $stmt->close();
+
+        $shortQueryCandidate = self::findShortQueryClarificationCandidate("GET_COURSE_CODE", $message, $rows, $language);
+        if (is_array($shortQueryCandidate)) {
+            return $shortQueryCandidate;
+        }
+
+        return self::maybeBuildClarificationFromScores("GET_COURSE_CODE", $message, $bestMatch, $bestScore, $secondBestScore, $language);
+    }
+
     /* ================= GET COURSE CODE ================= */
 
    public static function getCourseCode($message, $language = "en") {
@@ -1373,6 +1557,61 @@ class StudentController {
         return self::isKannada($language)
             ? "I could not find attendance for that subject in semester {$semester}. Available subjects include {$preview}."
             : "I could not find attendance for that subject in semester {$semester}. Available subjects include {$preview}.";
+    }
+
+    public static function getSubjectAttendanceClarification($student_id, $message, $language = "en") {
+        global $conn;
+
+        $student = self::getStudentAcademicContext($student_id);
+        if (!$student) {
+            return null;
+        }
+
+        $requestedSemester = self::extractRequestedSemester($message);
+        $semester = (int) ($requestedSemester ?: ($student["semester"] ?? 0));
+
+        $stmt = $conn->prepare("
+            SELECT c.course_title, c.course_code
+            FROM attendance a
+            JOIN courses c ON a.course_id = c.course_id
+            WHERE a.student_id = ?
+              AND c.semester = ?
+        ");
+
+        if (!$stmt) {
+            return null;
+        }
+
+        $stmt->bind_param("ii", $student_id, $semester);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        $bestMatch = null;
+        $bestScore = 0;
+        $secondBestScore = 0;
+        $rows = [];
+
+        while ($row = $result->fetch_assoc()) {
+            $rows[] = $row;
+            $score = self::scoreCourseMatch($message, $row["course_title"], $row["course_code"] ?? "");
+
+            if ($score > $bestScore) {
+                $secondBestScore = $bestScore;
+                $bestScore = $score;
+                $bestMatch = $row;
+            } elseif ($score > $secondBestScore) {
+                $secondBestScore = $score;
+            }
+        }
+
+        $stmt->close();
+
+        $shortQueryCandidate = self::findShortQueryClarificationCandidate("GET_SUBJECT_ATTENDANCE", $message, $rows, $language);
+        if (is_array($shortQueryCandidate)) {
+            return $shortQueryCandidate;
+        }
+
+        return self::maybeBuildClarificationFromScores("GET_SUBJECT_ATTENDANCE", $message, $bestMatch, $bestScore, $secondBestScore, $language);
     }
 
     /* ================= OVERALL ATTENDANCE ================= */

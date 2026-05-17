@@ -50,7 +50,10 @@ class IntentService {
             "result",
             "semester result",
             "my result",
-            "my sgpa"
+            "my sgpa",
+            "score",
+            "marks",
+            "grade"
         ],
         "GET_CGPA" => [
             "cgpa",
@@ -164,6 +167,7 @@ class IntentService {
 
     private static function normalizeIntentText($message) {
         $message = strtolower(trim((string) $message));
+        $message = preg_replace('/\b(scores|score|marks|mark|grades|grading)\b/ui', " result ", $message);
         $message = self::canonicalizeHindiIntentTerms($message);
         $message = self::canonicalizeKannadaIntentTerms($message);
         $message = preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $message);
@@ -204,7 +208,7 @@ class IntentService {
             return true;
         }
 
-        if (preg_match('/à²µà²¿à²·à²¯|à²¸à²¬à³à²œà³†à²•à³à²Ÿà³|à²•à³‹à²°à³à²¸à³|à²’à²‚à²¦à³\s+à²µà²¿à²·à²¯|à²ªà²°à³à²Ÿà²¿à²•à³à²¯à³à²²à²°à³/u', $rawMessage)) {
+        if (preg_match('/Ã Â²ÂµÃ Â²Â¿Ã Â²Â·Ã Â²Â¯|Ã Â²Â¸Ã Â²Â¬Ã Â³ÂÃ Â²Å“Ã Â³â€ Ã Â²â€¢Ã Â³ÂÃ Â²Å¸Ã Â³Â|Ã Â²â€¢Ã Â³â€¹Ã Â²Â°Ã Â³ÂÃ Â²Â¸Ã Â³Â|Ã Â²â€™Ã Â²â€šÃ Â²Â¦Ã Â³Â\s+Ã Â²ÂµÃ Â²Â¿Ã Â²Â·Ã Â²Â¯|Ã Â²ÂªÃ Â²Â°Ã Â³ÂÃ Â²Å¸Ã Â²Â¿Ã Â²â€¢Ã Â³ÂÃ Â²Â¯Ã Â³ÂÃ Â²Â²Ã Â²Â°Ã Â³Â/u', $rawMessage)) {
             return true;
         }
 
@@ -232,8 +236,8 @@ class IntentService {
                 "competence certificate",
                 "certification"
             ]) ||
-            preg_match('/सर्टिफिकेट|सर्टीफिकेट|प्रमाणपत्र/u', $rawMessage) ||
-            preg_match('/ಸರ್ಟಿಫಿಕೇಟ್|ಪ್ರಮಾಣಪತ್ರ/u', $rawMessage);
+            preg_match('/à¤¸à¤°à¥à¤Ÿà¤¿à¤«à¤¿à¤•à¥‡à¤Ÿ|à¤¸à¤°à¥à¤Ÿà¥€à¤«à¤¿à¤•à¥‡à¤Ÿ|à¤ªà¥à¤°à¤®à¤¾à¤£à¤ªà¤¤à¥à¤°/u', $rawMessage) ||
+            preg_match('/à²¸à²°à³à²Ÿà²¿à²«à²¿à²•à³‡à²Ÿà³|à²ªà³à²°à²®à²¾à²£à²ªà²¤à³à²°/u', $rawMessage);
 
         if ($hasCertificateWord) {
             return true;
@@ -275,30 +279,30 @@ class IntentService {
 
     private static function canonicalizeHindiIntentTerms($message) {
         $replacements = [
-            '/फाइनल|अंतिम/u' => ' final ',
-            '/रजिस्ट्रेशन|रजिस्ट्रेसन|रेजिस्ट्रेशन|पंजीकरण|पंजीयन/u' => ' registration ',
-            '/हॉल\s*टिकट|हाल\s*टिकट|एडमिट\s*कार्ड|प्रवेश\s*पत्र/u' => ' hall ticket ',
-            '/स्टेटस|स्थिति|हालत/u' => ' status ',
-            '/प्रोफाइल|प्रोफ़ाइल|प्रोफ़ाइल|मेरे\s+बारे|मेरा\s+प्रोफाइल|मेरी\s+प्रोफाइल/u' => ' profile ',
-            '/फीस|फी|शुल्क|बकाया/u' => ' fee balance due ',
-            '/अटेंडेंस|अटेंडेंस|उपस्थिति|हाजिरी/u' => ' attendance ',
-            '/रिजल्ट|रिज़ल्ट|रेजल्ट|रिजल|रेजल|रजल|परिणाम|नतीजा/u' => ' result ',
-            '/एसजीपीए|एस\s*जी\s*पी\s*ए/u' => ' sgpa ',
-            '/सीजीपीए|सी\s*जी\s*पी\s*ए/u' => ' cgpa ',
-            '/बैकलॉग|बेकलॉग|सप्लीमेंटरी/u' => ' backlog ',
-            '/फेल|असफल/u' => ' fail ',
-            '/पास|उत्तीर्ण/u' => ' pass ',
-            '/कोर्स|कोर्सेस|सब्जेक्ट|सब्जेक्ट्स|विषय/u' => ' course subject ',
-            '/कोड/u' => ' code ',
-            '/यूएसएन|यू\s*एस\s*एन/u' => ' usn ',
-            '/मैं\s+कौन/u' => ' who am i ',
-            '/सेमेस्टर/u' => ' semester ',
-            '/ब्रांच|विभाग|डिपार्टमेंट/u' => ' branch department ',
-            '/कितनी|कितना/u' => ' how much ',
-            '/पूरा|पूर्ण|कम्प्लीट|कंप्लीट/u' => ' complete ',
-            '/पेंडिंग|लंबित/u' => ' pending ',
-            '/क्या/u' => ' ',
-            '/मेरा|मेरी|मेरे|अपना|अपनी|आपका|आपकी/u' => ' my '
+            '/à¤«à¤¾à¤‡à¤¨à¤²|à¤…à¤‚à¤¤à¤¿à¤®/u' => ' final ',
+            '/à¤°à¤œà¤¿à¤¸à¥à¤Ÿà¥à¤°à¥‡à¤¶à¤¨|à¤°à¤œà¤¿à¤¸à¥à¤Ÿà¥à¤°à¥‡à¤¸à¤¨|à¤°à¥‡à¤œà¤¿à¤¸à¥à¤Ÿà¥à¤°à¥‡à¤¶à¤¨|à¤ªà¤‚à¤œà¥€à¤•à¤°à¤£|à¤ªà¤‚à¤œà¥€à¤¯à¤¨/u' => ' registration ',
+            '/à¤¹à¥‰à¤²\s*à¤Ÿà¤¿à¤•à¤Ÿ|à¤¹à¤¾à¤²\s*à¤Ÿà¤¿à¤•à¤Ÿ|à¤à¤¡à¤®à¤¿à¤Ÿ\s*à¤•à¤¾à¤°à¥à¤¡|à¤ªà¥à¤°à¤µà¥‡à¤¶\s*à¤ªà¤¤à¥à¤°/u' => ' hall ticket ',
+            '/à¤¸à¥à¤Ÿà¥‡à¤Ÿà¤¸|à¤¸à¥à¤¥à¤¿à¤¤à¤¿|à¤¹à¤¾à¤²à¤¤/u' => ' status ',
+            '/à¤ªà¥à¤°à¥‹à¤«à¤¾à¤‡à¤²|à¤ªà¥à¤°à¥‹à¤«à¤¼à¤¾à¤‡à¤²|à¤ªà¥à¤°à¥‹à¥žà¤¾à¤‡à¤²|à¤®à¥‡à¤°à¥‡\s+à¤¬à¤¾à¤°à¥‡|à¤®à¥‡à¤°à¤¾\s+à¤ªà¥à¤°à¥‹à¤«à¤¾à¤‡à¤²|à¤®à¥‡à¤°à¥€\s+à¤ªà¥à¤°à¥‹à¤«à¤¾à¤‡à¤²/u' => ' profile ',
+            '/à¤«à¥€à¤¸|à¤«à¥€|à¤¶à¥à¤²à¥à¤•|à¤¬à¤•à¤¾à¤¯à¤¾/u' => ' fee balance due ',
+            '/à¤…à¤Ÿà¥‡à¤‚à¤¡à¥‡à¤‚à¤¸|à¤…à¤Ÿà¥‡à¤‚à¤¡à¥‡à¤‚à¤¸|à¤‰à¤ªà¤¸à¥à¤¥à¤¿à¤¤à¤¿|à¤¹à¤¾à¤œà¤¿à¤°à¥€/u' => ' attendance ',
+            '/à¤°à¤¿à¤œà¤²à¥à¤Ÿ|à¤°à¤¿à¥›à¤²à¥à¤Ÿ|à¤°à¥‡à¤œà¤²à¥à¤Ÿ|à¤°à¤¿à¤œà¤²|à¤°à¥‡à¤œà¤²|à¤°à¤œà¤²|à¤ªà¤°à¤¿à¤£à¤¾à¤®|à¤¨à¤¤à¥€à¤œà¤¾/u' => ' result ',
+            '/à¤à¤¸à¤œà¥€à¤ªà¥€à¤|à¤à¤¸\s*à¤œà¥€\s*à¤ªà¥€\s*à¤/u' => ' sgpa ',
+            '/à¤¸à¥€à¤œà¥€à¤ªà¥€à¤|à¤¸à¥€\s*à¤œà¥€\s*à¤ªà¥€\s*à¤/u' => ' cgpa ',
+            '/à¤¬à¥ˆà¤•à¤²à¥‰à¤—|à¤¬à¥‡à¤•à¤²à¥‰à¤—|à¤¸à¤ªà¥à¤²à¥€à¤®à¥‡à¤‚à¤Ÿà¤°à¥€/u' => ' backlog ',
+            '/à¤«à¥‡à¤²|à¤…à¤¸à¤«à¤²/u' => ' fail ',
+            '/à¤ªà¤¾à¤¸|à¤‰à¤¤à¥à¤¤à¥€à¤°à¥à¤£/u' => ' pass ',
+            '/à¤•à¥‹à¤°à¥à¤¸|à¤•à¥‹à¤°à¥à¤¸à¥‡à¤¸|à¤¸à¤¬à¥à¤œà¥‡à¤•à¥à¤Ÿ|à¤¸à¤¬à¥à¤œà¥‡à¤•à¥à¤Ÿà¥à¤¸|à¤µà¤¿à¤·à¤¯/u' => ' course subject ',
+            '/à¤•à¥‹à¤¡/u' => ' code ',
+            '/à¤¯à¥‚à¤à¤¸à¤à¤¨|à¤¯à¥‚\s*à¤à¤¸\s*à¤à¤¨/u' => ' usn ',
+            '/à¤®à¥ˆà¤‚\s+à¤•à¥Œà¤¨/u' => ' who am i ',
+            '/à¤¸à¥‡à¤®à¥‡à¤¸à¥à¤Ÿà¤°/u' => ' semester ',
+            '/à¤¬à¥à¤°à¤¾à¤‚à¤š|à¤µà¤¿à¤­à¤¾à¤—|à¤¡à¤¿à¤ªà¤¾à¤°à¥à¤Ÿà¤®à¥‡à¤‚à¤Ÿ/u' => ' branch department ',
+            '/à¤•à¤¿à¤¤à¤¨à¥€|à¤•à¤¿à¤¤à¤¨à¤¾/u' => ' how much ',
+            '/à¤ªà¥‚à¤°à¤¾|à¤ªà¥‚à¤°à¥à¤£|à¤•à¤®à¥à¤ªà¥à¤²à¥€à¤Ÿ|à¤•à¤‚à¤ªà¥à¤²à¥€à¤Ÿ/u' => ' complete ',
+            '/à¤ªà¥‡à¤‚à¤¡à¤¿à¤‚à¤—|à¤²à¤‚à¤¬à¤¿à¤¤/u' => ' pending ',
+            '/à¤•à¥à¤¯à¤¾/u' => ' ',
+            '/à¤®à¥‡à¤°à¤¾|à¤®à¥‡à¤°à¥€|à¤®à¥‡à¤°à¥‡|à¤…à¤ªà¤¨à¤¾|à¤…à¤ªà¤¨à¥€|à¤†à¤ªà¤•à¤¾|à¤†à¤ªà¤•à¥€/u' => ' my '
         ];
 
         $message = preg_replace(
@@ -308,10 +312,10 @@ class IntentService {
         );
         $message = preg_replace('/\b(usn|u\s*s\s*n|yu\s*es\s*en|uesn|yuesen|yusn|upsn|usm|usf|u\s*s\s*m|u\s*s\s*f)\b/u', ' usn ', (string) $message);
 
-        $message = preg_replace('/सर्टिफिकेट|सर्टीफिकेट|प्रमाणपत्र/u', ' certificate ', (string) $message);
-        $message = preg_replace('/डिजिटल/u', ' digital ', (string) $message);
-        $message = preg_replace('/डाउनलोड/u', ' download ', (string) $message);
-        $message = preg_replace('/उपलब्ध/u', ' available ', (string) $message);
+        $message = preg_replace('/à¤¸à¤°à¥à¤Ÿà¤¿à¤«à¤¿à¤•à¥‡à¤Ÿ|à¤¸à¤°à¥à¤Ÿà¥€à¤«à¤¿à¤•à¥‡à¤Ÿ|à¤ªà¥à¤°à¤®à¤¾à¤£à¤ªà¤¤à¥à¤°/u', ' certificate ', (string) $message);
+        $message = preg_replace('/à¤¡à¤¿à¤œà¤¿à¤Ÿà¤²/u', ' digital ', (string) $message);
+        $message = preg_replace('/à¤¡à¤¾à¤‰à¤¨à¤²à¥‹à¤¡/u', ' download ', (string) $message);
+        $message = preg_replace('/à¤‰à¤ªà¤²à¤¬à¥à¤§/u', ' available ', (string) $message);
 
         return $message;
     }
@@ -319,33 +323,33 @@ class IntentService {
     private static function canonicalizeKannadaIntentTerms($message) {
         $replacements = [
             '/\b(nanna|nan|nanage|nanna\s+bagge|nanna\s+profile|nimma)\b/u' => ' my ',
-            '/\b(dayavittu|swalpa|please)\b|ದಯವಿಟ್ಟು/u' => ' ',
+            '/\b(dayavittu|swalpa|please)\b|à²¦à²¯à²µà²¿à²Ÿà³à²Ÿà³/u' => ' ',
             '/\b(enu|yenu|yen|helu|heli|tilsu|tilisi|torisu|torisi|beku|please tell)\b/u' => ' ',
-            '/\b(profail|profle)\b|ಪ್ರೊಫೈಲ್/u' => ' profile ',
-            '/\b(semesteru|semister|sem)\b|ಸೆಮಿಸ್ಟರ್/u' => ' semester ',
-            '/\b(departmentu|departmente|branchu|vibhaga)\b|ವಿಭಾಗ|ಡಿಪಾರ್ಟ್‌ಮೆಂಟ್|ಬ್ರಾಂಚ್/u' => ' branch department ',
-            '/\b(feesu|feesu|fee|fi|baki|bakki|balanceu|balance|due|fees balance|fee balance)\b|ಶುಲ್ಕ|ಫೀಸ್|ಫೀ|ಬಾಕಿ|ಬ್ಯಾಲೆನ್ಸ್/u' => ' fee balance due ',
-            '/\b(attendence|atendance|attendanceu|attendance|hajari)\b|ಹಾಜರಾತಿ|ಹಾಜರಿ|ಅಟೆಂಡೆನ್ಸ್|ಅಟೆಂಡೆನ್ಸ್/u' => ' attendance ',
-            '/\b(resultu|result|rijalt|resalt|phalithaansha|marks card)\b|ಫಲಿತಾಂಶ|ರಿಸಲ್ಟ್|ರಿಜಲ್ಟ್|ಮಾರ್ಕ್ಸ್/u' => ' result ',
-            '/\b(backlogu|back)\b|ಬ್ಯಾಕ್ಲಾಗ್/u' => ' backlog ',
-            '/\b(faila|fail)\b|ಫೇಲ್/u' => ' fail ',
-            '/\b(passa|pass)\b|ಪಾಸ್/u' => ' pass ',
-            '/\b(courseu|coursu|subjectu|vishaya)\b|ಕೋರ್ಸ್|ಸಬ್ಜೆಕ್ಟ್|ವಿಷಯ/u' => ' course subject ',
-            '/\b(codeu|kode)\b|ಕೋಡ್/u' => ' code ',
-            '/\b(usn|yu es en|u s n|yu esn|uesn|yuesen|yusn|upsn)\b|ಯುಎಸ್‌ಎನ್|ಯು ಎಸ್ ಎನ್|ಯುಎಸ್ಎನ್|ಯುಪಿಎಸನ್|ಯು ಪಿ ಎಸ್ ಎನ್/u' => ' usn ',
-            '/\b(sgpa|esjipie|s j p a)\b|ಎಸ್‌ಜಿಪಿಎ|ಎಸ್ ಜಿಪಿಎ/u' => ' sgpa ',
-            '/\b(cgpa|sijipie|c j p a)\b|ಸಿಜಿಪಿಎ|ಸಿ ಜಿಪಿಎ/u' => ' cgpa ',
-            '/\b(final)\b|ಫೈನಲ್|ಅಂತಿಮ/u' => ' final ',
-            '/\b(registrationu|rijistreshan|registrashan|regis tration|rijis tration|rijis treshan|rejistration)\b|ರಿಜಿಸ್ಟ್ರೇಶನ್|ರಿಜಿಸ್ ಟ್ರೇಶನ್|ನೋಂದಣಿ/u' => ' registration ',
-            '/\b(hallticket|hall\s*ticketu|haal ticket|hal ticket|all ticket|al ticket)\b|ಹಾಲ್\s*ಟಿಕೆಟ್|ಆಲ್\s*ಟಿಕೆಟ್|ಅಲ್\s*ಟಿಕೆಟ್/u' => ' hall ticket ',
-            '/\b(statusu)\b|ಸ್ಥಿತಿ/u' => ' status ',
-            '/\b(yestu|eshtu|yeshtu|how much)\b|ಎಷ್ಟು/u' => ' how much ',
-            '/\b(completea|completeda|complyta)\b|ಪೂರ್ಣ|ಕಂಪ್ಲೀಟ್/u' => ' complete ',
-            '/\b(pendinga|pending)\b|ಪೆಂಡಿಂಗ್/u' => ' pending ',
-            '/\b(naanu\s+yaaru|nanu\s+yaaru)\b|ನಾನು\s+ಯಾರು/u' => ' who am i ',
-            '/\b(yava\s+semester|which\s+semester)\b|ಯಾವ\s+ಸೆಮಿಸ್ಟರ್/u' => ' which semester ',
-            '/\b(yava\s+department|yava\s+branch)\b|ಯಾವ\s+ವಿಭಾಗ/u' => ' which department ',
-            '/\b(heli|helu|tilisi|tilsu|torisu|show madi|open madi)\b|ಹೇಳಿ|ಹೇಳು|ತಿಳಿಸಿ|ತೋರಿಸು/u' => ' '
+            '/\b(profail|profle)\b|à²ªà³à²°à³Šà²«à³ˆà²²à³/u' => ' profile ',
+            '/\b(semesteru|semister|sem)\b|à²¸à³†à²®à²¿à²¸à³à²Ÿà²°à³/u' => ' semester ',
+            '/\b(departmentu|departmente|branchu|vibhaga)\b|à²µà²¿à²­à²¾à²—|à²¡à²¿à²ªà²¾à²°à³à²Ÿà³â€Œà²®à³†à²‚à²Ÿà³|à²¬à³à²°à²¾à²‚à²šà³/u' => ' branch department ',
+            '/\b(feesu|feesu|fee|fi|baki|bakki|balanceu|balance|due|fees balance|fee balance)\b|à²¶à³à²²à³à²•|à²«à³€à²¸à³|à²«à³€|à²¬à²¾à²•à²¿|à²¬à³à²¯à²¾à²²à³†à²¨à³à²¸à³/u' => ' fee balance due ',
+            '/\b(attendence|atendance|attendanceu|attendance|hajari)\b|à²¹à²¾à²œà²°à²¾à²¤à²¿|à²¹à²¾à²œà²°à²¿|à²…à²Ÿà³†à²‚à²¡à³†à²¨à³à²¸à³|à²…à²Ÿà³†à²‚à²¡à³†à²¨à³à²¸à³/u' => ' attendance ',
+            '/\b(resultu|result|rijalt|resalt|phalithaansha|marks card)\b|à²«à²²à²¿à²¤à²¾à²‚à²¶|à²°à²¿à²¸à²²à³à²Ÿà³|à²°à²¿à²œà²²à³à²Ÿà³|à²®à²¾à²°à³à²•à³à²¸à³/u' => ' result ',
+            '/\b(backlogu|back)\b|à²¬à³à²¯à²¾à²•à³à²²à²¾à²—à³/u' => ' backlog ',
+            '/\b(faila|fail)\b|à²«à³‡à²²à³/u' => ' fail ',
+            '/\b(passa|pass)\b|à²ªà²¾à²¸à³/u' => ' pass ',
+            '/\b(courseu|coursu|subjectu|vishaya)\b|à²•à³‹à²°à³à²¸à³|à²¸à²¬à³à²œà³†à²•à³à²Ÿà³|à²µà²¿à²·à²¯/u' => ' course subject ',
+            '/\b(codeu|kode)\b|à²•à³‹à²¡à³/u' => ' code ',
+            '/\b(usn|yu es en|u s n|yu esn|uesn|yuesen|yusn|upsn)\b|à²¯à³à²Žà²¸à³â€Œà²Žà²¨à³|à²¯à³ à²Žà²¸à³ à²Žà²¨à³|à²¯à³à²Žà²¸à³à²Žà²¨à³|à²¯à³à²ªà²¿à²Žà²¸à²¨à³|à²¯à³ à²ªà²¿ à²Žà²¸à³ à²Žà²¨à³/u' => ' usn ',
+            '/\b(sgpa|esjipie|s j p a)\b|à²Žà²¸à³â€Œà²œà²¿à²ªà²¿à²Ž|à²Žà²¸à³ à²œà²¿à²ªà²¿à²Ž/u' => ' sgpa ',
+            '/\b(cgpa|sijipie|c j p a)\b|à²¸à²¿à²œà²¿à²ªà²¿à²Ž|à²¸à²¿ à²œà²¿à²ªà²¿à²Ž/u' => ' cgpa ',
+            '/\b(final)\b|à²«à³ˆà²¨à²²à³|à²…à²‚à²¤à²¿à²®/u' => ' final ',
+            '/\b(registrationu|rijistreshan|registrashan|regis tration|rijis tration|rijis treshan|rejistration)\b|à²°à²¿à²œà²¿à²¸à³à²Ÿà³à²°à³‡à²¶à²¨à³|à²°à²¿à²œà²¿à²¸à³ à²Ÿà³à²°à³‡à²¶à²¨à³|à²¨à³‹à²‚à²¦à²£à²¿/u' => ' registration ',
+            '/\b(hallticket|hall\s*ticketu|haal ticket|hal ticket|all ticket|al ticket)\b|à²¹à²¾à²²à³\s*à²Ÿà²¿à²•à³†à²Ÿà³|à²†à²²à³\s*à²Ÿà²¿à²•à³†à²Ÿà³|à²…à²²à³\s*à²Ÿà²¿à²•à³†à²Ÿà³/u' => ' hall ticket ',
+            '/\b(statusu)\b|à²¸à³à²¥à²¿à²¤à²¿/u' => ' status ',
+            '/\b(yestu|eshtu|yeshtu|how much)\b|à²Žà²·à³à²Ÿà³/u' => ' how much ',
+            '/\b(completea|completeda|complyta)\b|à²ªà³‚à²°à³à²£|à²•à²‚à²ªà³à²²à³€à²Ÿà³/u' => ' complete ',
+            '/\b(pendinga|pending)\b|à²ªà³†à²‚à²¡à²¿à²‚à²—à³/u' => ' pending ',
+            '/\b(naanu\s+yaaru|nanu\s+yaaru)\b|à²¨à²¾à²¨à³\s+à²¯à²¾à²°à³/u' => ' who am i ',
+            '/\b(yava\s+semester|which\s+semester)\b|à²¯à²¾à²µ\s+à²¸à³†à²®à²¿à²¸à³à²Ÿà²°à³/u' => ' which semester ',
+            '/\b(yava\s+department|yava\s+branch)\b|à²¯à²¾à²µ\s+à²µà²¿à²­à²¾à²—/u' => ' which department ',
+            '/\b(heli|helu|tilisi|tilsu|torisu|show madi|open madi)\b|à²¹à³‡à²³à²¿|à²¹à³‡à²³à³|à²¤à²¿à²³à²¿à²¸à²¿|à²¤à³‹à²°à²¿à²¸à³/u' => ' '
         ];
 
         $message = preg_replace(
@@ -355,10 +359,10 @@ class IntentService {
         );
         $message = preg_replace('/\b(usn|u\s*s\s*n|yu\s*es\s*en|uesn|yuesen|yusn|upsn|usm|usf|u\s*s\s*m|u\s*s\s*f)\b/u', ' usn ', (string) $message);
 
-        $message = preg_replace('/ಸರ್ಟಿಫಿಕೇಟ್|ಪ್ರಮಾಣಪತ್ರ/u', ' certificate ', (string) $message);
-        $message = preg_replace('/ಡಿಜಿಟಲ್/u', ' digital ', (string) $message);
-        $message = preg_replace('/ಡೌನ್ಲೋಡ್|ಡೌನ್‌ಲೋಡ್/u', ' download ', (string) $message);
-        $message = preg_replace('/ಲಭ್ಯ/u', ' available ', (string) $message);
+        $message = preg_replace('/à²¸à²°à³à²Ÿà²¿à²«à²¿à²•à³‡à²Ÿà³|à²ªà³à²°à²®à²¾à²£à²ªà²¤à³à²°/u', ' certificate ', (string) $message);
+        $message = preg_replace('/à²¡à²¿à²œà²¿à²Ÿà²²à³/u', ' digital ', (string) $message);
+        $message = preg_replace('/à²¡à³Œà²¨à³à²²à³‹à²¡à³|à²¡à³Œà²¨à³â€Œà²²à³‹à²¡à³/u', ' download ', (string) $message);
+        $message = preg_replace('/à²²à²­à³à²¯/u', ' available ', (string) $message);
 
         $message = str_replace(
             [
@@ -560,53 +564,53 @@ class IntentService {
         }
 
         if (
-            preg_match('/ಯು\s*ಎ\s*ಸ\s*ಎನ್/u', $rawMessage) ||
-            preg_match('/ಯು\s*ಪಿ\s*ಎ\s*ಸ\s*ಎನ್/u', $rawMessage) ||
-            preg_match('/ಯು\s*ಪಿ\s*ಎಸ್\s*ಎನ್/u', $rawMessage) ||
-            preg_match('/ಯು\s*ಎಸ್\s*ಎನ್/u', $rawMessage) ||
+            preg_match('/à²¯à³\s*à²Ž\s*à²¸\s*à²Žà²¨à³/u', $rawMessage) ||
+            preg_match('/à²¯à³\s*à²ªà²¿\s*à²Ž\s*à²¸\s*à²Žà²¨à³/u', $rawMessage) ||
+            preg_match('/à²¯à³\s*à²ªà²¿\s*à²Žà²¸à³\s*à²Žà²¨à³/u', $rawMessage) ||
+            preg_match('/à²¯à³\s*à²Žà²¸à³\s*à²Žà²¨à³/u', $rawMessage) ||
             preg_match('/\by\s*u\s*s\s*n\b/u', $rawMessage)
         ) {
             return "GET_USN";
         }
 
         if (
-            preg_match('/ಹಾಲ್\s*ಟಿಕೆಟ್/u', $rawMessage) ||
-            preg_match('/ಆಲ್\s*ಟಿಕೆಟ್/u', $rawMessage) ||
-            preg_match('/ಅಲ್\s*ಟಿಕೆಟ್/u', $rawMessage)
+            preg_match('/à²¹à²¾à²²à³\s*à²Ÿà²¿à²•à³†à²Ÿà³/u', $rawMessage) ||
+            preg_match('/à²†à²²à³\s*à²Ÿà²¿à²•à³†à²Ÿà³/u', $rawMessage) ||
+            preg_match('/à²…à²²à³\s*à²Ÿà²¿à²•à³†à²Ÿà³/u', $rawMessage)
         ) {
             return "GET_HALL_TICKET_STATUS";
         }
 
         if (
-            preg_match('/ಫೈನಲ್\s*ರಿಜಿ/u', $rawMessage) ||
-            preg_match('/ರಿಜಿ\s*ಸ್ಟ್ರೇ/u', $rawMessage) ||
-            preg_match('/ನೋಂದಣಿ/u', $rawMessage)
+            preg_match('/à²«à³ˆà²¨à²²à³\s*à²°à²¿à²œà²¿/u', $rawMessage) ||
+            preg_match('/à²°à²¿à²œà²¿\s*à²¸à³à²Ÿà³à²°à³‡/u', $rawMessage) ||
+            preg_match('/à²¨à³‹à²‚à²¦à²£à²¿/u', $rawMessage)
         ) {
             return "GET_FINAL_REGISTRATION_STATUS";
         }
 
         if (
-            preg_match('/ಫೀಸ್|ಫೀ\s|ಬಾಕಿ|ಬ್ಯಾಲೆನ್ಸ್/u', $rawMessage)
+            preg_match('/à²«à³€à²¸à³|à²«à³€\s|à²¬à²¾à²•à²¿|à²¬à³à²¯à²¾à²²à³†à²¨à³à²¸à³/u', $rawMessage)
         ) {
             return "GET_FEES_BALANCE";
         }
 
         if (
-            preg_match('/ಅಟೆಂಡ|ಹಾಜರ/u', $rawMessage)
+            preg_match('/à²…à²Ÿà³†à²‚à²¡|à²¹à²¾à²œà²°/u', $rawMessage)
         ) {
             return "GET_ATTENDANCE";
         }
 
         if (
-            preg_match('/ರಿಸಲ|ರಿಜಲ|ಫಲಿತಾಂಶ|ಎಸ್\s*ಜಿ\s*ಪಿ\s*ಎ/u', $rawMessage)
+            preg_match('/à²°à²¿à²¸à²²|à²°à²¿à²œà²²|à²«à²²à²¿à²¤à²¾à²‚à²¶|à²Žà²¸à³\s*à²œà²¿\s*à²ªà²¿\s*à²Ž/u', $rawMessage)
         ) {
             return "GET_SGPA";
         }
 
         if (
-            preg_match('/ಬ್ಯಾಕ್\s*(ಲಾಗ್|ಲೋಗ್|ಲಾಕ್)(್ಸ್|ಸ್)?|ಬ್ಯಾಕ್?(ಲಾಗ್|ಲೋಗ್|ಲಾಕ್)(್ಸ್|ಸ್)?|ಫೇಲ್|ಸಪ್ಲಿಮೆಂಟರಿ/u', $rawMessage) ||
+            preg_match('/à²¬à³à²¯à²¾à²•à³\s*(à²²à²¾à²—à³|à²²à³‹à²—à³|à²²à²¾à²•à³)(à³à²¸à³|à²¸à³)?|à²¬à³à²¯à²¾à²•à³?(à²²à²¾à²—à³|à²²à³‹à²—à³|à²²à²¾à²•à³)(à³à²¸à³|à²¸à³)?|à²«à³‡à²²à³|à²¸à²ªà³à²²à²¿à²®à³†à²‚à²Ÿà²°à²¿/u', $rawMessage) ||
             preg_match('/\b(backlog|backlogs|fail|failed|supplementary|supply)\b/', $rawMessage) ||
-            preg_match('/ಬ್ಯಾ.*(ಲಾಗ|ಲೋಗ|ಲಾಕ್)/u', $rawMessage)
+            preg_match('/à²¬à³à²¯à²¾.*(à²²à²¾à²—|à²²à³‹à²—|à²²à²¾à²•à³)/u', $rawMessage)
         ) {
             return "GET_BACKLOG_STATUS";
         }
@@ -669,7 +673,10 @@ class IntentService {
             "semester cgpa",
             "semester result",
             "my result",
-            "result"
+            "result",
+            "score",
+            "marks",
+            "grade"
         ])) {
             return "GET_SGPA";
         }
@@ -685,7 +692,7 @@ class IntentService {
             preg_match('/\bwhich\s+course\s+is\b/', $message) ||
             preg_match('/\b(particular|specific)\s+(course|subject)\b/', $message) ||
             (strpos($message, "code") !== false && preg_match('/\b(dbms|os|cn|ai|course|subject)\b/', $message)) ||
-            preg_match('/ಕೋಡ್/u', $rawMessage) ||
+            preg_match('/à²•à³‹à²¡à³/u', $rawMessage) ||
             preg_match('/course code|subject code/', $message)
         ) {
             return "GET_COURSE_CODE";
@@ -765,3 +772,4 @@ class IntentService {
         return $bestIntent;
     }
 }
+

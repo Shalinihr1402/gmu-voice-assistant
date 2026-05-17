@@ -9,10 +9,10 @@ class SmartQueryResolver {
             "what is my usn",
             "registration number",
             "university number",
-            "यूएसएन क्या है",
-            "मेरा usn",
-            "ನನ್ನ usn",
-            "ನನ್ನ ಯುಎಸ್ಎನ್"
+            "à¤¯à¥‚à¤à¤¸à¤à¤¨ à¤•à¥à¤¯à¤¾ à¤¹à¥ˆ",
+            "à¤®à¥‡à¤°à¤¾ usn",
+            "à²¨à²¨à³à²¨ usn",
+            "à²¨à²¨à³à²¨ à²¯à³à²Žà²¸à³à²Žà²¨à³"
         ],
         "GET_PROFILE_SUMMARY" => [
             "who am i",
@@ -20,23 +20,25 @@ class SmartQueryResolver {
             "what semester am i in",
             "what is my department",
             "student details",
-            "मेरी प्रोफाइल",
-            "मैं कौन हूँ",
-            "मेरा विभाग",
-            "ನನ್ನ profile",
-            "ನಾನು ಯಾರು",
-            "ನನ್ನ department"
+            "à¤®à¥‡à¤°à¥€ à¤ªà¥à¤°à¥‹à¤«à¤¾à¤‡à¤²",
+            "à¤®à¥ˆà¤‚ à¤•à¥Œà¤¨ à¤¹à¥‚à¤",
+            "à¤®à¥‡à¤°à¤¾ à¤µà¤¿à¤­à¤¾à¤—",
+            "à²¨à²¨à³à²¨ profile",
+            "à²¨à²¾à²¨à³ à²¯à²¾à²°à³",
+            "à²¨à²¨à³à²¨ department"
         ],
         "GET_SGPA" => [
             "my sgpa",
+            "dbms score",
+            "subject score",
             "semester result",
             "semester gpa",
             "how did i do this semester",
             "sgpa for 5th semester",
-            "मेरा sgpa",
-            "सेमेस्टर रिजल्ट",
+            "à¤®à¥‡à¤°à¤¾ sgpa",
+            "à¤¸à¥‡à¤®à¥‡à¤¸à¥à¤Ÿà¤° à¤°à¤¿à¤œà¤²à¥à¤Ÿ",
             "5th sem sgpa",
-            "ನನ್ನ sgpa",
+            "à²¨à²¨à³à²¨ sgpa",
             "semester result",
             "5th sem sgpa"
         ],
@@ -45,9 +47,9 @@ class SmartQueryResolver {
             "overall result",
             "overall gpa",
             "cumulative gpa",
-            "मेरा cgpa",
+            "à¤®à¥‡à¤°à¤¾ cgpa",
             "overall cgpa",
-            "ನನ್ನ cgpa",
+            "à²¨à²¨à³à²¨ cgpa",
             "overall gpa"
         ],
         "GET_BACKLOG_STATUS" => [
@@ -56,10 +58,10 @@ class SmartQueryResolver {
             "failed subjects",
             "supplementary subjects",
             "am i pass or fail",
-            "क्या मेरे backlog हैं",
-            "मैं fail हुआ क्या",
+            "à¤•à¥à¤¯à¤¾ à¤®à¥‡à¤°à¥‡ backlog à¤¹à¥ˆà¤‚",
+            "à¤®à¥ˆà¤‚ fail à¤¹à¥à¤† à¤•à¥à¤¯à¤¾",
             "backlog ideya",
-            "ನಾನು fail ಆಗಿದ್ದೇನಾ"
+            "à²¨à²¾à²¨à³ fail à²†à²—à²¿à²¦à³à²¦à³‡à²¨à²¾"
         ],
         "GET_FEES_BALANCE" => [
             "my fee balance",
@@ -67,9 +69,9 @@ class SmartQueryResolver {
             "amount due",
             "pending fees",
             "fee status",
-            "मेरी fees pending",
-            "कितनी fees due है",
-            "ನನ್ನ fee balance",
+            "à¤®à¥‡à¤°à¥€ fees pending",
+            "à¤•à¤¿à¤¤à¤¨à¥€ fees due à¤¹à¥ˆ",
+            "à²¨à²¨à³à²¨ fee balance",
             "fees pending ideya",
             "eshtu due ide"
         ],
@@ -79,7 +81,7 @@ class SmartQueryResolver {
             "am i registered",
             "registration clear",
             "can i complete registration",
-            "मेरा registration complete है क्या",
+            "à¤®à¥‡à¤°à¤¾ registration complete à¤¹à¥ˆ à¤•à¥à¤¯à¤¾",
             "final registration status",
             "registration complete aagideya",
             "final registration"
@@ -112,20 +114,20 @@ class SmartQueryResolver {
             "registered subjects",
             "subject list",
             "this semester subjects",
-            "मेरे subjects क्या हैं",
+            "à¤®à¥‡à¤°à¥‡ subjects à¤•à¥à¤¯à¤¾ à¤¹à¥ˆà¤‚",
             "course list",
-            "ನನ್ನ subjects",
+            "à²¨à²¨à³à²¨ subjects",
             "course list",
-            "ಈ semester subjects"
+            "à²ˆ semester subjects"
         ],
         "GET_ATTENDANCE" => [
             "my overall attendance",
             "attendance percentage",
             "attendance status",
             "am i short of attendance",
-            "मेरी attendance क्या है",
+            "à¤®à¥‡à¤°à¥€ attendance à¤•à¥à¤¯à¤¾ à¤¹à¥ˆ",
             "overall attendance",
-            "ನನ್ನ attendance",
+            "à²¨à²¨à³à²¨ attendance",
             "overall attendance eshtu"
         ],
         "GET_SUBJECT_ATTENDANCE" => [
@@ -157,10 +159,10 @@ class SmartQueryResolver {
             "am i eligible for exam",
             "exam clear",
             "ready for exam",
-            "क्या मैं exam के लिए clear हूँ",
-            "क्या मैं exam लिख सकता हूँ",
+            "à¤•à¥à¤¯à¤¾ à¤®à¥ˆà¤‚ exam à¤•à¥‡ à¤²à¤¿à¤ clear à¤¹à¥‚à¤",
+            "à¤•à¥à¤¯à¤¾ à¤®à¥ˆà¤‚ exam à¤²à¤¿à¤– à¤¸à¤•à¤¤à¤¾ à¤¹à¥‚à¤",
             "exam ge clear iddina",
-            "nanu exam ಬರೆಯಬಹುದಾ"
+            "nanu exam à²¬à²°à³†à²¯à²¬à²¹à³à²¦à²¾"
         ]
     ];
 
@@ -168,17 +170,20 @@ class SmartQueryResolver {
         $message = mb_strtolower(trim((string) $message), "UTF-8");
 
         $replacements = [
-            '/अटेंडेंस|उपस्थिति/u' => ' attendance ',
-            '/रिजल्ट|परिणाम/u' => ' result ',
-            '/फीस|शुल्क|बाकाया/u' => ' fees due ',
+            '/\b(scores|score|marks|mark|grades|grading)\b/ui' => ' result ',
+            '/अटेंडेंस|उपस्थिति|हाजिरी/u' => ' attendance ',
+            '/रिजल्ट|परिणाम|नतीजा/u' => ' result ',
+            '/फीस|शुल्क|बकाया/u' => ' fees due ',
             '/रजिस्ट्रेशन|पंजीकरण/u' => ' registration ',
             '/हॉल\s*टिकट|प्रवेश\s*पत्र/u' => ' hall ticket ',
-            '/प्रोफाइल/u' => ' profile ',
+            '/प्रोफाइल|प्रोफ़ाइल/u' => ' profile ',
             '/विभाग|डिपार्टमेंट/u' => ' department ',
             '/सेमेस्टर/u' => ' semester ',
             '/सर्टिफिकेट|प्रमाणपत्र/u' => ' certificate ',
+            '/कंसल्टेंसी|कन्सल्टेंसी|कम्पीटेंसी|कंपीटेंसी|कम्पिटेंसी|कंपिटेंसी/u' => ' competency ',
+            '/रिपोर्ट/u' => ' certificate ',
             '/अंग्रेजी/u' => ' english ',
-            '/हिंदी/u' => ' hindi ',
+            '/हिंदी|हिन्दी/u' => ' hindi ',
             '/ಅಟೆಂಡೆನ್ಸ್|ಹಾಜರಿ|ಹಾಜರಾತಿ/u' => ' attendance ',
             '/ರಿಸಲ್ಟ್|ಫಲಿತಾಂಶ/u' => ' result ',
             '/ಫೀಸ್|ಶುಲ್ಕ|ಬಾಕಿ/u' => ' fees due ',
@@ -316,6 +321,48 @@ class SmartQueryResolver {
         $entities = self::detectEntities($message, $lastContext);
         $requestedLanguage = self::detectRequestedLanguage($normalizedMessage, $language);
         $lastIntent = trim((string) ($lastContext['intent'] ?? ''));
+
+        // Hard-route explicit course-code queries so subject names like DBMS
+        // do not get pulled into attendance by conversational memory.
+        if (StudentController::isLikelyCourseCodeQuery($message)) {
+            $resolvedMessage = self::buildResolvedMessage('GET_COURSE_CODE', $message, $entities, $lastContext);
+
+            return [
+                'type' => 'resolved_intent',
+                'intent' => 'GET_COURSE_CODE',
+                'route' => 'database',
+                'confidence' => 'high',
+                'requested_language' => $requestedLanguage,
+                'source' => 'smart_query_resolver_explicit_course_code',
+                'entities' => $entities,
+                'rewritten_message' => $resolvedMessage,
+                'score' => 999
+            ];
+        }
+
+        if (
+            $lastIntent === 'GET_COURSE_CODE' &&
+            !empty($entities['subject']) &&
+            strpos($normalizedMessage, 'attendance') === false &&
+            strpos($normalizedMessage, 'result') === false &&
+            strpos($normalizedMessage, 'fees') === false &&
+            strpos($normalizedMessage, 'registration') === false
+        ) {
+            $resolvedMessage = self::buildResolvedMessage('GET_COURSE_CODE', $message, $entities, $lastContext);
+
+            return [
+                'type' => 'resolved_intent',
+                'intent' => 'GET_COURSE_CODE',
+                'route' => 'database',
+                'confidence' => 'high',
+                'requested_language' => $requestedLanguage,
+                'source' => 'smart_query_resolver_last_intent_course_code',
+                'entities' => $entities,
+                'rewritten_message' => $resolvedMessage,
+                'score' => 950
+            ];
+        }
+
         $bestIntent = null;
         $bestScore = 0;
 
@@ -332,6 +379,26 @@ class SmartQueryResolver {
 
             if ($intent === 'GET_COURSE_CODE' && !empty($entities['subject']) && strpos($normalizedMessage, 'code') !== false) {
                 $score += 28;
+            }
+
+            if (strpos($normalizedMessage, 'attendance') !== false) {
+                if ($intent === 'GET_SUBJECT_ATTENDANCE' || $intent === 'GET_ATTENDANCE') {
+                    $score += 24;
+                }
+
+                if ($intent === 'GET_COURSE_CODE' && strpos($normalizedMessage, 'code') === false) {
+                    $score -= 35;
+                }
+            }
+
+            if (strpos($normalizedMessage, 'code') !== false) {
+                if ($intent === 'GET_COURSE_CODE') {
+                    $score += 20;
+                }
+
+                if ($intent === 'GET_SUBJECT_ATTENDANCE' || $intent === 'GET_ATTENDANCE') {
+                    $score -= 18;
+                }
             }
 
             if ($intent === 'GET_SGPA' && !empty($entities['semester']) && strpos($normalizedMessage, 'sgpa') !== false) {
@@ -381,3 +448,4 @@ class SmartQueryResolver {
         ];
     }
 }
+

@@ -4,7 +4,96 @@ class ConversationContextService {
     private const RECENT_MESSAGE_LIMIT = 10;
     private const SUMMARY_CHAR_LIMIT = 1800;
 
+    private static function ensureSessionWritable() {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            @session_start();
+        }
+    }
+
+    private static function defaultPreferences() {
+        return [
+            "preferred_language" => "en",
+            "last_topic" => "",
+            "last_intent" => "",
+            "last_subject" => "",
+            "last_semester" => null,
+            "last_exam_type" => ""
+        ];
+    }
+
+    private static function inferTopicFromMeta($meta) {
+        $intent = trim((string) ($meta["intent"] ?? ""));
+
+        $topicMap = [
+            "GET_USN" => "usn",
+            "GET_PROFILE_SUMMARY" => "profile",
+            "GET_SGPA" => "sgpa",
+            "GET_CGPA" => "cgpa",
+            "GET_BACKLOG_STATUS" => "backlog",
+            "GET_FEES_BALANCE" => "fees",
+            "GET_FINAL_REGISTRATION_STATUS" => "registration",
+            "GET_HALL_TICKET_STATUS" => "hall ticket",
+            "GET_CERTIFICATE_STATUS" => "certificate",
+            "GET_COURSE_DETAILS" => "course details",
+            "GET_ATTENDANCE" => "attendance",
+            "GET_SUBJECT_ATTENDANCE" => "subject attendance",
+            "GET_COURSE_CODE" => "course code",
+            "GET_EXAM_READINESS" => "exam readiness",
+            "LLM_ASSIST" => "general help"
+        ];
+
+        if (isset($topicMap[$intent])) {
+            return $topicMap[$intent];
+        }
+
+        return trim((string) ($meta["topic"] ?? ""));
+    }
+
+    private static function updatePreferencesFromMeta($meta) {
+        self::ensureSessionState();
+
+        if (!is_array($meta) || empty($meta)) {
+            return;
+        }
+
+        $preferences = $_SESSION["voicebot_preferences"];
+        $language = trim((string) ($meta["language"] ?? ""));
+        $topic = self::inferTopicFromMeta($meta);
+        $intent = trim((string) ($meta["intent"] ?? ""));
+        $subject = trim((string) ($meta["subject"] ?? ""));
+        $semester = $meta["semester"] ?? null;
+        $examType = trim((string) ($meta["exam_type"] ?? ""));
+
+        if ($language !== "") {
+            $preferences["preferred_language"] = $language;
+        }
+
+        if ($topic !== "") {
+            $preferences["last_topic"] = $topic;
+        }
+
+        if ($intent !== "") {
+            $preferences["last_intent"] = $intent;
+        }
+
+        if ($subject !== "") {
+            $preferences["last_subject"] = $subject;
+        }
+
+        if ($semester !== null && $semester !== "") {
+            $preferences["last_semester"] = $semester;
+        }
+
+        if ($examType !== "") {
+            $preferences["last_exam_type"] = $examType;
+        }
+
+        $_SESSION["voicebot_preferences"] = $preferences;
+    }
+
     private static function ensureSessionState() {
+        self::ensureSessionWritable();
+
         if (!isset($_SESSION["voicebot_history"]) || !is_array($_SESSION["voicebot_history"])) {
             $_SESSION["voicebot_history"] = [];
         }
@@ -15,6 +104,15 @@ class ConversationContextService {
 
         if (!isset($_SESSION["voicebot_last_context"]) || !is_array($_SESSION["voicebot_last_context"])) {
             $_SESSION["voicebot_last_context"] = [];
+        }
+
+        if (!isset($_SESSION["voicebot_preferences"]) || !is_array($_SESSION["voicebot_preferences"])) {
+            $_SESSION["voicebot_preferences"] = self::defaultPreferences();
+        } else {
+            $_SESSION["voicebot_preferences"] = array_merge(
+                self::defaultPreferences(),
+                $_SESSION["voicebot_preferences"]
+            );
         }
     }
 
@@ -34,7 +132,8 @@ class ConversationContextService {
         return [
             "summary" => self::getSummary(),
             "recent_messages" => self::getRecentMessages(),
-            "last_context" => self::getLastResolvedContext()
+            "last_context" => self::getLastResolvedContext(),
+            "preferences" => self::getPreferences()
         ];
     }
 
@@ -53,9 +152,11 @@ class ConversationContextService {
 
         if (is_array($meta) && !empty($meta)) {
             self::setLastResolvedContext($meta);
+            self::updatePreferencesFromMeta($meta);
         }
 
         self::compactHistoryIfNeeded();
+        @session_write_close();
     }
 
     public static function getLastResolvedContext() {
@@ -66,12 +167,24 @@ class ConversationContextService {
     public static function setLastResolvedContext($context) {
         self::ensureSessionState();
         $_SESSION["voicebot_last_context"] = is_array($context) ? $context : [];
+
+        if (is_array($context) && !empty($context)) {
+            self::updatePreferencesFromMeta($context);
+        }
+
+        @session_write_close();
+    }
+
+    public static function getPreferences() {
+        self::ensureSessionState();
+        return $_SESSION["voicebot_preferences"];
     }
 
     public static function clear() {
         $_SESSION["voicebot_history"] = [];
         $_SESSION["voicebot_summary"] = "";
         $_SESSION["voicebot_last_context"] = [];
+        $_SESSION["voicebot_preferences"] = self::defaultPreferences();
     }
 
     private static function compactHistoryIfNeeded() {

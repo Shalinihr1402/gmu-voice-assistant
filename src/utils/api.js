@@ -1,13 +1,29 @@
-const BACKEND_ROOT = "http://localhost:8080/gmu-voice-assistant/backend"
-const DEV_PROXY_ROOT = `/api${BACKEND_ROOT}`
+const DEFAULT_BACKEND_ROOT = "http://localhost:8080/gmu-voice-bot/gmu-voice-assistant/backend"
 
-const getBackendRoot = () => (
-  import.meta.env.DEV ? DEV_PROXY_ROOT : BACKEND_ROOT
-)
+const trimTrailingSlashes = (value) => String(value || "").replace(/\/+$/, "")
+
+const trimLeadingSlashes = (value) => String(value || "").replace(/^\/+/, "")
+
+const getConfiguredBackendRoot = () => {
+  const explicitRoot = import.meta.env.VITE_BACKEND_ROOT
+  if (explicitRoot) {
+    return trimTrailingSlashes(explicitRoot)
+  }
+
+  return trimTrailingSlashes(DEFAULT_BACKEND_ROOT)
+}
 
 export const getBackendUrl = (path = "") => {
-  const normalizedPath = path.replace(/^\/+/, "")
-  return `${getBackendRoot()}/${normalizedPath}`
+  const rawPath = String(path || "")
+
+  if (/^https?:\/\//i.test(rawPath)) {
+    return rawPath
+  }
+
+  const backendRoot = trimTrailingSlashes(getConfiguredBackendRoot() || DEFAULT_BACKEND_ROOT)
+  const normalizedPath = trimLeadingSlashes(rawPath)
+
+  return normalizedPath ? `${backendRoot}/${normalizedPath}` : backendRoot
 }
 
 export const fetchJson = async (path, options = {}) => {
