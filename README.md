@@ -47,7 +47,7 @@ MySQL
 ⚙️ Installation
 1️⃣ Clone Repository
 Bash
-git clone https://github.com/your-username/gmu-voice-assistant.git
+git clone https://github.com/shalini1402/gmu-voice-assistant.git
 2️⃣ Navigate to Project Folder
 Bash
 cd gmu-voice-assistant
