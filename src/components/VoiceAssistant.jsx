@@ -2935,6 +2935,22 @@ const spellTokenForSpeech = (token) => (
       /ಹೋಮ್|होम/u.test(cleaned)
 
     if (hasNavVerb) {
+      if (hasHomeWord) {
+        const target = isStaffUser ? "portal" : "home"
+        const message = replyInSelectedLanguage(
+          isStaffUser ? "Opening your role portal." : "Opening your home page.",
+          isStaffUser ? "Aapka role portal khol raha hoon." : "Aapka home page khol raha hoon.",
+          isStaffUser ? "Nimma role portal tereyuttiddene." : "Nimma home page tereyuttiddene."
+        )
+        setIsProcessing(false)
+        setResponse(message)
+        speak(message)
+        setTimeout(() => navigate("/" + target), 800)
+        lastPageRef.current = target
+        lastCommandRef.current = ""
+        return
+      }
+
       if (hasDashboardWord) {
         const message = replyInSelectedLanguage(
           isStudentUser ? "Opening your dashboard." : "Opening your role dashboard.",

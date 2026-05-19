@@ -311,7 +311,10 @@ class VapiToolService {
         if (!preg_match('/\b(result|results|marks|marksheet|grade\s*sheet|sgpa)\b/u', $text)) {
             return null;
         }
-        if (!preg_match('/\b(show|open|view|display|check|go|navigate|take|get|see|tell|kholo|khol|dikhao|torisu|hogu|maadi|madi)\b/u', $text)) {
+        $hasResultNavigationVerb = (bool) preg_match('/\b(show|open|view|display|check|go|navigate|take|get|see|tell|kholo|khol|dikhao|torisu|hogu|maadi|madi)\b/u', $text);
+        $hasResultQuestionIntent = (bool) preg_match('/\b(what|which|where|how)\b.*\b(result|results|marks|marksheet|grade\s*sheet|sgpa)\b|\b(result|results|marks|marksheet|grade\s*sheet|sgpa)\b.*\b(what|which|where|how)\b/u', $text);
+        $hasSemesterMention = self::extractSemester($text) > 0 || (bool) preg_match('/\b(current|latest|present|previous|last)\s+(semester|sem)?\s*(result|results|marks)?\b/u', $text);
+        if (!$hasResultNavigationVerb && !($hasResultQuestionIntent && $hasSemesterMention)) {
             return null;
         }
 
@@ -472,7 +475,11 @@ class VapiToolService {
             return null;
         }
 
-        $page = self::detectPage($text, []);
+        if (self::isExplicitHomeCommand($text)) {
+            $page = "home";
+        } else {
+            $page = self::detectPage($text, []);
+        }
         if ($page === "") {
             return null;
         }
@@ -729,7 +736,7 @@ class VapiToolService {
     }
 
     private static function isExplicitHomeCommand($text) {
-        return (bool) preg_match('/\b(come\s+back|go\s+back|return\s+home|go\s+home)\b/u', $text);
+        return (bool) preg_match('/\b(come\s+back|comeback|go\s+back|back\s+home|back\s+to\s+home|back\s+to\s+main|return\s+home|return\s+to\s+home|return\s+to\s+main|go\s+home|home\s+page|main\s+page)\b/u', $text);
     }
 
     private static function canonicalPage($page) {

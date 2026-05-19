@@ -1,6 +1,9 @@
 const BACKEND_ROOT = "http://localhost:8080/gmu-voice-assistant/backend"
 const DEV_PROXY_ROOT = "/api/gmu-voice-assistant/backend"
 
+const trimTrailingSlashes = (value = "") => String(value || "").replace(/\/+$/, "")
+const trimLeadingSlashes = (value = "") => String(value || "").replace(/^\/+/, "")
+
 const getBackendRoot = () => (
   import.meta.env.DEV ? DEV_PROXY_ROOT : BACKEND_ROOT
 )
@@ -12,7 +15,7 @@ export const getBackendUrl = (path = "") => {
     return rawPath
   }
 
-  const backendRoot = trimTrailingSlashes(getConfiguredBackendRoot() || DEFAULT_BACKEND_ROOT)
+  const backendRoot = trimTrailingSlashes(getBackendRoot() || BACKEND_ROOT)
   const normalizedPath = trimLeadingSlashes(rawPath)
 
   return normalizedPath ? `${backendRoot}/${normalizedPath}` : backendRoot
