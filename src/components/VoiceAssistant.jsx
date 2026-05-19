@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
+import Vapi from "@vapi-ai/web"
 import gmuLogo from "../assets/gmu-logo.png"
 import "./VoiceAssistant.css"
 import { fetchJson, getBackendUrl } from "../utils/api"
@@ -11,6 +12,8 @@ const LOCAL_SILENCE_THRESHOLD = 0.018
 const LOCAL_SILENCE_MS = 350
 const LOCAL_MIN_SPEECH_MS = 250
 const USE_BROWSER_TTS_BY_DEFAULT = true
+const USE_VAPI_AS_PRIMARY_VOICE = true
+const VAPI_TOOL_NAME = "gmu_voice_assistant"
 const RESULT_EXAM_OPTIONS = ["SEE", "RESIT", "RE-REGISTRATION"]
 const RESULT_SEASON_OPTIONS = ["ODD", "EVEN"]
 
@@ -225,9 +228,14 @@ const VoiceAssistant = () => {
   const [errorMessage, setErrorMessage] = useState("")
   const [currentUser, setCurrentUser] = useState(null)
   const [startupStatus, setStartupStatus] = useState("")
-  const [voiceLanguage, setVoiceLanguage] = useState(getStoredUiLanguage())
+  const [voiceLanguage, setVoiceLanguage] = useState("en")
+  const [isVapiCallActive, setIsVapiCallActive] = useState(false)
+  const [vapiReady, setVapiReady] = useState(false)
 
   const audioRef = useRef(null)
+  const vapiRef = useRef(null)
+  const vapiConfigRef = useRef(null)
+  const vapiCallActiveRef = useRef(false)
   const audioUrlRef = useRef(null)
   const recognitionRef = useRef(null)
   const recognitionTranscriptRef = useRef("")
@@ -267,6 +275,13 @@ const VoiceAssistant = () => {
   const resultAvailabilityCacheRef = useRef(null)
   const pendingSpeechRecoveryRef = useRef(createEmptySpeechRecoveryState())
   const pendingResultQueryRef = useRef(createEmptyResultQuery())
+  const pendingSuggestionActionRef = useRef(null)
+  const immediateVapiCommandRef = useRef({ text: "", at: 0 })
+  const navigationTimerRef = useRef(null)
+  const lastAppliedToolResultRef = useRef({ key: "", at: 0 })
+  const lastNavigationRef = useRef({ path: "", at: 0 })
+  const navigationLockRef = useRef(false)
+  const navigationLockTimerRef = useRef(null)
 
   const navigate = useNavigate()
   const languageConfig = VOICE_LANGUAGE_OPTIONS[voiceLanguage] || VOICE_LANGUAGE_OPTIONS.en
@@ -338,6 +353,10 @@ const VoiceAssistant = () => {
   }, [voiceLanguage])
 
   useEffect(() => {
+    vapiCallActiveRef.current = isVapiCallActive
+  }, [isVapiCallActive])
+
+  useEffect(() => {
     fetchJson("getCurrentUser.php")
       .then((data) => {
         if (!data.error) {
@@ -346,6 +365,323 @@ const VoiceAssistant = () => {
       })
       .catch(() => {})
   }, [])
+
+  const getLanguageSwitchRequest = (text) => {
+    const normalized = String(text || "").toLowerCase().replace(/[^a-z0-9\s]+/g, " ").replace(/\s+/g, " ").trim()
+    const asksToSpeak = /\b(speak|speaak|speek|talk|baat|bath|batao|bolo|mathadu|maatadu|matadu|maathadu|matanadu|matanadi|reply|answer|language|mode)\b/.test(normalized)
+      || /kannadadalli|hindiyalli|englishalli|hindi me|hindi mein|kannada me|kannada mein|english me|english mein/.test(normalized)
+    if (!asksToSpeak) return null
+
+    if (/\b(kannada|kannadadalli|kannada dalli|kanada|kannad)\b/.test(normalized)) {
+      return { key: "kn", label: "Kannada", reply: "Sari, Kannada nalli mataduttene." }
+    }
+    if (/\b(hindi|hindiyalli|hindi me|hindi mein|hindi mai|hindhi)\b/.test(normalized)) {
+      return { key: "hi", label: "Hindi", reply: "Theek hai, ab main Hindi mein baat karunga." }
+    }
+    if (/\b(english|englishalli|english me|english mein|inglish)\b/.test(normalized)) {
+      return { key: "en", label: "English", reply: "Sure, I will continue in English." }
+    }
+    return null
+  }
+
+  const applyLanguageSwitch = (languageKey, reply) => {
+    if (!VOICE_LANGUAGE_OPTIONS[languageKey]) return false
+    setVoiceLanguage(languageKey)
+    setResponse(reply)
+    setSuggestionText("")
+    setQuickActions([])
+    setReplySource("language_switch")
+    if (!vapiCallActiveRef.current) {
+      setTimeout(() => {
+        void speak(reply, { preferBrowser: true })
+      }, 350)
+    }
+    return true
+  }
+
+  const getImmediateNavigationRequest = (text) => {
+    const normalized = String(text || "").toLowerCase().replace(/[^a-z0-9\s]+/g, " ").replace(/\s+/g, " ").trim()
+    const hasNavVerb = /\b(open|go|goto|navigate|show|take|visit|come back|back|return|kholo|khol|dikhao|jao|chalo|torisu|hogu|maadi|madi|tere|tereyiri)\b/.test(normalized)
+    if (/\b(come back|go back|back to main|main page|home page|go home|return home|back home)\b/.test(normalized)) {
+      return { path: "/home", page: "home", reply: "Returning to main page." }
+    }
+    if (!hasNavVerb && !/\b(page|portal|panna|puta)\b/.test(normalized)) return null
+    if (/\b(registration|register)\b/.test(normalized)) return { path: "/registration", page: "registration", reply: "Opening registration page." }
+    if (/\b(profile|profail)\b/.test(normalized)) return { path: "/profile", page: "profile", reply: "Opening profile page." }
+    if (/\b(payment|fees payment|fee payment)\b/.test(normalized)) return { path: "/payment", page: "payment", reply: "Opening payment portal." }
+    if (/\b(result|results|marks)\b/.test(normalized)) return { path: "/results", page: "results", reply: "Opening result page." }
+    if (/\b(certificate|competency|digital competency)\b/.test(normalized)) return { path: "/certificate", page: "certificate", reply: "Opening certificate page." }
+    if (/\b(dashboard|student dashboard)\b/.test(normalized)) return { path: "/dashboard", page: "dashboard", reply: "Opening dashboard." }
+    if (/\b(home|portal)\b/.test(normalized)) return { path: normalized.includes("portal") ? "/portal" : "/home", page: normalized.includes("portal") ? "portal" : "home", reply: "Opening page." }
+    return null
+  }
+
+
+  const runVoiceNavigation = (path, page, delayMs = 0) => {
+    const targetPath = String(path || "").trim()
+    if (!targetPath || navigationLockRef.current) return false
+
+    const now = Date.now()
+    const currentPath = `${window.location.pathname}${window.location.search}`
+    const lastNavigation = lastNavigationRef.current
+
+    if (lastNavigation.path === targetPath && now - lastNavigation.at < 3000) {
+      return false
+    }
+
+    if (currentPath === targetPath) {
+      lastPageRef.current = page || targetPath
+      lastNavigationRef.current = { path: targetPath, at: now }
+      return false
+    }
+
+    if (navigationTimerRef.current) {
+      clearTimeout(navigationTimerRef.current)
+      navigationTimerRef.current = null
+    }
+
+    const releaseNavigationLock = () => {
+      navigationLockRef.current = false
+      navigationLockTimerRef.current = null
+    }
+
+    const go = () => {
+      navigationLockRef.current = true
+      navigate(targetPath)
+      lastPageRef.current = page || targetPath
+      lastNavigationRef.current = { path: targetPath, at: Date.now() }
+      immediateVapiCommandRef.current = { text: "", at: 0 }
+      lastAppliedToolResultRef.current = { key: "", at: 0 }
+      resetStreamingTranscript()
+      setTranscript("")
+      if (!vapiCallActiveRef.current) {
+        cleanupRecorder()
+      }
+      if (navigationLockTimerRef.current) {
+        clearTimeout(navigationLockTimerRef.current)
+      }
+      navigationLockTimerRef.current = setTimeout(releaseNavigationLock, 1200)
+      navigationTimerRef.current = null
+    }
+
+    if (delayMs > 0) {
+      navigationTimerRef.current = setTimeout(go, delayMs)
+      return true
+    }
+    go()
+    return true
+  }
+  const handleImmediateVapiUserCommand = (text) => {
+    const normalized = String(text || "").toLowerCase().replace(/\s+/g, " ").trim()
+    if (!normalized) return false
+
+    const now = Date.now()
+    if (immediateVapiCommandRef.current.text === normalized && now - immediateVapiCommandRef.current.at < 2500) {
+      return true
+    }
+
+    immediateVapiCommandRef.current = { text: normalized, at: now }
+    return false
+  }
+  const applyVapiToolResult = (result) => {
+    if (!result || typeof result !== "object") return false
+
+    const action = result.client_action || result.clientAction
+    const resultKey = [
+      result.intent || "",
+      result.route || "",
+      action?.type || "",
+      action?.path || action?.language || "",
+      result.reply || ""
+    ].join("|")
+    const now = Date.now()
+    const lastApplied = lastAppliedToolResultRef.current
+    if (lastApplied.key === resultKey && now - lastApplied.at < 2500) {
+      return true
+    }
+    lastAppliedToolResultRef.current = { key: resultKey, at: now }
+
+    let didApplyAction = false
+
+    if (result.reply) {
+      setResponse(result.reply)
+    }
+    if (result.suggestion) {
+      setSuggestionText(result.suggestion)
+    }
+    if (Array.isArray(result.quick_actions)) {
+      setQuickActions(result.quick_actions)
+      rememberSuggestionFollowUp(result.quick_actions)
+    }
+    if (result.debug?.reply_source) {
+      setReplySource(result.debug.reply_source)
+    }
+
+    if (action?.type === "set_language" && action.language) {
+      didApplyAction = applyLanguageSwitch(action.language, result.reply || "Language changed. Please tap the voice button again.") || didApplyAction
+    }
+    if (action?.type === "navigate" && action.path) {
+      runVoiceNavigation(action.path, action.page || action.path, 150)
+      didApplyAction = true
+    }
+
+    return didApplyAction
+  }
+
+  const findVapiToolResults = (value, seen = new WeakSet()) => {
+    if (!value || typeof value !== "object") return []
+    if (seen.has(value)) return []
+    seen.add(value)
+
+    const results = []
+    if (value.client_action || value.clientAction || value.reply || value.quick_actions) {
+      results.push(value)
+    }
+    if (value.result && typeof value.result === "object") {
+      results.push(...findVapiToolResults(value.result, seen))
+    }
+    if (value.toolCallResult && typeof value.toolCallResult === "object") {
+      results.push(...findVapiToolResults(value.toolCallResult, seen))
+    }
+    if (Array.isArray(value.toolCallResults)) {
+      value.toolCallResults.forEach((item) => results.push(...findVapiToolResults(item, seen)))
+    }
+    if (value.message && typeof value.message === "object") {
+      results.push(...findVapiToolResults(value.message, seen))
+    }
+    if (Array.isArray(value.messages)) {
+      value.messages.forEach((item) => results.push(...findVapiToolResults(item, seen)))
+    }
+
+    return results
+  }
+
+  const handleVapiMessage = (message) => {
+    if (!message || typeof message !== "object") return
+
+    const role = message.role || message.message?.role
+    const text = message.transcript || message.text || message.message?.content || message.content || ""
+
+    if (message.type === "transcript" && text) {
+      const isFinalTranscript = !message.transcriptType || message.transcriptType === "final"
+      if (role === "user") {
+        setTranscript(text)
+        if (isFinalTranscript) handleImmediateVapiUserCommand(text)
+      } else if (role === "assistant") {
+        setResponse(text)
+      }
+      return
+    }
+
+    if ((message.type === "conversation-update" || message.type === "message") && text) {
+      if (role === "user") {
+        setTranscript(text)
+        handleImmediateVapiUserCommand(text)
+      }
+      if (role === "assistant") setResponse(text)
+    }
+
+    const toolResults = findVapiToolResults(message)
+    const appliedResults = new Set()
+    toolResults.forEach((result) => {
+      if (appliedResults.has(result)) return
+      appliedResults.add(result)
+      applyVapiToolResult(result)
+    })
+  }
+
+  const getOrCreateVapi = (publicKey) => {
+    if (vapiRef.current) return vapiRef.current
+
+    const vapi = new Vapi(publicKey)
+    vapi.on("call-start", () => {
+      setIsVapiCallActive(true)
+      setVapiReady(true)
+      setIsListening(true)
+      setIsProcessing(false)
+      setIsSpeaking(false)
+      setStartupStatus(localizedText.listeningStatus)
+    })
+    vapi.on("call-end", () => {
+      setIsVapiCallActive(false)
+      setIsListening(false)
+      setIsProcessing(false)
+      setIsSpeaking(false)
+      setStartupStatus(localizedText.tapToAsk)
+    })
+    vapi.on("speech-start", () => {
+      setIsSpeaking(true)
+      setIsListening(false)
+    })
+    vapi.on("speech-end", () => {
+      setIsSpeaking(false)
+      if (vapiCallActiveRef.current) setIsListening(true)
+    })
+    vapi.on("message", handleVapiMessage)
+    vapi.on("error", (error) => {
+      setErrorMessage(error?.message || "Vapi voice session failed.")
+      setIsVapiCallActive(false)
+      setIsListening(false)
+      setIsProcessing(false)
+      setIsSpeaking(false)
+    })
+
+    vapiRef.current = vapi
+    return vapi
+  }
+
+  const loadVapiConfig = async () => {
+    const config = await fetchJson("vapiConfig.php?language=multi")
+    if (!config?.enabled || !config.public_key) {
+      throw new Error(config?.setup_hint || "Vapi is not configured. Set VAPI_PUBLIC_KEY in backend/.env.")
+    }
+    vapiConfigRef.current = config
+    return config
+  }
+
+  const startVapiCall = async () => {
+    setIsActive(true)
+    isActiveRef.current = true
+    setErrorMessage("")
+    setReplySource("vapi")
+    setSuggestionText("")
+    setQuickActions([])
+    setResponse(localizedText.listening)
+    setStartupStatus(localizedText.listeningStatus)
+    setIsProcessing(true)
+
+    const config = await loadVapiConfig()
+    const vapi = getOrCreateVapi(config.public_key)
+
+    await vapi.start(config.assistant, config.assistant_overrides || {})
+  }
+
+  const stopVapiCall = () => {
+    if (vapiRef.current) {
+      vapiRef.current.stop()
+    }
+    setIsVapiCallActive(false)
+    setIsListening(false)
+    setIsProcessing(false)
+    setIsSpeaking(false)
+    setStartupStatus(localizedText.tapToAsk)
+  }
+
+  const toggleVapiCall = async () => {
+    try {
+      if (vapiCallActiveRef.current) {
+        stopVapiCall()
+        return
+      }
+      await startVapiCall()
+    } catch (error) {
+      setErrorMessage(error?.message || "Unable to start Vapi voice assistant.")
+      setIsProcessing(false)
+      setIsListening(false)
+      setIsSpeaking(false)
+      setStartupStatus(localizedText.tapToAsk)
+    }
+  }
 
   const cleanupRecorder = (options = {}) => {
     const { ignoreTranscript = false } = options
@@ -779,6 +1115,8 @@ const spellTokenForSpeech = (token) => (
     }
 
     prepared = prepared
+      .replace(/\b(?:Rs\.?|INR)\s*([0-9][0-9,]*(?:\.\d+)?)/gi, "rupees $1")
+      .replace(/\u{20B9}\s*([0-9][0-9,]*(?:\.\d+)?)/gu, "rupees $1")
       .replace(/\s+/g, " ")
       .replace(/\s*[:;]\s*/g, ", ")
       .replace(/\s*[|/]\s*/g, " or ")
@@ -1233,8 +1571,10 @@ const spellTokenForSpeech = (token) => (
     const speechText = localSuggestion?.suggestion ? `${text} ${localSuggestion.suggestion}` : text
 
     setResponse(text)
+    const actions = localSuggestion?.quickActions || []
     setSuggestionText(localSuggestion?.suggestion || "")
-    setQuickActions(localSuggestion?.quickActions || [])
+    setQuickActions(actions)
+    rememberSuggestionFollowUp(actions)
     setReplySource("")
     void speak(speechText, { preferBrowser: languageConfig.ttsProvider !== "elevenlabs" })
     lastCommandRef.current = ""
@@ -1249,6 +1589,7 @@ const spellTokenForSpeech = (token) => (
     setResponse(reply)
     setSuggestionText(suggestion)
     setQuickActions(actions)
+    rememberSuggestionFollowUp(actions)
     void speak(speechText)
     lastCommandRef.current = ""
   }
@@ -1523,6 +1864,17 @@ const spellTokenForSpeech = (token) => (
     pendingSpeechRecoveryRef.current = createEmptySpeechRecoveryState()
   }
 
+  const rememberSuggestionFollowUp = (actions = []) => {
+    const validActions = Array.isArray(actions) ? actions.filter((action) => String(action?.prompt || "").trim()) : []
+    if (!validActions.length) {
+      pendingSuggestionActionRef.current = null
+      return
+    }
+
+    const openPaymentAction = validActions.find((action) => /payment|portal/i.test(`${action.label || ""} ${action.prompt || ""}`))
+    pendingSuggestionActionRef.current = (openPaymentAction || validActions[0]).prompt.trim()
+  }
+
   const isAffirmativeRecoveryReply = (text) => (
     /\b(yes|yeah|yep|correct|right|haan|han|haudu|yes please|exactly)\b|हाँ|हां|ಹೌದು/u.test(String(text || "").trim().toLowerCase())
   )
@@ -1722,13 +2074,13 @@ const spellTokenForSpeech = (token) => (
 
   const getResultSupportReply = async (text) => {
     const normalized = (text || "").trim().toLowerCase()
-    const hasResultWord = /\b(result|results|marks|marksheet|grade sheet|gradesheet|sgpa)\b|à¤°à¤¿à¤œà¤²à¥à¤Ÿ|à¤¨à¤¤à¥€à¤œà¤¾|à¤®à¤¾à¤°à¥à¤•à¥à¤¸|à¤—à¥à¤°à¥‡à¤¡|à²«à²²à²¿à²¤à²¾à²‚à²¶|à²°à²¿à²¸à²²à³à²Ÿà³|à²®à²¾à²°à³à²•à³à²¸à³|à²—à³à²°à³‡à²¡à³/u.test(normalized)
+    const hasResultWord = /\b(result|results|marks|marksheet|grade sheet|gradesheet|sgpa)\b|रिजल्ट|नतीजा|मार्क्स|ग्रेड|ಫಲಿತಾಂಶ|ರಿಸಲ್ಟ್|ಮಾರ್ಕ್ಸ್|ಗ್ರೇಡ್/u.test(normalized)
 
     if (!hasResultWord) {
       return null
     }
 
-    const isProcessQuery = /\b(how to check|how can i check|how to see|where to see|where can i see|how to get|steps|process|check result|see result)\b|à¤•à¥ˆà¤¸à¥‡|à¤•à¤¹à¤¾à¤|à¤•à¤¹à¤¾|à¤¸à¥à¤Ÿà¥‡à¤ªà¥à¤¸|à²¹à³‡à²—à³†|à²à²²à³à²²à²¿|à²¸à³à²Ÿà³†à²ªà³à²¸à³/u.test(normalized)
+    const isProcessQuery = /\b(how to check|how can i check|how to see|where to see|where can i see|how to get|steps|process|check result|see result)\b|कैसे|कहाँ|कहा|स्टेप्स|ಹೇಗೆ|ಏಲ್ಲಿ|ಸ್ಟೆಪ್ಸ್/u.test(normalized)
 
     if (isProcessQuery) {
       return {
@@ -1741,7 +2093,7 @@ const spellTokenForSpeech = (token) => (
       }
     }
 
-    const isInformationQuery = /\b(what is|show|tell|check|view|display|my|give)\b|à¤•à¥à¤¯à¤¾|à¤¦à¤¿à¤–à¤¾|à¤¬à¤¤à¤¾|à¤®à¥‡à¤°à¤¾|à²¨à²¨à³à²¨|à²¤à³‹à²°à²¿à²¸à³|à²¹à³‡à²³à²¿/u.test(normalized)
+    const isInformationQuery = /\b(what is|show|tell|check|view|display|my|give)\b|क्या|दिखा|बता|मेरा|ನನ್ನ|ತೋರಿಸು|ಹೇಳಿ/u.test(normalized)
 
     if (!isInformationQuery) {
       return null
@@ -1809,7 +2161,7 @@ const spellTokenForSpeech = (token) => (
     const normalized = (text || "").trim().toLowerCase()
     const pendingQuery = pendingResultQueryRef.current
     const hasResultWord = /\b(result|results|marks|marksheet|grade sheet|gradesheet|sgpa)\b|result|marks/u.test(normalized)
-    const hasContinuationWord = /\b(yes|yeah|haan|ha|haudu|continue|go ahead)\b|à¤¹à¤¾à¤|à²¹à³Œà²¦à³/u.test(normalized)
+    const hasContinuationWord = /\b(yes|yeah|haan|ha|haudu|continue|go ahead)\b|हाँ|ಹೌದು/u.test(normalized)
     const hasStructuredSlotAnswer = /\b[a-z]{2,}[0-9]{2,}[a-z0-9]{3,}\b/i.test(normalized)
       || /\b(?:semester|sem)\s*\d+\b/.test(normalized)
       || /\b(first|second|third|fourth|fifth|sixth|seventh|eighth)\s+(semester|sem)\b/.test(normalized)
@@ -2090,7 +2442,7 @@ const spellTokenForSpeech = (token) => (
         return "FEES_BALANCE_VALUE"
       }
 
-      if (/\b(how to pay fees|how do i pay fees|where to pay fees|pay fees|pay my fees|fee payment|pay college fee|pay hostel fee)\b/.test(normalized)) {
+      if (/\b(how to pay fees|how do i pay fees|how can i pay my fee|how can i pay my fees|where to pay fees|where can i pay my fee|where can i pay my fees|where i can pay my fee|where i can pay my fees|pay fees|pay my fee|pay my fees|fee payment|pay college fee|pay hostel fee)\b/.test(normalized)) {
         return "PAY_FEES"
       }
 
@@ -2219,8 +2571,8 @@ const spellTokenForSpeech = (token) => (
       }
     }
     const paymentIntent = /\b(payment|pay fees|pay my fees|fee payment|payment options|how can i pay|how to pay|receipt|grievance|graviance|grevience|gradients|shikayat|sikayat|complaint|ahavalu|ahavaalu)\b|शिकायत|ग्रिवेंस|ग्रीवेंस|ಅಹವಾಲು|ಗ್ರೀವೆನ್ಸ್/u.test(normalized)
-      || /à²ªà²¾à²µà²¤à²¿|à²«à³€à²¸à³ à²ªà²¾à²µà²¤à²¿|à²ªà³‡à²®à³†à²‚à²Ÿà³|à²°à²¿à²¸à³€à²ªà³à²Ÿà³|à²—à³à²°à³€à²µà²¨à³à²¸à³|payment options/u.test(normalized)
-      || /à¤ªà¥‡à¤®à¥‡à¤‚à¤Ÿ|à¤«à¥€à¤¸ à¤ªà¥‡à¤®à¥‡à¤‚à¤Ÿ|à¤°à¤¸à¥€à¤¦|à¤—à¥à¤°à¤¿à¤µà¥‡à¤‚à¤¸/u.test(normalized)
+      || /ಪಾವತಿ|ಫೀಸ್ ಪಾವತಿ|ಪೇಮೆಂಟ್|ರಿಸೀಪ್ಟ್|ಗ್ರೀವನ್ಸ್|payment options/u.test(normalized)
+      || /पेमेंट|फीस पेमेंट|रसीद|ग्रिवेंस/u.test(normalized)
 
     if (!paymentIntent) {
       return null
@@ -2414,7 +2766,33 @@ const spellTokenForSpeech = (token) => (
       return
     }
 
+    const languageSwitch = getLanguageSwitchRequest(cleaned)
+    if (languageSwitch) {
+      setTranscript(cleaned)
+      setIsProcessing(false)
+      applyLanguageSwitch(languageSwitch.key, languageSwitch.reply)
+      if (!vapiCallActiveRef.current) {
+        void speak(languageSwitch.reply, { preferBrowser: true })
+      }
+      lastCommandRef.current = ""
+      return
+    }
+
     const intentText = normalizeVoiceIntent(cleaned)
+
+    if (!skipSpeechRecovery && pendingSuggestionActionRef.current) {
+      if (isAffirmativeRecoveryReply(intentText) || /^(open it|open that|go there|do it|sure|okay|ok)$/i.test(intentText)) {
+        const suggestedPrompt = pendingSuggestionActionRef.current
+        pendingSuggestionActionRef.current = null
+        setIsProcessing(false)
+        await handleVoiceCommand(suggestedPrompt, { skipSpeechRecovery: true })
+        return
+      }
+
+      if (isNegativeRecoveryReply(intentText)) {
+        pendingSuggestionActionRef.current = null
+      }
+    }
 
     if (pendingSpeechRecoveryRef.current.active && !skipSpeechRecovery) {
       if (isAffirmativeRecoveryReply(intentText)) {
@@ -2530,8 +2908,8 @@ const spellTokenForSpeech = (token) => (
     const isStudentUser = currentUser?.role_key === "student"
     const isStaffUser = currentUser?.role_key && currentUser.role_key !== "student"
     const hasNavVerb =
-      /\b(open|go|navigate|take me|show me|bring me|move to|launch|visit|hogu|open madi|torisu|tere)\b/.test(cleaned) ||
-      /à²¹à³‹à²—à³|à²¤à³†à²°à³†|à²¤à³‹à²°à²¿à²¸à³|à²“à²ªà²¨à³/u.test(cleaned) ||
+      /\b(open|go|navigate|take me|show me|bring me|move to|launch|visit|come back|go back|back|return|hogu|open madi|torisu|tere)\b/.test(cleaned) ||
+      /ಹೋಗು|ತೆರೆ|ತೋರಿಸು|ಓಪನ್/u.test(cleaned) ||
       cleaned.includes("ಹೋಗು") ||
       cleaned.includes("ಹೋಗ್ಬು") ||
       cleaned.includes("ತೆರೆ") ||
@@ -2539,28 +2917,28 @@ const spellTokenForSpeech = (token) => (
       cleaned.includes("ಪೇಜ್")
     const hasDashboardWord =
       /\b(dashboard|dash board|dashbourd|dashbord)\b/.test(cleaned) ||
-      /à²¡à³à²¯à²¾à²¶à³.?à²¬à³‹à²°à³à²¡à³|à¤¡à¥ˆà¤¶à¤¬à¥‹à¤°à¥à¤¡/u.test(cleaned) ||
+      /ಡ್ಯಾಶ್.?ಬೋರ್ಡ್|डैशबोर्ड/u.test(cleaned) ||
       cleaned.includes("ಡ್ಯಾಶ್‌ಬೋರ್ಡ್") ||
       cleaned.includes("ಡ್ಯಾಶ್ಬೋರ್ಡ್")
     const hasProfileWord =
       /\b(profile|profle|profail)\b/.test(cleaned) ||
-      /à²ªà³à²°à³Šà²«à³ˆà²²à³|à¤ªà¥à¤°à¥‹à¤«à¤¾à¤‡à¤²/u.test(cleaned) ||
+      /ಪ್ರೊಫೈಲ್|प्रोफाइल/u.test(cleaned) ||
       cleaned.includes("ಪ್ರೊಫೈಲ್")
     const hasRegistrationWord =
       /\b(registration|register|rijistreshan)\b/.test(cleaned) ||
-      /à²°à²¿à²œà²¿à²¸à³à²Ÿà³à²°à³‡à²¶à²¨à³|à²¨à³‹à²‚à²¦à²£à²¿|à¤°à¤œà¤¿à¤¸à¥à¤Ÿà¥à¤°à¥‡à¤¶à¤¨|à¤ªà¤‚à¤œà¥€à¤•à¤°à¤£/u.test(cleaned) ||
+      /ರಿಜಿಸ್ಟ್ರೇಶನ್|ನೋಂದಣಿ|रजिस्ट्रेशन|पंजीकरण/u.test(cleaned) ||
       cleaned.includes("ರಿಜಿಸ್ಟ್ರೇಷನ್") ||
       cleaned.includes("ರಿಜಿಸ್ಟ್ರೇಶನ್") ||
       cleaned.includes("ನೋಂದಣಿ")
     const hasHomeWord =
-      /\b(home|main page)\b/.test(cleaned) ||
-      /à²¹à³‹à²®à³|à¤¹à¥‹à¤®/u.test(cleaned)
+      /\b(home|main page|back to main|come back|go back|return home)\b/.test(cleaned) ||
+      /ಹೋಮ್|होम/u.test(cleaned)
 
     if (hasNavVerb) {
       if (hasDashboardWord) {
         const message = replyInSelectedLanguage(
           isStudentUser ? "Opening your dashboard." : "Opening your role dashboard.",
-          isStudentUser ? "à¤†à¤ªà¤•à¤¾ dashboard à¤–à¥‹à¤² à¤°à¤¹à¤¾ à¤¹à¥‚à¤‚à¥¤" : "à¤†à¤ªà¤•à¤¾ role dashboard à¤–à¥‹à¤² à¤°à¤¹à¤¾ à¤¹à¥‚à¤‚à¥¤",
+          isStudentUser ? "आपका dashboard खोल रहा हूं।" : "आपका role dashboard खोल रहा हूं।",
           isStudentUser ? "ನಿಮ್ಮ ಡ್ಯಾಶ್‌ಬೋರ್ಡ್ ತೆರೆಯುತ್ತಿದ್ದೇನೆ." : "ನಿಮ್ಮ role dashboard ತೆರೆಯುತ್ತಿದ್ದೇನೆ."
         )
         setIsProcessing(false)
@@ -2576,7 +2954,7 @@ const spellTokenForSpeech = (token) => (
         const target = isStudentUser ? "profile" : "portal"
         const message = replyInSelectedLanguage(
           isStudentUser ? "Opening your profile page." : "Opening your role portal.",
-          isStudentUser ? "à¤†à¤ªà¤•à¤¾ profile page à¤–à¥‹à¤² à¤°à¤¹à¤¾ à¤¹à¥‚à¤‚à¥¤" : "à¤†à¤ªà¤•à¤¾ role portal à¤–à¥‹à¤² à¤°à¤¹à¤¾ à¤¹à¥‚à¤‚à¥¤",
+          isStudentUser ? "आपका profile page खोल रहा हूं।" : "आपका role portal खोल रहा हूं।",
           isStudentUser ? "ನಿಮ್ಮ profile page ತೆರೆಯುತ್ತಿದ್ದೇನೆ." : "ನಿಮ್ಮ role portal ತೆರೆಯುತ್ತಿದ್ದೇನೆ."
         )
         setIsProcessing(false)
@@ -2592,7 +2970,7 @@ const spellTokenForSpeech = (token) => (
         const target = isStudentUser ? "registration" : "portal"
         const message = replyInSelectedLanguage(
           isStudentUser ? "Opening your registration page." : "Registration is student-only. Opening your role portal instead.",
-          isStudentUser ? "à¤†à¤ªà¤•à¤¾ registration page à¤–à¥‹à¤² à¤°à¤¹à¤¾ à¤¹à¥‚à¤‚à¥¤" : "Registration à¤…à¤­à¥€ student-only page à¤¹à¥ˆà¥¤ à¤®à¥ˆà¤‚ à¤†à¤ªà¤•à¤¾ role portal à¤–à¥‹à¤² à¤°à¤¹à¤¾ à¤¹à¥‚à¤‚à¥¤",
+          isStudentUser ? "आपका registration page खोल रहा हूं।" : "Registration अभी student-only page है। मैं आपका role portal खोल रहा हूं।",
           isStudentUser ? "ನಿಮ್ಮ registration page ತೆರೆಯುತ್ತಿದ್ದೇನೆ." : "Registration student-gagi matra ide. ನಿಮ್ಮ role portal ತೆರೆಯುತ್ತಿದ್ದೇನೆ."
         )
         setIsProcessing(false)
@@ -2608,7 +2986,7 @@ const spellTokenForSpeech = (token) => (
         const target = isStaffUser ? "portal" : "home"
         const message = replyInSelectedLanguage(
           isStaffUser ? "Opening your role portal." : "Opening your home page.",
-          isStaffUser ? "à¤†à¤ªà¤•à¤¾ role portal à¤–à¥‹à¤² à¤°à¤¹à¤¾ à¤¹à¥‚à¤‚à¥¤" : "à¤†à¤ªà¤•à¤¾ home page à¤–à¥‹à¤² à¤°à¤¹à¤¾ à¤¹à¥‚à¤‚à¥¤",
+          isStaffUser ? "आपका role portal खोल रहा हूं।" : "आपका home page खोल रहा हूं।",
           isStaffUser ? "ನಿಮ್ಮ role portal ತೆರೆಯುತ್ತಿದ್ದೇನೆ." : "ನಿಮ್ಮ home page ತೆರೆಯುತ್ತಿದ್ದೇನೆ."
         )
         setIsProcessing(false)
@@ -2637,7 +3015,7 @@ const spellTokenForSpeech = (token) => (
 
     const hasAnyText = (patterns) => patterns.some((pattern) => pattern.test(cleaned))
     const asksToOpenPage = hasAnyText([
-      /\b(open|go|navigate|take me|show me|bring me|move to|launch|visit)\b/,
+      /\b(open|go|navigate|take me|show me|bring me|move to|launch|visit|come back|go back|back|return)\b/,
       /\b(khol|kholo|kolo|karo|javu|jao|jau|chalo|dikhao|dikhavo|tere|tereyiri|open madi|hogu|torisu|show madi)\b/,
       /\bpage\b/,
       /(ತೆರೆ|ತೆರೆಯಿರಿ|ತೋರಿಸು|ತೋರಿಸಿ|ಹೋಗು|ಪುಟ|ಓಪನ್ ಮಾಡು|ಓಪನ್ ಮಾಡಿ)/u,
@@ -2661,7 +3039,7 @@ const spellTokenForSpeech = (token) => (
       }
       if (hasAnyText([/\b(profile|profle)\b/, /प्रोफाइल/])) return "profile"
       if (hasAnyText([/\b(dashboard|dash board)\b/, /डैशबोर्ड/])) return "dashboard"
-      if (hasAnyText([/\b(home|main page)\b/, /होम/])) return isStaff ? "portal" : "home"
+      if (hasAnyText([/\b(home|main page|back to main|come back|go back|return home)\b/, /होम/])) return isStaff ? "portal" : "home"
       if (hasAnyText([/\b(portal|role portal)\b/, /पोर्टल/])) return "portal"
       if (hasAnyText([/\b(certificate|competency|competence|digital certificate)\b/, /सर्टिफिकेट/])) return "certificate"
       if (
@@ -2742,7 +3120,7 @@ const spellTokenForSpeech = (token) => (
       lastCommandRef.current = ""
     }
 
-    const isNavigationRequest = /\b(open|go|navigate|take me|show me|bring me|move to)\b|खोलो|खोल दीजिए|दिखाओ|ले चलो|जाओ/.test(cleaned)
+    const isNavigationRequest = /\b(open|go|navigate|take me|show me|bring me|move to|come back|go back|back|return)\b|खोलो|खोल दीजिए|दिखाओ|ले चलो|जाओ/.test(cleaned)
     const isRegistrationStatusQuery = /\b(registration status|registration complete|registration completed|registration pending|final registration|is my registration|have i registered|am i registered|registered or not)\b|रजिस्ट्रेशन स्टेटस|पंजीकरण स्थिति|रजिस्ट्रेशन पूरा|रजिस्ट्रेशन पेंडिंग/.test(cleaned)
 
     if (
@@ -2856,6 +3234,7 @@ const spellTokenForSpeech = (token) => (
     setReplySource("")
     setSuggestionText("")
     setQuickActions([])
+    pendingSuggestionActionRef.current = null
     setStartupStatus(localizedText.tapToAsk)
     resetPendingSpeechRecovery()
     resetPendingResultQuery()
@@ -2886,6 +3265,11 @@ const spellTokenForSpeech = (token) => (
   }
 
   const handleAssistantButtonClick = async () => {
+    if (USE_VAPI_AS_PRIMARY_VOICE) {
+      await toggleVapiCall()
+      return
+    }
+
     if (!isActiveRef.current) {
       activateAssistant()
       return
@@ -2915,10 +3299,12 @@ const spellTokenForSpeech = (token) => (
     setReplySource("")
     setSuggestionText("")
     setQuickActions([])
+    pendingSuggestionActionRef.current = null
     setStartupStatus("")
     resetPendingSpeechRecovery()
     resetPendingResultQuery()
     cleanupRecorder()
+    stopVapiCall()
     void stopCurrentSpeech()
     cleanupAudio()
     window.speechSynthesis.cancel()
@@ -2931,7 +3317,7 @@ const spellTokenForSpeech = (token) => (
       : isProcessing
         ? localizedText.thinking
         : startupStatus || localizedText.tapToAsk
-  const showTapHint = isActive && !isListening && !isProcessing && !isSpeaking
+  const showTapHint = isActive && !isListening && !isProcessing && !isSpeaking && !isVapiCallActive
 
   return (
     <div className="voice-assistant-container">
@@ -2940,35 +3326,6 @@ const spellTokenForSpeech = (token) => (
           <button className="close-btn" onClick={closeAssistant}>x</button>
 
           <h3>GMU VoiceBot</h3>
-          <div className="voice-language-toggle" aria-label="Voice language">
-            {Object.entries(VOICE_LANGUAGE_OPTIONS).map(([key, option]) => (
-              <button
-                key={key}
-                type="button"
-                className={voiceLanguage === key ? "active" : ""}
-                onClick={() => {
-                  setVoiceLanguage(key)
-                  setTranscript("")
-                  setResponse("")
-                  setSuggestionText("")
-                  setQuickActions([])
-                  setReplySource("")
-                  resetPendingSpeechRecovery()
-                  resetPendingResultQuery()
-                  setStartupStatus(
-                    key === "hi"
-                      ? "पूछने के लिए दबाएं"
-                      : key === "kn"
-                        ? "ಕೇಳಲು ಒತ್ತಿಸಿ"
-                        : "Tap to ask"
-                  )
-                  void stopCurrentSpeech()
-                }}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
 
           <div className="voice-content">
             <p><b>{localizedText.status}</b> {statusLabel}</p>
@@ -2988,6 +3345,7 @@ const spellTokenForSpeech = (token) => (
                       setTranscript(prompt)
                       setSuggestionText("")
                       setQuickActions([])
+                      pendingSuggestionActionRef.current = null
                       void handleVoiceCommand(prompt)
                     }}
                   >
@@ -3006,8 +3364,8 @@ const spellTokenForSpeech = (token) => (
       <button
         className="voice-assistant-btn"
         onClick={handleAssistantButtonClick}
-        title={isActive ? localizedText.tapToAsk : localizedText.openAssistant}
-        aria-label={isActive ? localizedText.askAria : localizedText.openAssistant}
+        title={isVapiCallActive ? "Stop voice session" : isActive ? localizedText.tapToAsk : localizedText.openAssistant}
+        aria-label={isVapiCallActive ? "Stop voice session" : isActive ? localizedText.askAria : localizedText.openAssistant}
       >
         <img src={gmuLogo} alt="GMU VoiceBot" className="voice-logo" />
       </button>
@@ -3017,3 +3375,5 @@ const spellTokenForSpeech = (token) => (
 }
 
 export default VoiceAssistant
+
+

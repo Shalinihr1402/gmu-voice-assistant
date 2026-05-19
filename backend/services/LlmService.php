@@ -1010,7 +1010,7 @@ class LlmService {
             return "";
         }
 
-        $reply = str_replace(["â‚¹", "₹"], "Rs. ", $reply);
+        $reply = str_replace(["₹", "₹"], "Rs. ", $reply);
         $reply = preg_replace('/\s+/', ' ', $reply);
 
         $patternMap = [
@@ -1146,7 +1146,7 @@ class LlmService {
             return "";
         }
 
-        $reply = str_replace(["Ã¢â€šÂ¹", "â‚¹", "₹"], "Rs. ", $reply);
+        $reply = str_replace(["₹", "₹", "₹"], "Rs. ", $reply);
         $reply = preg_replace('/\s+/', ' ', $reply);
 
         $patternMap = [

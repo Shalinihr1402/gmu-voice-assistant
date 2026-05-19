@@ -17,6 +17,14 @@ class StudentController {
         "ai" => "artificial intelligence",
         "a i" => "artificial intelligence",
         "artificial intelligence" => "artificial intelligence",
+        "ada" => "design and analysis of algorithms",
+        "a d a" => "design and analysis of algorithms",
+        "analysis and design of algorithms" => "design and analysis of algorithms",
+        "design and analysis of algorithms" => "design and analysis of algorithms",
+        "ada" => "design and analysis of algorithms",
+        "a d a" => "design and analysis of algorithms",
+        "analysis and design of algorithms" => "design and analysis of algorithms",
+        "design and analysis of algorithms" => "design and analysis of algorithms",
         "ಎಐ" => "artificial intelligence",
         "ಆರ್ಟಿಫಿಷಿಯಲ್ ಇಂಟೆಲಿಜೆನ್ಸ್" => "artificial intelligence",
         "os" => "operating systems",
@@ -92,7 +100,24 @@ class StudentController {
             '/\x{0C86}\x{0CB0}\x{0CCD}\x{0C9F}\x{0CBF}\x{0CAB}\x{0CBF}\x{0CB7}\x{0CBF}\x{0CAF}\x{0CB2}\x{0CCD}\s*\x{0C87}\x{0C82}\x{0C9F}\x{0CC6}\x{0CB2}\x{0CBF}\x{0C9C}\x{0CC6}\x{0CA8}\x{0CCD}\x{0CB8}\x{0CCD}/u' => ' artificial intelligence '
         ];
 
-        return preg_replace(array_keys($replacements), array_values($replacements), $text);
+        $text = preg_replace(array_keys($replacements), array_values($replacements), $text);
+
+        $phoneticReplacements = [
+            '/ಆಪರೇಟಿಂಗ್\s*ಸಿಸ್ಟಂ(?:ಸ್)?/u' => ' operating systems ',
+            '/ಅಪರೇಟಿಂಗ್\s*ಸಿಸ್ಟಂ(?:ಸ್)?/u' => ' operating systems ',
+            '/ಒಪರೇಟಿಂಗ್\s*ಸಿಸ್ಟಂ(?:ಸ್)?/u' => ' operating systems ',
+            '/ಆಪರೇಟಿಂಗ\s*ಸಿಸ್ಟಂ(?:ಸ್)?/u' => ' operating systems ',
+            '/ಫಿಶಲ್\s*ಇಂಟೆಲಿಜೆನ್ಸ್/u' => ' artificial intelligence ',
+            '/ಆರ್ಟಿಫಿಶಿಯಲ್\s*ಇಂಟೆಲಿಜೆನ್ಸ್/u' => ' artificial intelligence ',
+            '/ಆರ್ಟಿಫಿಷಿಯಲ್\s*ಇಂಟೆಲಿಜೆನ್ಸ್/u' => ' artificial intelligence ',
+            '/ಅರ್ಟಿಫಿಶಿಯಲ್\s*ಇಂಟೆಲಿಜೆನ್ಸ್/u' => ' artificial intelligence ',
+            '/ಕಂಪ್ಯೂಟರ್\s*ನೆಟ್ವರ್ಕ್ಸ್?/u' => ' computer networks ',
+            '/ಕಂಪ್ಯೂಟರ್\s*ನೆಟ್\s*ವರ್ಕ್ಸ್?/u' => ' computer networks ',
+            '/ಡಿಬಿಎಮ್ಎಸ್/u' => ' dbms ',
+            '/ಡಿ\s*ಬಿ\s*ಎಂ\s*ಎಸ್/u' => ' dbms '
+        ];
+
+        return preg_replace(array_keys($phoneticReplacements), array_values($phoneticReplacements), (string) $text);
     }
 
     private static function buildCourseShortName($courseTitle) {
@@ -247,20 +272,34 @@ class StudentController {
                 '/\bos\b/u',
                 '/\bo\s*s\b/u',
                 '/\boperating systems?\b/u',
-                '/\x{0C86}\x{0CAA}\x{0CB0}\x{0CC7}\x{0C9F}\x{0CBF}\x{0C82}\x{0C97}\x{0CCD}\s*\x{0CB8}\x{0CBF}\x{0CB8}\x{0CCD}\x{0C9F}\x{0CAE}\x{0CCD}(?:\x{0CB8}\x{0CCD}|\x{0CB8}\x{0CCD}\x{0CB8}\x{0CCD})?/u'
+                '/\x{0C86}\x{0CAA}\x{0CB0}\x{0CC7}\x{0C9F}\x{0CBF}\x{0C82}\x{0C97}\x{0CCD}\s*\x{0CB8}\x{0CBF}\x{0CB8}\x{0CCD}\x{0C9F}\x{0CAE}\x{0CCD}(?:\x{0CB8}\x{0CCD}|\x{0CB8}\x{0CCD}\x{0CB8}\x{0CCD})?/u',
+                '/ಆಪರೇಟಿಂಗ್\s*ಸಿಸ್ಟಂ(?:ಸ್)?/u',
+                '/ಅಪರೇಟಿಂಗ್\s*ಸಿಸ್ಟಂ(?:ಸ್)?/u',
+                '/ಒಪರೇಟಿಂಗ್\s*ಸಿಸ್ಟಂ(?:ಸ್)?/u'
+            ],
+            "design and analysis of algorithms" => [
+                "/\\bada\\b/u",
+                "/\\ba\\s*d\\s*a\\b/u",
+                "/\\b(?:design and analysis of algorithms|analysis and design of algorithms)\\b/u"
             ],
             "computer networks" => [
                 '/\bcn\b/u',
                 '/\bc\s*n\b/u',
                 '/\bcomputer networks?\b/u',
                 '/\bcomputer net work(s)?\b/u',
-                '/\x{0C95}\x{0C82}\x{0CAA}\x{0CCD}\x{0CAF}\x{0CC2}\x{0C9F}\x{0CB0}\x{0CCD}\s*\x{0CA8}\x{0CC6}\x{0C9F}\x{0CCD}(?:\x{0CB5}\x{0CB0}\x{0CCD}\x{0C95}\x{0CCD}|\x{0CB5}\x{0CB0}\x{0CCD}\x{0C95}\x{0CCD}\x{0CB8}\x{0CCD}|\x{0CB5}\x{0CB0}\x{0CCD}\x{0C95}\x{0CCD}\x{0CB8}\x{0CCD})/u'
+                '/\x{0C95}\x{0C82}\x{0CAA}\x{0CCD}\x{0CAF}\x{0CC2}\x{0C9F}\x{0CB0}\x{0CCD}\s*\x{0CA8}\x{0CC6}\x{0C9F}\x{0CCD}(?:\x{0CB5}\x{0CB0}\x{0CCD}\x{0C95}\x{0CCD}|\x{0CB5}\x{0CB0}\x{0CCD}\x{0C95}\x{0CCD}\x{0CB8}\x{0CCD}|\x{0CB5}\x{0CB0}\x{0CCD}\x{0C95}\x{0CCD}\x{0CB8}\x{0CCD})/u',
+                '/ಕಂಪ್ಯೂಟರ್\s*ನೆಟ್ವರ್ಕ್ಸ್?/u',
+                '/ಕಂಪ್ಯೂಟರ್\s*ನೆಟ್\s*ವರ್ಕ್ಸ್?/u'
             ],
             "artificial intelligence" => [
                 '/\bai\b/u',
                 '/\ba\s*i\b/u',
                 '/\bartificial intelligence\b/u',
-                '/\x{0C86}\x{0CB0}\x{0CCD}\x{0C9F}\x{0CBF}\x{0CAB}\x{0CBF}\x{0CB7}\x{0CBF}\x{0CAF}\x{0CB2}\x{0CCD}\s*\x{0C87}\x{0C82}\x{0C9F}\x{0CC6}\x{0CB2}\x{0CBF}\x{0C9C}\x{0CC6}\x{0CA8}\x{0CCD}\x{0CB8}\x{0CCD}/u'
+                '/\x{0C86}\x{0CB0}\x{0CCD}\x{0C9F}\x{0CBF}\x{0CAB}\x{0CBF}\x{0CB7}\x{0CBF}\x{0CAF}\x{0CB2}\x{0CCD}\s*\x{0C87}\x{0C82}\x{0C9F}\x{0CC6}\x{0CB2}\x{0CBF}\x{0C9C}\x{0CC6}\x{0CA8}\x{0CCD}\x{0CB8}\x{0CCD}/u',
+                '/ಆರ್ಟಿಫಿಶಿಯಲ್\s*ಇಂಟೆಲಿಜೆನ್ಸ್/u',
+                '/ಆರ್ಟಿಫಿಷಿಯಲ್\s*ಇಂಟೆಲಿಜೆನ್ಸ್/u',
+                '/ಅರ್ಟಿಫಿಶಿಯಲ್\s*ಇಂಟೆಲಿಜೆನ್ಸ್/u',
+                '/ಫಿಶಲ್\s*ಇಂಟೆಲಿಜೆನ್ಸ್/u'
             ]
         ];
 
@@ -317,7 +356,21 @@ class StudentController {
             "computer networks" => "computer networks",
             "cn" => "computer networks",
             "artificial intelligence" => "artificial intelligence",
-            "ai" => "artificial intelligence"
+        "ada" => "design and analysis of algorithms",
+        "a d a" => "design and analysis of algorithms",
+        "analysis and design of algorithms" => "design and analysis of algorithms",
+        "design and analysis of algorithms" => "design and analysis of algorithms",
+        "ada" => "design and analysis of algorithms",
+        "a d a" => "design and analysis of algorithms",
+        "analysis and design of algorithms" => "design and analysis of algorithms",
+        "design and analysis of algorithms" => "design and analysis of algorithms",
+            "ai" => "artificial intelligence",
+            "ada" => "design and analysis of algorithms",
+            "analysis and design of algorithms" => "design and analysis of algorithms",
+            "design and analysis of algorithms" => "design and analysis of algorithms",
+            "ada" => "design and analysis of algorithms",
+            "analysis and design of algorithms" => "design and analysis of algorithms",
+            "design and analysis of algorithms" => "design and analysis of algorithms"
         ];
 
         if ($normalizedQuery === "") {
@@ -514,7 +567,7 @@ class StudentController {
     }
 
     private static function extractKnownAttendanceSubject($message) {
-        $normalizedMessage = self::normalizeLookupText($message);
+        $normalizedMessage = self::normalizeLookupText(self::canonicalizeCourseQueryTerms($message));
 
         $subjectPatterns = [
             "database management systems" => [
@@ -533,8 +586,17 @@ class StudentController {
                 "operating system",
                 "os",
                 "o s",
+                "ಆಪರೇಟಿಂಗ್ ಸಿಸ್ಟಂ",
+                "ಆಪರೇಟಿಂಗ್ ಸಿಸ್ಟಮ್ಸ್",
+                "ಅಪರೇಟಿಂಗ್ ಸಿಸ್ಟಂ",
+                "ಒಪರೇಟಿಂಗ್ ಸಿಸ್ಟಂ",
                 "ಆಪರೇಟಿಂಗ್ ಸಿಸ್ಟಮ್ಸ್",
                 "ಆಪರೇಟಿಂಗ್ ಸಿಸ್ಟಮ್"
+            ],
+            "design and analysis of algorithms" => [
+                "/\\bada\\b/u",
+                "/\\ba\\s*d\\s*a\\b/u",
+                "/\\b(?:design and analysis of algorithms|analysis and design of algorithms)\\b/u"
             ],
             "computer networks" => [
                 "computer networks",
@@ -543,15 +605,27 @@ class StudentController {
                 "cn",
                 "c n",
                 "ಕಂಪ್ಯೂಟರ್ ನೆಟ್ವರ್ಕ್ಸ್",
+                "ಕಂಪ್ಯೂಟರ್ ನೆಟ್ ವರ್ಕ್ಸ್",
+                "ಕಂಪ್ಯೂಟರ್ ನೆಟ್ವರ್ಕ್ಸ್",
                 "ಕಂಪ್ಯೂಟರ್ ನೆಟ್ವರ್ಕ್",
                 "ಕಂಪ್ಯೂಟರ್ ನೆಟ್ ವರ್ಕ್ಸ್",
                 "ಕಂಪ್ಯೂಟರ್ ನೆಟ್ ವರ್ಕ್"
+            ],
+            "design and analysis of algorithms" => [
+                "design and analysis of algorithms",
+                "analysis and design of algorithms",
+                "ada",
+                "a d a"
             ],
             "artificial intelligence" => [
                 "artificial intelligence",
                 "artificial intelligent",
                 "ai",
                 "a i",
+                "ಆರ್ಟಿಫಿಶಿಯಲ್ ಇಂಟೆಲಿಜೆನ್ಸ್",
+                "ಆರ್ಟಿಫಿಷಿಯಲ್ ಇಂಟೆಲಿಜೆನ್ಸ್",
+                "ಅರ್ಟಿಫಿಶಿಯಲ್ ಇಂಟೆಲಿಜೆನ್ಸ್",
+                "ಫಿಶಲ್ ಇಂಟೆಲಿಜೆನ್ಸ್",
                 "ಆರ್ಟಿಫಿಶಿಯಲ್ ಇಂಟೆಲಿಜೆನ್ಸ್"
             ]
         ];
@@ -1296,13 +1370,13 @@ class StudentController {
         if ($bestMatch && $bestScore >= 60) {
             if (self::isCourseCodeRequest($message)) {
                 return self::isKannada($language)
-                    ? "{$bestMatch["course_title"]} à²µà²¿à²·à²¯à²¦ course code {$bestMatch["course_code"]}."
+                    ? "{$bestMatch["course_title"]} ವಿಷಯದ course code {$bestMatch["course_code"]}."
                     : "The course code for {$bestMatch["course_title"]} is {$bestMatch["course_code"]}.";
             }
 
             $credits = rtrim(rtrim(number_format((float) $bestMatch["credits"], 1, ".", ""), "0"), ".");
             return self::isKannada($language)
-                ? "{$bestMatch["course_title"]} à²µà²¿à²·à²¯à²¦ course code {$bestMatch["course_code"]}. à²‡à²¦à³ {$semester}à²¨à³‡ à²¸à³†à²®à²¿à²¸à³à²Ÿà²°à³â€Œà²¨ {$bestMatch["course_type"]} course à²†à²—à²¿à²¦à³à²¦à³ {$credits} credit" . ($credits === "1" ? "" : "s") . " à²¹à³Šà²‚à²¦à²¿à²¦à³†."
+                ? "{$bestMatch["course_title"]} ವಿಷಯದ course code {$bestMatch["course_code"]}. ಇದು {$semester}ನೇ ಸೆಮಿಸ್ಟರ್‌ನ {$bestMatch["course_type"]} course ಆಗಿದ್ದು {$credits} credit" . ($credits === "1" ? "" : "s") . " ಹೊಂದಿದೆ."
                 : "{$bestMatch["course_title"]} has course code {$bestMatch["course_code"]}. It is a {$bestMatch["course_type"]} course with {$credits} credit" . ($credits === "1" ? "" : "s") . " in semester {$semester}.";
         }
 
@@ -1830,4 +1904,6 @@ class StudentController {
         return $reply;
     }
 }
+
+
 

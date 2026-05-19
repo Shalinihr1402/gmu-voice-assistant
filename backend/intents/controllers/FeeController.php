@@ -6,11 +6,21 @@ class FeeController {
 
     private static function normalizeLanguage($language) {
         $normalized = strtolower(trim((string) $language));
-        return in_array($normalized, ["kn", "kannada", "kn-in"], true) ? "kn" : "en";
+        if (in_array($normalized, ["kn", "kannada", "kn-in"], true)) return "kn";
+        if (in_array($normalized, ["hi", "hindi", "hi-in"], true)) return "hi";
+        return "en";
     }
 
     private static function isKannada($language) {
         return self::normalizeLanguage($language) === "kn";
+    }
+
+    private static function isHindi($language) {
+        return self::normalizeLanguage($language) === "hi";
+    }
+
+    private static function money($amount) {
+        return number_format((float) $amount, 2);
     }
 
     private static function getFeeRows($student_id) {
@@ -83,9 +93,9 @@ class FeeController {
     public static function getFeeBalance($student_id, $language = "en") {
         $feeData = self::getFeeRows($student_id);
         if (isset($feeData["error"])) {
-            return self::isKannada($language)
-                ? "ಫೀಸ್ ಮಾಹಿತಿ ತರುತ್ತಿರುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು."
-                : $feeData["error"];
+            if (self::isKannada($language)) return "Fee details taruvaga system problem aayitu. Dayavittu swalpa time aadmele try maadi.";
+            if (self::isHindi($language)) return "Fee details laate waqt system problem hua. Kripya thodi der baad try kijiye.";
+            return $feeData["error"];
         }
 
         $programFee = 0;
@@ -107,46 +117,45 @@ class FeeController {
         }
 
         $balance = max(0, $totalFee - $totalPaid);
+        $program = self::money($programFee);
+        $skill = self::money($skillFee);
+        $total = self::money($totalFee);
+        $paid = self::money($totalPaid);
+        $due = self::money($balance);
+
+        if (self::isHindi($language)) {
+            $reply = "Aapka total academic fee Rs. {$total} hai. Aapne Rs. {$paid} pay kiya hai. ";
+            if ($skillFee > 0) {
+                $reply .= "Isme program fee Rs. {$program} aur skill development fee Rs. {$skill} hai. ";
+            }
+            if ($balance > 0) {
+                return $reply . "Aapka pending fee balance Rs. {$due} hai.";
+            }
+            return $reply . "Aapki fees clear hai. Pending balance Rs. 0.00 hai.";
+        }
 
         if (self::isKannada($language)) {
-            $reply = "ಇದು ನಿಮ್ಮ ಫೀಸ್ ವಿವರ. ";
-            $reply .= "ನಿಮ್ಮ ಪ್ರೋಗ್ರಾಂ ಫೀಸ್ ರೂ. " . number_format($programFee, 2) . ". ";
-
+            $reply = "Nimma total academic fee Rs. {$total}. Neevu Rs. {$paid} pay madiddiri. ";
             if ($skillFee > 0) {
-                $reply .= "ನಿಮ್ಮ ಸ್ಕಿಲ್ ಡೆವಲಪ್ಮೆಂಟ್ ಫೀಸ್ ರೂ. " . number_format($skillFee, 2) . ". ";
+                $reply .= "Idaralli program fee Rs. {$program} mattu skill development fee Rs. {$skill}. ";
             }
-
-            $reply .= "ನಿಮ್ಮ ಒಟ್ಟು ಅಕಾಡೆಮಿಕ್ ಫೀಸ್ ರೂ. " . number_format($totalFee, 2) . ". ";
-            $reply .= "ನೀವು ಇದುವರೆಗೆ ರೂ. " . number_format($totalPaid, 2) . " ಪಾವತಿಸಿದ್ದೀರಿ. ";
-
             if ($balance > 0) {
-                $reply .= "ಇನ್ನೂ ಬಾಕಿ ಇರುವ ಫೀಸ್ ರೂ. " . number_format($balance, 2) . ".";
-            } else {
-                $reply .= "ನಿಮ್ಮ ಎಲ್ಲಾ ಫೀಸ್ ಪಾವತಿ ಪೂರ್ಣಗೊಂಡಿದೆ.";
+                return $reply . "Nimma pending fee balance Rs. {$due} ide.";
             }
-
-            return $reply;
+            return $reply . "Nimma fees clear ide. Pending balance Rs. 0.00.";
         }
 
-        $reply = "Here is your fee summary. ";
-        $reply .= "Your program fee is Rs. " . number_format($programFee, 2) . ". ";
-
+        $reply = "Here is your fee summary. Your program fee is Rs. {$program}. ";
         if ($skillFee > 0) {
-            $reply .= "Your skill development fee is Rs. " . number_format($skillFee, 2) . ". ";
+            $reply .= "Your skill development fee is Rs. {$skill}. ";
         }
-
-        $reply .= "Your total academic fee is Rs. " . number_format($totalFee, 2) . ". ";
-        $reply .= "You have paid Rs. " . number_format($totalPaid, 2) . ". ";
+        $reply .= "Your total academic fee is Rs. {$total}. You have paid Rs. {$paid}. ";
 
         if ($balance > 0) {
-            $reply .= "Your remaining balance is Rs. " . number_format($balance, 2) . ".";
-        } else {
-            $reply .= "You have cleared all your fees. Well done.";
+            return $reply . "Your remaining balance is Rs. {$due}.";
         }
-
-        return $reply;
+        return $reply . "You have cleared all your fees. Pending balance is Rs. 0.00.";
     }
-
     public static function getFinalRegistrationStatus($student_id, $language = "en") {
         $feeData = self::getFeeRows($student_id);
         if (isset($feeData["error"])) {
@@ -196,3 +205,4 @@ class FeeController {
         return "Your course registration is complete, but your final registration is still pending because you have an outstanding balance of Rs. " . number_format($totalBalance, 2) . ". Pending items include " . $pendingSummary . ". Please clear the balance to complete final registration.";
     }
 }
+

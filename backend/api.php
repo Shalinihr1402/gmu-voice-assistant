@@ -9,6 +9,10 @@ require_once __DIR__ . "/cors.php";
 ini_set('session.cookie_samesite', 'Lax');
 ini_set('session.cookie_secure', '0');
 
+header("Access-Control-Allow-Origin: http://localhost:3000");
+header("Access-Control-Allow-Credentials: true");
+header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type");
 header("Content-Type: application/json");
 
 session_start();
@@ -19,6 +23,8 @@ require_once __DIR__ . "/intents/controllers/FeeController.php";
 require_once __DIR__ . "/services/LlmService.php";
 require_once __DIR__ . "/services/ConversationContextService.php";
 require_once __DIR__ . "/services/SmartQueryResolver.php";
+require_once __DIR__ . "/services/MultilingualUnderstandingService.php";
+require_once __DIR__ . "/services/VoiceUnderstandingService.php";
 require_once __DIR__ . "/services/SuggestionService.php";
 require_once __DIR__ . "/services/UserService.php";
 require_once __DIR__ . "/config/db.php";
@@ -78,6 +84,11 @@ $message = preg_replace('/\bcorse\s+code\b/iu', "course code", $message);
 $message = preg_replace('/\b(scores|score|marks|mark|grades|grading)\b/ui', " result ", $message);
 $message = trim(preg_replace('/\s+/u', " ", $message));
 $language = strtolower(trim((string) ($input["language"] ?? "en")));
+$rawTranscriptMeta = trim((string) ($input["raw_transcript"] ?? ""));
+$correctedTranscriptMeta = trim((string) ($input["corrected_transcript"] ?? ""));
+$transcriptConfidenceMeta = (float) ($input["transcript_confidence"] ?? 0.0);
+$meanWordConfidenceMeta = (float) ($input["mean_word_confidence"] ?? 0.0);
+$lowConfidenceWordsMeta = is_array($input["low_confidence_words"] ?? null) ? $input["low_confidence_words"] : [];
 if (in_array($language, ["hi", "hindi", "hi-in"], true)) {
     $language = "hi";
 } elseif (in_array($language, ["kn", "kannada", "kn-in"], true)) {
@@ -86,16 +97,33 @@ if (in_array($language, ["hi", "hindi", "hi-in"], true)) {
     $language = "en";
 }
 
+function debugVoicebotLog($message, $context = []) {
+    $enabled = getenv("VOICEBOT_DEBUG");
+    if ($enabled === false || $enabled === "" || strtolower((string) $enabled) === "false") {
+        return;
+    }
+
+    $line = "[voicebot-api] " . $message;
+    if (!empty($context)) {
+        $encoded = json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($encoded !== false) {
+            $line .= " " . $encoded;
+        }
+    }
+
+    error_log($line);
+}
+
 function detectRequestedReplyLanguage($message, $fallbackLanguage) {
-    if (preg_match('/\b(hindi|hindi me|hindi mein)\b|हिंदी|हिन्दी/u', $message)) {
+    if (preg_match('/\b(hindi|hindi me|hindi mein)\b|à¤¹à¤¿à¤‚à¤¦à¥€|à¤¹à¤¿à¤¨à¥à¤¦à¥€/u', $message)) {
         return "hi";
     }
 
-    if (preg_match('/\b(kannada|kannadadalli|kannada dalli)\b|ಕನ್ನಡ/u', $message)) {
+    if (preg_match('/\b(kannada|kannadadalli|kannada dalli)\b|à²•à²¨à³à²¨à²¡/u', $message)) {
         return "kn";
     }
 
-    if (preg_match('/\b(english|in english)\b|इंग्लिश|अंग्रेजी|ಇಂಗ್ಲಿಷ್/u', $message)) {
+    if (preg_match('/\b(english|in english)\b|à¤‡à¤‚à¤—à¥à¤²à¤¿à¤¶|à¤…à¤‚à¤—à¥à¤°à¥‡à¤œà¥€|à²‡à²‚à²—à³à²²à²¿à²·à³/u', $message)) {
         return "en";
     }
 
@@ -104,7 +132,7 @@ function detectRequestedReplyLanguage($message, $fallbackLanguage) {
 
 function isLanguageSwitchRequest($message) {
     return (bool) preg_match(
-        '/\b(translate|say|tell|reply|answer|speak|explain)\b.*\b(hindi|kannada|english)\b|\b(hindi|kannada|english)\b.*\b(please|bolo|mein|me|dalli|heli)\b|हिंदी में|हिन्दी में|कन्नड़ में|अंग्रेजी में|ಕನ್ನಡದಲ್ಲಿ|ಇಂಗ್ಲಿಷ್‌ನಲ್ಲಿ/u',
+        '/\b(translate|say|tell|reply|answer|speak|explain)\b.*\b(hindi|kannada|english)\b|\b(hindi|kannada|english)\b.*\b(please|bolo|mein|me|dalli|heli)\b|à¤¹à¤¿à¤‚à¤¦à¥€ à¤®à¥‡à¤‚|à¤¹à¤¿à¤¨à¥à¤¦à¥€ à¤®à¥‡à¤‚|à¤•à¤¨à¥à¤¨à¤¡à¤¼ à¤®à¥‡à¤‚|à¤…à¤‚à¤—à¥à¤°à¥‡à¤œà¥€ à¤®à¥‡à¤‚|à²•à²¨à³à²¨à²¡à²¦à²²à³à²²à²¿|à²‡à²‚à²—à³à²²à²¿à²·à³â€Œà²¨à²²à³à²²à²¿/u',
         $message
     );
 }
@@ -121,14 +149,14 @@ function isShortFollowUpFragment($message) {
 
 function hasSubjectLikePhrase($message) {
     return (bool) preg_match(
-        '/\b(dbms|d\s*b\s*m\s*s|os|o\s*s|cn|c\s*n|ai|a\s*i|database management systems|operating systems|computer networks|dbms laboratory|artificial intelligence)\b|ಡಿಬಿಎಂಎಸ್|ಡಿಬಿಎಂಎಸ್ ಲ್ಯಾಬ್|ಆಪರೇಟಿಂಗ್ ಸಿಸ್ಟಮ್ಸ್|ಕಂಪ್ಯೂಟರ್ ನೆಟ್ವರ್ಕ್ಸ್|ಆರ್ಟಿಫಿಷಿಯಲ್ ಇಂಟೆಲಿಜೆನ್ಸ್|डीबीएमएस|ऑपरेटिंग सिस्टम|कंप्यूटर नेटवर्क|आर्टिफिशियल इंटेलिजेंस/u',
+        '/\b(dbms|d\s*b\s*m\s*s|os|o\s*s|cn|c\s*n|ai|a\s*i|database management systems|operating systems|computer networks|dbms laboratory|artificial intelligence)\b|à²¡à²¿à²¬à²¿à²Žà²‚à²Žà²¸à³|à²¡à²¿à²¬à²¿à²Žà²‚à²Žà²¸à³ à²²à³à²¯à²¾à²¬à³|à²†à²ªà²°à³‡à²Ÿà²¿à²‚à²—à³ à²¸à²¿à²¸à³à²Ÿà²®à³à²¸à³|à²•à²‚à²ªà³à²¯à³‚à²Ÿà²°à³ à²¨à³†à²Ÿà³à²µà²°à³à²•à³à²¸à³|à²†à²°à³à²Ÿà²¿à²«à²¿à²·à²¿à²¯à²²à³ à²‡à²‚à²Ÿà³†à²²à²¿à²œà³†à²¨à³à²¸à³|à¤¡à¥€à¤¬à¥€à¤à¤®à¤à¤¸|à¤‘à¤ªà¤°à¥‡à¤Ÿà¤¿à¤‚à¤— à¤¸à¤¿à¤¸à¥à¤Ÿà¤®|à¤•à¤‚à¤ªà¥à¤¯à¥‚à¤Ÿà¤° à¤¨à¥‡à¤Ÿà¤µà¤°à¥à¤•|à¤†à¤°à¥à¤Ÿà¤¿à¤«à¤¿à¤¶à¤¿à¤¯à¤² à¤‡à¤‚à¤Ÿà¥‡à¤²à¤¿à¤œà¥‡à¤‚à¤¸/u',
         $message
     );
 }
 
 function hasSemesterLikePhrase($message) {
     return (bool) preg_match(
-        '/\b\d+\s*(st|nd|rd|th)?\s*sem(?:ester)?\b|\bsemester\s*\d+\b|\bsem\s*\d+\b|सेमेस्टर|ಸೆಮಿಸ್ಟರ್/u',
+        '/\b\d+\s*(st|nd|rd|th)?\s*sem(?:ester)?\b|\bsemester\s*\d+\b|\bsem\s*\d+\b|à¤¸à¥‡à¤®à¥‡à¤¸à¥à¤Ÿà¤°|à²¸à³†à²®à²¿à²¸à³à²Ÿà²°à³/u',
         $message
     );
 }
@@ -205,6 +233,11 @@ function resolveConversationMemoryFollowUp($message, $language, $lastContext) {
     $lastIntent = $lastContext["intent"] ?? "";
     $lastReply = trim((string) ($lastContext["reply"] ?? ""));
     $resolvedLanguage = detectRequestedReplyLanguage($message, $language);
+    $isCourseCodeRequest = class_exists("StudentController")
+        && (
+            StudentController::isLikelyCourseCodeQuery($message)
+            || (bool) preg_match('/\b(course|subject)\s+code\b|\bcode\s+(of|for)\b|\bcode\b|à²•à³‹à²¡à³|à²•à³‹à²¡à²¿|à²µà²¿à²·à²¯à²¦ à²•à³‹à²¡à³/u', $message)
+        );
 
     if ($lastReply !== "" && isLanguageSwitchRequest($message)) {
         return [
@@ -227,6 +260,22 @@ function resolveConversationMemoryFollowUp($message, $language, $lastContext) {
 
     if (!isShortFollowUpFragment($message)) {
         return null;
+    }
+
+    if (preg_match('/\b(attendance|attendence|atendance|hajari)\b/u', strtolower((string) $message)) && hasSubjectLikePhrase($message)) {
+        return [
+            "type" => "rewrite_message",
+            "message" => "attendance in " . trim((string) $message),
+            "source" => "conversation_memory_attendance_explicit"
+        ];
+    }
+
+    if ($isCourseCodeRequest && hasSubjectLikePhrase($message)) {
+        return [
+            "type" => "rewrite_message",
+            "message" => "course code for " . trim((string) $message),
+            "source" => "conversation_memory_course_code"
+        ];
     }
 
     if (in_array($lastIntent, ["GET_ATTENDANCE", "GET_SUBJECT_ATTENDANCE"], true) && hasSubjectLikePhrase($message)) {
@@ -300,149 +349,7 @@ function buildExamReadinessReply($student_id, $message, $language) {
     return $reply;
 }
 
-function respondWithClarification($intent, $clarification, $intentSource) {
-    echo json_encode([
-        "status" => "success",
-        "intent" => $intent,
-        "route" => "clarification",
-        "confidence" => "medium",
-        "intent_source" => $intentSource,
-        "reply" => $clarification["reply"] ?? "",
-        "reply_source" => "clarification",
-        "suggestion" => null,
-        "quick_actions" => [],
-        "suggestion_priority" => null,
-        "clarification" => [
-            "corrected_text" => $clarification["corrected_text"] ?? "",
-            "display_text" => $clarification["display_text"] ?? ""
-        ]
-    ]);
-    exit();
-}
-
-function normalizeClarificationText($message) {
-    $normalized = mb_strtolower(trim((string) $message), "UTF-8");
-    $normalized = preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $normalized);
-    $normalized = preg_replace('/\s+/u', ' ', (string) $normalized);
-    return trim((string) $normalized);
-}
-
-function countClarificationWords($message) {
-    preg_match_all('/[\p{L}\p{N}]+/u', (string) $message, $matches);
-    return count($matches[0] ?? []);
-}
-
-function buildIntentClarificationPayload($intent, $message, $language = "en") {
-    $normalizedMessage = normalizeClarificationText($message);
-    if ($normalizedMessage === "") {
-        return null;
-    }
-
-    $wordCount = countClarificationWords($normalizedMessage);
-    if ($wordCount > 2 || mb_strlen($normalizedMessage, "UTF-8") > 22) {
-        return null;
-    }
-
-    $intentPrompts = [
-        "GET_ATTENDANCE" => [
-            ["display" => "attendance", "corrected" => "attendance"],
-            ["display" => "overall attendance", "corrected" => "overall attendance"]
-        ],
-        "GET_FEES_BALANCE" => [
-            ["display" => "fee balance", "corrected" => "fee balance"]
-        ],
-        "GET_FINAL_REGISTRATION_STATUS" => [
-            ["display" => "registration status", "corrected" => "registration status"]
-        ],
-        "GET_PROFILE_SUMMARY" => [
-            ["display" => "profile", "corrected" => "profile"]
-        ],
-        "GET_USN" => [
-            ["display" => "USN", "corrected" => "usn"]
-        ],
-        "GET_SGPA" => [
-            ["display" => "SGPA", "corrected" => "sgpa"]
-        ],
-        "GET_CGPA" => [
-            ["display" => "CGPA", "corrected" => "cgpa"]
-        ],
-        "GET_BACKLOG_STATUS" => [
-            ["display" => "backlog status", "corrected" => "backlog status"]
-        ],
-        "GET_CERTIFICATE_STATUS" => [
-            ["display" => "certificates", "corrected" => "certificates"]
-        ],
-        "GET_HALL_TICKET_STATUS" => [
-            ["display" => "hall ticket status", "corrected" => "hall ticket status"]
-        ],
-        "GET_COURSE_DETAILS" => [
-            ["display" => "course details", "corrected" => "course details"]
-        ]
-    ];
-
-    $candidates = $intentPrompts[$intent] ?? [];
-    if (empty($candidates)) {
-        return null;
-    }
-
-    $bestCandidate = null;
-    $bestDistance = PHP_INT_MAX;
-
-    foreach ($candidates as $candidate) {
-        $normalizedCandidate = normalizeClarificationText($candidate["corrected"] ?? "");
-        $compactMessage = str_replace(" ", "", $normalizedMessage);
-        $compactCandidate = str_replace(" ", "", $normalizedCandidate);
-
-        if ($compactCandidate === "" || $compactMessage === $compactCandidate) {
-            continue;
-        }
-
-        $isPrefixLike = strpos($compactCandidate, $compactMessage) === 0 || strpos($compactMessage, $compactCandidate) === 0;
-        $distance = levenshtein($compactMessage, $compactCandidate);
-        $maxDistance = max(1, (int) floor(strlen($compactCandidate) * 0.3));
-
-        if (!$isPrefixLike && $distance > $maxDistance) {
-            continue;
-        }
-
-        if ($distance < $bestDistance) {
-            $bestDistance = $distance;
-            $bestCandidate = $candidate;
-        }
-    }
-
-    if (!is_array($bestCandidate)) {
-        return null;
-    }
-
-    $displayText = $bestCandidate["display"] ?? ($bestCandidate["corrected"] ?? "");
-    $correctedText = $bestCandidate["corrected"] ?? "";
-
-    if ($displayText === "" || $correctedText === "") {
-        return null;
-    }
-
-    if ($language === "hi") {
-        $reply = "क्या आपका मतलब {$displayText} था? कृपया हाँ या नहीं कहिए।";
-    } elseif ($language === "kn") {
-        $reply = "{$displayText} andre nimma artha? Dayavittu haudu athava illa heli.";
-    } else {
-        $reply = "Did you mean {$displayText}? Please say yes or no.";
-    }
-
-    return [
-        "reply" => $reply,
-        "corrected_text" => $correctedText,
-        "display_text" => $displayText
-    ];
-}
-
 $lastContext = ConversationContextService::getLastResolvedContext();
-
-if (isAmbiguousSubjectOpener($message, $lastContext)) {
-    respondWithSubjectIntentChoice($message, $language);
-}
-
 $smartResolution = SmartQueryResolver::resolve($message, $language, $lastContext);
 
 if (is_array($smartResolution) && ($smartResolution["type"] ?? "") === "translate_last_reply") {
@@ -469,7 +376,15 @@ if (is_array($smartResolution) && ($smartResolution["type"] ?? "") === "translat
         "reply_source" => $meta["reply_source"],
         "suggestion" => null,
         "quick_actions" => [],
-        "suggestion_priority" => null
+        "suggestion_priority" => null,
+        "effective_message" => $message,
+        "debug" => [
+            "understanding" => $understanding ?? [],
+            "raw_transcript" => $rawTranscriptMeta,
+            "corrected_transcript" => $correctedTranscriptMeta,
+            "transcript_confidence" => $transcriptConfidenceMeta,
+            "mean_word_confidence" => $meanWordConfidenceMeta
+        ]
     ]);
     exit();
 }
@@ -517,13 +432,57 @@ if (is_array($memoryResolution) && ($memoryResolution["type"] ?? "") === "transl
         "reply_source" => $meta["reply_source"],
         "suggestion" => null,
         "quick_actions" => [],
-        "suggestion_priority" => null
+        "suggestion_priority" => null,
+        "effective_message" => $message,
+        "debug" => [
+            "understanding" => $understanding ?? [],
+            "raw_transcript" => $rawTranscriptMeta,
+            "corrected_transcript" => $correctedTranscriptMeta,
+            "transcript_confidence" => $transcriptConfidenceMeta,
+            "mean_word_confidence" => $meanWordConfidenceMeta
+        ]
     ]);
     exit();
 }
 
 if (is_array($memoryResolution) && ($memoryResolution["type"] ?? "") === "rewrite_message") {
     $message = $memoryResolution["message"];
+}
+
+if (
+    $language === "kn" &&
+    $transcriptConfidenceMeta > 0 &&
+    $transcriptConfidenceMeta < 0.75
+) {
+    debugVoicebotLog("kannada_low_confidence_block", [
+        "raw_transcript" => $rawTranscriptMeta,
+        "corrected_transcript" => $correctedTranscriptMeta,
+        "transcript_confidence" => $transcriptConfidenceMeta,
+        "mean_word_confidence" => $meanWordConfidenceMeta,
+        "low_confidence_count" => count($lowConfidenceWordsMeta)
+    ]);
+
+    echo json_encode([
+        "status" => "success",
+        "intent" => "LOW_CONFIDENCE_KANNADA",
+        "route" => "safety_block",
+        "confidence" => "low",
+        "intent_source" => "kannada_low_confidence_guard",
+        "reply" => "à²¨à²¾à²¨à³ à²–à²šà²¿à²¤à²µà²¾à²—à²¿ à²•à³‡à²³à²²à²¿à²²à³à²². à²¦à²¯à²µà²¿à²Ÿà³à²Ÿà³ à²¨à²¿à²§à²¾à²¨à²µà²¾à²—à²¿ à²®à²¤à³à²¤à³† à²¹à³‡à²³à²¿.",
+        "reply_source" => "stt_guard",
+        "suggestion" => null,
+        "quick_actions" => [],
+        "suggestion_priority" => null,
+        "effective_message" => $message,
+        "debug" => [
+            "understanding" => $understanding ?? [],
+            "raw_transcript" => $rawTranscriptMeta,
+            "corrected_transcript" => $correctedTranscriptMeta,
+            "transcript_confidence" => $transcriptConfidenceMeta,
+            "mean_word_confidence" => $meanWordConfidenceMeta
+        ]
+    ]);
+    exit();
 }
 
 $normalizedMessage = strtolower($message);
@@ -535,36 +494,38 @@ $hasShortCgpaFragment = (bool) preg_match('/(^|\b)(c\s*g|cg)\b/u', $normalizedMe
     && strpos($normalizedMessage, 'cgpa') === false
     && strpos($normalizedMessage, 'sgpa') === false;
 $isExplicitUsnQuery = (bool) preg_match(
-    '/^\s*(usn|registration number|university number)\s*[\?\.!]*\s*$|\b(what(?:\s+is|\'s)?|tell|show|give|share|say|confirm)\b.*\b(usn|registration number|university number)\b|\bmy\s+(usn|registration number|university number)\b|यूएसएन|रजिस्ट्रेशन नंबर/u',
+    '/^\s*(usn|registration number|university number)\s*[\?\.!]*\s*$|\b(what(?:\s+is|\'s)?|tell|show|give|share|say|confirm)\b.*\b(usn|registration number|university number)\b|\bmy\s+(usn|registration number|university number)\b|à¤¯à¥‚à¤à¤¸à¤à¤¨|à¤°à¤œà¤¿à¤¸à¥à¤Ÿà¥à¤°à¥‡à¤¶à¤¨ à¤¨à¤‚à¤¬à¤°/u',
     $normalizedMessage
 );
 $hasAttendanceWord = (bool) preg_match(
-    '/\battendance\b|ಅಟೆಂಡೆನ್ಸ್|ಹಾಜರಿ|ಹಾಜರಾತಿ|attendence|atendance/u',
+    '/\battendance\b|à²…à²Ÿà³†à²‚à²¡à³†à²¨à³à²¸à³|à²¹à²¾à²œà²°à²¿|à²¹à²¾à²œà²°à²¾à²¤à²¿|attendence|atendance/u',
     $normalizedMessage
 );
 $hasOverallAttendanceWord = (bool) preg_match(
-    '/\boverall\b|\btotal\b|ಒಟ್ಟು|ಟೋಟಲ್/u',
+    '/\boverall\b|\btotal\b|à²’à²Ÿà³à²Ÿà³|à²Ÿà³‹à²Ÿà²²à³/u',
     $normalizedMessage
 );
+$inferredAttendanceSubject = StudentController::inferAttendanceSubject($message);
+$inferredCourseSubject = StudentController::inferCourseSubject($message);
 $hasSpecificSubjectWord = (bool) preg_match(
-    '/\b(dbms|d\s*b\s*m\s*s|os|o\s*s|cn|c\s*n|ai|a\s*i|database management systems|operating systems|computer networks|dbms laboratory|artificial intelligence|cs501|cs502|cs503|cs5l1|cs5e1)\b|ಡಿಬಿಎಂಎಸ್|ಡಿಬಿಎಂಎಸ್ ಲ್ಯಾಬ್|ಆಪರೇಟಿಂಗ್ ಸಿಸ್ಟಮ್ಸ್|ಕಂಪ್ಯೂಟರ್ ನೆಟ್ವರ್ಕ್ಸ್|ಆರ್ಟಿಫಿಶಿಯಲ್ ಇಂಟೆಲಿಜೆನ್ಸ್/u',
+    '/\b(dbms|d\s*b\s*m\s*s|os|o\s*s|cn|c\s*n|ai|a\s*i|database management systems|operating systems|computer networks|dbms laboratory|artificial intelligence|cs501|cs502|cs503|cs5l1|cs5e1)\b|à²¡à²¿à²¬à²¿à²Žà²‚à²Žà²¸à³|à²¡à²¿à²¬à²¿à²Žà²‚à²Žà²¸à³ à²²à³à²¯à²¾à²¬à³|à²†à²ªà²°à³‡à²Ÿà²¿à²‚à²—à³ à²¸à²¿à²¸à³à²Ÿà²®à³à²¸à³|à²•à²‚à²ªà³à²¯à³‚à²Ÿà²°à³ à²¨à³†à²Ÿà³à²µà²°à³à²•à³à²¸à³|à²†à²°à³à²Ÿà²¿à²«à²¿à²¶à²¿à²¯à²²à³ à²‡à²‚à²Ÿà³†à²²à²¿à²œà³†à²¨à³à²¸à³/u',
     $normalizedMessage
 );
-$hasCourseCodeWord = StudentController::isLikelyCourseCodeQuery($message); /*
+$hasSpecificSubjectWord = $hasSpecificSubjectWord || $inferredAttendanceSubject !== "" || $inferredCourseSubject !== "";
+$hasCourseCodeWord = StudentController::isLikelyCourseCodeQuery($message);
+$hasCourseCodeWord = $hasCourseCodeWord || (
+    $hasSpecificSubjectWord
+    && (bool) preg_match('/\b(course|subject)\s+code\b|\bcode\s+(of|for)\b|\bcode\b|à²•à³‹à²¡à³|à²•à³‹à²¡à²¿|à²µà²¿à²·à²¯à²¦ à²•à³‹à²¡à³/u', $message)
+); /*
     '/\b(course|subject)\s+code\b|\bcode\s+(of|for)\b|\bcode\b|à²•à³‹à²¡à³|course code|subject code/u',
     $normalizedMessage
 );
 $hasKannadaCourseCodeHint = (bool) preg_match(
-    '/ಕೋಡ್|ಕೋಡಿ|ಕೋರ್ಡ್|ಕೋರ್ಸ್ ಕೋಡ್|ಸಬ್ಜೆಕ್ಟ್ ಕೋಡ್|ವಿಷಯದ ಕೋಡ್/u',
+    '/à²•à³‹à²¡à³|à²•à³‹à²¡à²¿|à²•à³‹à²°à³à²¡à³|à²•à³‹à²°à³à²¸à³ à²•à³‹à²¡à³|à²¸à²¬à³à²œà³†à²•à³à²Ÿà³ à²•à³‹à²¡à³|à²µà²¿à²·à²¯à²¦ à²•à³‹à²¡à³/u',
     $message
 );
 */
 if ($student_id && $hasAttendanceWord && $hasSpecificSubjectWord && !$hasOverallAttendanceWord) {
-    $clarification = StudentController::getSubjectAttendanceClarification($student_id, $message, $language);
-    if (is_array($clarification)) {
-        respondWithClarification("GET_SUBJECT_ATTENDANCE", $clarification, ($memoryResolutionSource ?? "api_fast_path"));
-    }
-
     $reply = StudentController::getSubjectAttendance($student_id, $message, $language);
     $replySource = "db";
 
@@ -614,7 +575,7 @@ if ($hasCourseCodeWord) {
     $replySource = "db";
 
     if ($language === "hi" && preg_match('/^The course code for (.+) is ([A-Z0-9-]+)\.$/', $reply, $matches)) {
-        $reply = $matches[1] . " का कोर्स कोड " . $matches[2] . " है।";
+        $reply = $matches[1] . " à¤•à¤¾ à¤•à¥‹à¤°à¥à¤¸ à¤•à¥‹à¤¡ " . $matches[2] . " à¤¹à¥ˆà¥¤";
     }
 
     if ($language !== "en" && $language !== "kn" && $language !== "hi") {
@@ -669,7 +630,10 @@ if ($student_id && $hasShortCgpaFragment) {
 
 if (
     $student_id &&
-    $isExplicitUsnQuery
+    $isExplicitUsnQuery &&
+    !$hasAttendanceWord &&
+    !$hasCourseCodeWord &&
+    !(bool) preg_match('/\b(result|marks|semester|internal|subject|course)\b|à²«à²²à²¿à²¤à²¾à²‚à²¶|à²®à²¾à²°à³à²•à³à²¸à³|à²¸à³†à²®à²¿à²¸à³à²Ÿà²°à³|à²‡à²‚à²Ÿà²°à³à²¨à²²à³|à²µà²¿à²·à²¯/u', $message)
 ) {
     $reply = StudentController::getUSN($student_id, $language);
     $replySource = "db";
@@ -743,7 +707,7 @@ if ($route === "database") {
             $reply = StudentController::getUSN($student_id, $language);
             $replySource = "db";
             $handledByDatabase = true;
-            $dbReplyIsLocalized = ($language === "kn");
+            $dbReplyIsLocalized = in_array($language, ["hi", "kn"], true);
             break;
 
         case "GET_PROFILE_SUMMARY":
@@ -760,7 +724,7 @@ if ($route === "database") {
             $reply = StudentController::getProfileSummary($student_id, $message, $language);
             $replySource = "db";
             $handledByDatabase = true;
-            $dbReplyIsLocalized = ($language === "kn");
+            $dbReplyIsLocalized = in_array($language, ["hi", "kn"], true);
             break;
 
         case "GET_SGPA":
@@ -777,7 +741,7 @@ if ($route === "database") {
             $reply = StudentController::getSGPA($student_id, $message, $language);
             $replySource = "db";
             $handledByDatabase = true;
-            $dbReplyIsLocalized = ($language === "kn");
+            $dbReplyIsLocalized = in_array($language, ["hi", "kn"], true);
             break;
 
         case "GET_CGPA":
@@ -794,7 +758,7 @@ if ($route === "database") {
             $reply = StudentController::getCGPA($student_id, $language);
             $replySource = "db";
             $handledByDatabase = true;
-            $dbReplyIsLocalized = ($language === "kn");
+            $dbReplyIsLocalized = in_array($language, ["hi", "kn"], true);
             break;
 
         case "GET_BACKLOG_STATUS":
@@ -811,7 +775,7 @@ if ($route === "database") {
             $reply = StudentController::getBacklogStatus($student_id, $message, $language);
             $replySource = "db";
             $handledByDatabase = true;
-            $dbReplyIsLocalized = ($language === "kn");
+            $dbReplyIsLocalized = in_array($language, ["hi", "kn"], true);
             break;
 
         case "GET_FEES_BALANCE":
@@ -828,7 +792,7 @@ if ($route === "database") {
             $reply = FeeController::getFeeBalance($student_id, $language);
             $replySource = "db";
             $handledByDatabase = true;
-            $dbReplyIsLocalized = ($language === "kn");
+            $dbReplyIsLocalized = in_array($language, ["hi", "kn"], true);
             break;
 
         case "GET_FINAL_REGISTRATION_STATUS":
@@ -845,7 +809,7 @@ if ($route === "database") {
             $reply = FeeController::getFinalRegistrationStatus($student_id, $language);
             $replySource = "db";
             $handledByDatabase = true;
-            $dbReplyIsLocalized = ($language === "kn");
+            $dbReplyIsLocalized = in_array($language, ["hi", "kn"], true);
             break;
 
         case "GET_HALL_TICKET_STATUS":
@@ -862,7 +826,7 @@ if ($route === "database") {
             $reply = StudentController::getHallTicketStatus($student_id, $message, $language);
             $replySource = "db";
             $handledByDatabase = true;
-            $dbReplyIsLocalized = ($language === "kn");
+            $dbReplyIsLocalized = in_array($language, ["hi", "kn"], true);
             break;
 
         case "GET_CERTIFICATE_STATUS":
@@ -896,7 +860,7 @@ if ($route === "database") {
             $reply = StudentController::getCourseDetails($student_id, $message, $language);
             $replySource = "db";
             $handledByDatabase = true;
-            $dbReplyIsLocalized = ($language === "kn");
+            $dbReplyIsLocalized = in_array($language, ["hi", "kn"], true);
             break;
 
         case "GET_ATTENDANCE":
@@ -912,7 +876,7 @@ if ($route === "database") {
             }
             $normalizedAttendanceMessage = strtolower(trim((string) $message));
             $isExplicitOverallAttendance = (bool) preg_match(
-                '/\b(overall|total|my attendance|attendance percentage|attendance status)\b|ಒಟ್ಟು|ಒವರ್ ಆಲ್|overall|ಟೋಟಲ್/u',
+                '/\b(overall|total|my attendance|attendance percentage|attendance status)\b|à²’à²Ÿà³à²Ÿà³|à²’à²µà²°à³ à²†à²²à³|overall|à²Ÿà³‹à²Ÿà²²à³/u',
                 $normalizedAttendanceMessage
             );
             $hasSubjectAttendancePhrase = (bool) preg_match(
@@ -1025,5 +989,17 @@ echo json_encode([
     "reply_source" => $replyMeta["source"] ?? "unknown",
     "suggestion" => $suggestion["text"] ?? null,
     "quick_actions" => $suggestion["quick_actions"] ?? [],
-    "suggestion_priority" => $suggestion["priority"] ?? null
+    "suggestion_priority" => $suggestion["priority"] ?? null,
+    "effective_message" => $message,
+    "debug" => [
+        "understanding" => $understanding ?? [],
+        "raw_transcript" => $rawTranscriptMeta,
+        "corrected_transcript" => $correctedTranscriptMeta,
+        "transcript_confidence" => $transcriptConfidenceMeta,
+        "mean_word_confidence" => $meanWordConfidenceMeta
+    ]
 ]);
+
+
+
+

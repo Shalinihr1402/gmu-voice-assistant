@@ -61,7 +61,7 @@ class SuggestionService {
 
         switch ($intent) {
             case "GET_FEES_BALANCE":
-                if (stripos($reply, "remaining balance") !== false || stripos($reply, "pending") !== false || stripos($reply, "outstanding") !== false || stripos($reply, "ಬಾಕಿ") !== false) {
+                if (stripos($reply, "remaining balance") !== false || stripos($reply, "pending") !== false || stripos($reply, "outstanding") !== false || stripos($reply, "pending fee balance") !== false || stripos($reply, "?????") !== false || stripos($reply, "??????") !== false || stripos($reply, "ಬಾಕಿ") !== false || stripos($reply, "balance Rs. 0.00") === false && preg_match("/Rs\.\s*(?!0\.00)[0-9,]+\.\d{2}/", $reply)) {
                     return self::createSuggestion(
                         "Your fee is still pending. Do you want to see the fee breakup or open the payment portal?",
                         "आपकी फीस अभी लंबित है। क्या आप फीस का पूरा breakup देखना चाहते हैं या payment portal खोलना चाहते हैं?",
@@ -256,3 +256,4 @@ class SuggestionService {
         return null;
     }
 }
+

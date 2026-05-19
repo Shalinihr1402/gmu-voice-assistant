@@ -208,7 +208,7 @@ class IntentService {
             return true;
         }
 
-        if (preg_match('/Ã Â²ÂµÃ Â²Â¿Ã Â²Â·Ã Â²Â¯|Ã Â²Â¸Ã Â²Â¬Ã Â³ÂÃ Â²Å“Ã Â³â€ Ã Â²â€¢Ã Â³ÂÃ Â²Å¸Ã Â³Â|Ã Â²â€¢Ã Â³â€¹Ã Â²Â°Ã Â³ÂÃ Â²Â¸Ã Â³Â|Ã Â²â€™Ã Â²â€šÃ Â²Â¦Ã Â³Â\s+Ã Â²ÂµÃ Â²Â¿Ã Â²Â·Ã Â²Â¯|Ã Â²ÂªÃ Â²Â°Ã Â³ÂÃ Â²Å¸Ã Â²Â¿Ã Â²â€¢Ã Â³ÂÃ Â²Â¯Ã Â³ÂÃ Â²Â²Ã Â²Â°Ã Â³Â/u', $rawMessage)) {
+        if (preg_match('/ವಿಷಯ|ಸಬ್ಜೆಕ್ಟ್|ಕೋರ್ಸ್|ಒಂದು\s+ವಿಷಯ|ಪರ್ಟಿಕ್ಯುಲರ್/u', $rawMessage)) {
             return true;
         }
 
@@ -325,31 +325,31 @@ class IntentService {
             '/\b(nanna|nan|nanage|nanna\s+bagge|nanna\s+profile|nimma)\b/u' => ' my ',
             '/\b(dayavittu|swalpa|please)\b|à²¦à²¯à²µà²¿à²Ÿà³à²Ÿà³/u' => ' ',
             '/\b(enu|yenu|yen|helu|heli|tilsu|tilisi|torisu|torisi|beku|please tell)\b/u' => ' ',
-            '/\b(profail|profle)\b|à²ªà³à²°à³Šà²«à³ˆà²²à³/u' => ' profile ',
-            '/\b(semesteru|semister|sem)\b|à²¸à³†à²®à²¿à²¸à³à²Ÿà²°à³/u' => ' semester ',
-            '/\b(departmentu|departmente|branchu|vibhaga)\b|à²µà²¿à²­à²¾à²—|à²¡à²¿à²ªà²¾à²°à³à²Ÿà³â€Œà²®à³†à²‚à²Ÿà³|à²¬à³à²°à²¾à²‚à²šà³/u' => ' branch department ',
-            '/\b(feesu|feesu|fee|fi|baki|bakki|balanceu|balance|due|fees balance|fee balance)\b|à²¶à³à²²à³à²•|à²«à³€à²¸à³|à²«à³€|à²¬à²¾à²•à²¿|à²¬à³à²¯à²¾à²²à³†à²¨à³à²¸à³/u' => ' fee balance due ',
-            '/\b(attendence|atendance|attendanceu|attendance|hajari)\b|à²¹à²¾à²œà²°à²¾à²¤à²¿|à²¹à²¾à²œà²°à²¿|à²…à²Ÿà³†à²‚à²¡à³†à²¨à³à²¸à³|à²…à²Ÿà³†à²‚à²¡à³†à²¨à³à²¸à³/u' => ' attendance ',
-            '/\b(resultu|result|rijalt|resalt|phalithaansha|marks card)\b|à²«à²²à²¿à²¤à²¾à²‚à²¶|à²°à²¿à²¸à²²à³à²Ÿà³|à²°à²¿à²œà²²à³à²Ÿà³|à²®à²¾à²°à³à²•à³à²¸à³/u' => ' result ',
-            '/\b(backlogu|back)\b|à²¬à³à²¯à²¾à²•à³à²²à²¾à²—à³/u' => ' backlog ',
-            '/\b(faila|fail)\b|à²«à³‡à²²à³/u' => ' fail ',
-            '/\b(passa|pass)\b|à²ªà²¾à²¸à³/u' => ' pass ',
-            '/\b(courseu|coursu|subjectu|vishaya)\b|à²•à³‹à²°à³à²¸à³|à²¸à²¬à³à²œà³†à²•à³à²Ÿà³|à²µà²¿à²·à²¯/u' => ' course subject ',
-            '/\b(codeu|kode)\b|à²•à³‹à²¡à³/u' => ' code ',
-            '/\b(usn|yu es en|u s n|yu esn|uesn|yuesen|yusn|upsn)\b|à²¯à³à²Žà²¸à³â€Œà²Žà²¨à³|à²¯à³ à²Žà²¸à³ à²Žà²¨à³|à²¯à³à²Žà²¸à³à²Žà²¨à³|à²¯à³à²ªà²¿à²Žà²¸à²¨à³|à²¯à³ à²ªà²¿ à²Žà²¸à³ à²Žà²¨à³/u' => ' usn ',
-            '/\b(sgpa|esjipie|s j p a)\b|à²Žà²¸à³â€Œà²œà²¿à²ªà²¿à²Ž|à²Žà²¸à³ à²œà²¿à²ªà²¿à²Ž/u' => ' sgpa ',
-            '/\b(cgpa|sijipie|c j p a)\b|à²¸à²¿à²œà²¿à²ªà²¿à²Ž|à²¸à²¿ à²œà²¿à²ªà²¿à²Ž/u' => ' cgpa ',
-            '/\b(final)\b|à²«à³ˆà²¨à²²à³|à²…à²‚à²¤à²¿à²®/u' => ' final ',
-            '/\b(registrationu|rijistreshan|registrashan|regis tration|rijis tration|rijis treshan|rejistration)\b|à²°à²¿à²œà²¿à²¸à³à²Ÿà³à²°à³‡à²¶à²¨à³|à²°à²¿à²œà²¿à²¸à³ à²Ÿà³à²°à³‡à²¶à²¨à³|à²¨à³‹à²‚à²¦à²£à²¿/u' => ' registration ',
-            '/\b(hallticket|hall\s*ticketu|haal ticket|hal ticket|all ticket|al ticket)\b|à²¹à²¾à²²à³\s*à²Ÿà²¿à²•à³†à²Ÿà³|à²†à²²à³\s*à²Ÿà²¿à²•à³†à²Ÿà³|à²…à²²à³\s*à²Ÿà²¿à²•à³†à²Ÿà³/u' => ' hall ticket ',
-            '/\b(statusu)\b|à²¸à³à²¥à²¿à²¤à²¿/u' => ' status ',
-            '/\b(yestu|eshtu|yeshtu|how much)\b|à²Žà²·à³à²Ÿà³/u' => ' how much ',
-            '/\b(completea|completeda|complyta)\b|à²ªà³‚à²°à³à²£|à²•à²‚à²ªà³à²²à³€à²Ÿà³/u' => ' complete ',
-            '/\b(pendinga|pending)\b|à²ªà³†à²‚à²¡à²¿à²‚à²—à³/u' => ' pending ',
-            '/\b(naanu\s+yaaru|nanu\s+yaaru)\b|à²¨à²¾à²¨à³\s+à²¯à²¾à²°à³/u' => ' who am i ',
-            '/\b(yava\s+semester|which\s+semester)\b|à²¯à²¾à²µ\s+à²¸à³†à²®à²¿à²¸à³à²Ÿà²°à³/u' => ' which semester ',
-            '/\b(yava\s+department|yava\s+branch)\b|à²¯à²¾à²µ\s+à²µà²¿à²­à²¾à²—/u' => ' which department ',
-            '/\b(heli|helu|tilisi|tilsu|torisu|show madi|open madi)\b|à²¹à³‡à²³à²¿|à²¹à³‡à²³à³|à²¤à²¿à²³à²¿à²¸à²¿|à²¤à³‹à²°à²¿à²¸à³/u' => ' '
+            '/\b(profail|profle)\b|ಪ್ರೊಫೈಲ್/u' => ' profile ',
+            '/\b(semesteru|semister|sem)\b|ಸೆಮಿಸ್ಟರ್/u' => ' semester ',
+            '/\b(departmentu|departmente|branchu|vibhaga)\b|ವಿಭಾಗ|ಡಿಪಾರ್ಟ್‌ಮೆಂಟ್|ಬ್ರಾಂಚ್/u' => ' branch department ',
+            '/\b(feesu|feesu|fee|fi|baki|bakki|balanceu|balance|due|fees balance|fee balance)\b|ಶುಲ್ಕ|ಫೀಸ್|ಫೀ|ಬಾಕಿ|ಬ್ಯಾಲೆನ್ಸ್/u' => ' fee balance due ',
+            '/\b(attendence|atendance|attendanceu|attendance|hajari)\b|ಹಾಜರಾತಿ|ಹಾಜರಿ|ಅಟೆಂಡೆನ್ಸ್|ಅಟೆಂಡೆನ್ಸ್/u' => ' attendance ',
+            '/\b(resultu|result|rijalt|resalt|resértelo|resertelo|rezertelo|phalithaansha|marks card)\b|ಫಲಿತಾಂಶ|ರಿಸಲ್ಟ್|ರಿಜಲ್ಟ್|ಮಾರ್ಕ್ಸ್/u' => ' result ',
+            '/\b(backlogu|back)\b|ಬ್ಯಾಕ್ಲಾಗ್/u' => ' backlog ',
+            '/\b(faila|fail)\b|ಫೇಲ್/u' => ' fail ',
+            '/\b(passa|pass)\b|ಪಾಸ್/u' => ' pass ',
+            '/\b(courseu|coursu|subjectu|vishaya)\b|ಕೋರ್ಸ್|ಸಬ್ಜೆಕ್ಟ್|ವಿಷಯ/u' => ' course subject ',
+            '/\b(codeu|kode)\b|ಕೋಡ್/u' => ' code ',
+            '/\b(usn|yu es en|u s n|yu esn|uesn|yuesen|yusn|upsn)\b|ಯುಎಸ್‌ಎನ್|ಯು ಎಸ್ ಎನ್|ಯುಎಸ್ಎನ್|ಯುಪಿಎಸನ್|ಯು ಪಿ ಎಸ್ ಎನ್/u' => ' usn ',
+            '/\b(sgpa|esjipie|s j p a)\b|ಎಸ್‌ಜಿಪಿಎ|ಎಸ್ ಜಿಪಿಎ/u' => ' sgpa ',
+            '/\b(cgpa|sijipie|c j p a)\b|ಸಿಜಿಪಿಎ|ಸಿ ಜಿಪಿಎ/u' => ' cgpa ',
+            '/\b(final)\b|ಫೈನಲ್|ಅಂತಿಮ/u' => ' final ',
+            '/\b(registrationu|rijistreshan|registrashan|regis tration|rijis tration|rijis treshan|rejistration)\b|ರಿಜಿಸ್ಟ್ರೇಶನ್|ರಿಜಿಸ್ ಟ್ರೇಶನ್|ನೋಂದಣಿ/u' => ' registration ',
+            '/\b(hallticket|hall\s*ticketu|haal ticket|hal ticket|all ticket|al ticket)\b|ಹಾಲ್\s*ಟಿಕೆಟ್|ಆಲ್\s*ಟಿಕೆಟ್|ಅಲ್\s*ಟಿಕೆಟ್/u' => ' hall ticket ',
+            '/\b(statusu)\b|ಸ್ಥಿತಿ/u' => ' status ',
+            '/\b(yestu|eshtu|yeshtu|how much)\b|ಎಷ್ಟು/u' => ' how much ',
+            '/\b(completea|completeda|complyta)\b|ಪೂರ್ಣ|ಕಂಪ್ಲೀಟ್/u' => ' complete ',
+            '/\b(pendinga|pending)\b|ಪೆಂಡಿಂಗ್/u' => ' pending ',
+            '/\b(naanu\s+yaaru|nanu\s+yaaru)\b|ನಾನು\s+ಯಾರು/u' => ' who am i ',
+            '/\b(yava\s+semester|which\s+semester)\b|ಯಾವ\s+ಸೆಮಿಸ್ಟರ್/u' => ' which semester ',
+            '/\b(yava\s+department|yava\s+branch)\b|ಯಾವ\s+ವಿಭಾಗ/u' => ' which department ',
+            '/\b(heli|helu|tilisi|tilsu|torisu|show madi|open madi)\b|ಹೇಳಿ|ಹೇಳು|ತಿಳಿಸಿ|ತೋರಿಸು/u' => ' '
         ];
 
         $message = preg_replace(
@@ -649,18 +649,38 @@ class IntentService {
         ])) {
             return "GET_FEES_BALANCE";
         }
+        $detectedAttendanceSubject = class_exists("StudentController") ? StudentController::inferAttendanceSubject($rawMessage) : "";
+        $detectedCourseSubject = class_exists("StudentController") ? StudentController::inferCourseSubject($rawMessage) : "";
+        $hasAcademicGuard =
+            $detectedAttendanceSubject !== "" ||
+            $detectedCourseSubject !== "" ||
+            self::containsAny($message, [
+                "attendance",
+                "result",
+                "marks",
+                "course code",
+                "subject code",
+                "subject",
+                "semester",
+                "internal"
+            ]) ||
+            preg_match('/ಅಟೆಂಡೆನ್ಸ್|ಹಾಜರಿ|ಹಾಜರಾತಿ|ಫಲಿತಾಂಶ|ಮಾರ್ಕ್ಸ್|ಸೆಮಿಸ್ಟರ್|ಇಂಟರ್ನಲ್|ವಿಷಯ|ಕೋಡ್/u', $rawMessage);
+
+        if (
+            ($detectedCourseSubject !== "" || $detectedAttendanceSubject !== "") &&
+            (strpos($message, "code") !== false || preg_match('/ಕೋಡ್/u', $rawMessage))
+        ) {
+            return "GET_COURSE_CODE";
+        }
 
         if (self::containsAny($message, [
             "profile",
             "who am i",
-            "my semester",
-            "which semester",
-            "what semester",
-            "my department",
-            "which department",
-            "my branch",
+            "my profile",
+            "tell me about my profile",
+            "student profile",
             "what am i studying"
-        ])) {
+        ]) && !$hasAcademicGuard) {
             return "GET_PROFILE_SUMMARY";
         }
 
@@ -734,22 +754,6 @@ class IntentService {
             return "GET_ATTENDANCE";
         }
 
-        if (self::containsAny($message, [
-            "student portal",
-            "semester",
-            "department",
-            "branch",
-            "result",
-            "attendance",
-            "registration",
-            "hall ticket",
-            "fee",
-            "usn",
-            "profile"
-        ])) {
-            return "GET_PROFILE_SUMMARY";
-        }
-
         $bestIntent = "UNKNOWN";
         $bestScore = 0;
 
@@ -772,4 +776,7 @@ class IntentService {
         return $bestIntent;
     }
 }
+
+
+
 

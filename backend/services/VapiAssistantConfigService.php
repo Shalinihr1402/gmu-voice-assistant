@@ -1,0 +1,136 @@
+<?php
+
+require_once __DIR__ . "/../config/env.php";
+require_once __DIR__ . "/VapiSessionService.php";
+
+class VapiAssistantConfigService {
+    public static function getEnvValue($key, $default = "") {
+        $value = getenv($key);
+        if ($value === false || $value === "") {
+            $value = $_SERVER[$key] ?? $_ENV[$key] ?? $default;
+        }
+        return $value === null ? $default : (string) $value;
+    }
+
+    public static function buildConfig($sessionTokenPayload, $language = "multi") {
+        $publicKey = self::getEnvValue("VAPI_PUBLIC_KEY");
+        $assistantId = self::getEnvValue("VAPI_ASSISTANT_ID");
+        $webhookUrl = self::getEnvValue("VAPI_WEBHOOK_URL", self::defaultWebhookUrl());
+        $assistant = self::buildAssistantObject($webhookUrl, $sessionTokenPayload["token"] ?? "", $language);
+
+        return [
+            "enabled" => $publicKey !== "",
+            "public_key" => $publicKey,
+            "assistant_id" => $assistantId,
+            "assistant" => $assistant,
+            "assistant_overrides" => [
+                "recordingEnabled" => false,
+                "variableValues" => [
+                    "student_session_token" => $sessionTokenPayload["token"] ?? "",
+                    "voice_language" => $language ?: "multi"
+                ]
+            ],
+            "session_token" => $sessionTokenPayload["token"] ?? "",
+            "expires_in" => VapiSessionService::getTtlSeconds(),
+            "setup_hint" => $publicKey === "" ? "Set VAPI_PUBLIC_KEY in backend/.env before using Vapi." : null
+        ];
+    }
+
+    public static function buildAssistantObject($webhookUrl, $sessionToken, $language = "multi") {
+        $modelProvider = self::getEnvValue("VAPI_MODEL_PROVIDER", "openai");
+        $model = self::getEnvValue("VAPI_MODEL", "gpt-4o-mini");
+        $voiceProvider = self::getEnvValue("VAPI_VOICE_PROVIDER", "openai");
+        $voiceId = self::getEnvValue("VAPI_VOICE_ID", "shimmer");
+        $voiceModel = self::getEnvValue("VAPI_VOICE_MODEL", $voiceProvider === "openai" ? "gpt-4o-mini-tts" : "");
+        $transcriberProvider = self::getEnvValue("VAPI_TRANSCRIBER_PROVIDER", "deepgram");
+        $transcriberModel = self::getEnvValue("VAPI_TRANSCRIBER_MODEL", "nova-3");
+
+        return [
+            "name" => "GMU Multilingual VoiceBot",
+            "firstMessage" => self::firstMessage($language),
+            "model" => [
+                "provider" => $modelProvider,
+                "model" => $model,
+                "temperature" => 0.2,
+                "messages" => [[
+                    "role" => "system",
+                    "content" => self::systemPrompt($sessionToken)
+                ]],
+                "tools" => [self::gmuToolDefinition($webhookUrl)]
+            ],
+            "transcriber" => [
+                "provider" => $transcriberProvider,
+                "model" => $transcriberModel,
+                "language" => self::vapiLanguage($language)
+            ],
+            "voice" => self::voiceConfig($voiceProvider, $voiceId, $voiceModel),
+            "server" => [
+                "url" => $webhookUrl
+            ]
+        ];
+    }
+
+    private static function voiceConfig($provider, $voiceId, $voiceModel) {
+        $voice = [
+            "provider" => $provider,
+            "voiceId" => $voiceId
+        ];
+        if ($voiceModel !== "") {
+            $voice["model"] = $voiceModel;
+        }
+        return $voice;
+    }
+    private static function gmuToolDefinition($webhookUrl) {
+        return [
+            "type" => "function",
+            "function" => [
+                "name" => "gmu_voice_assistant",
+                "description" => "Use for GMU ERP student data, university requests, and explicit page navigation. Do not use for greetings, thanks, filler, or casual acknowledgements.",
+                "parameters" => [
+                    "type" => "object",
+                    "properties" => [
+                        "query" => ["type" => "string", "description" => "The student's exact spoken request."],
+                        "language" => ["type" => "string", "enum" => ["en", "hi", "kn", "multi"], "description" => "Detected or requested language."],
+                        "session_token" => ["type" => "string", "description" => "Use the student_session_token from the system prompt exactly."]
+                    ],
+                    "required" => ["query", "session_token"]
+                ]
+            ],
+            "server" => ["url" => $webhookUrl]
+        ];
+    }
+
+    private static function systemPrompt($sessionToken) {
+        return "You are GMU VoiceBot, the official ERP voice assistant for GM University students. " .
+            "Understand English, Hindi, Kannada, Hinglish, Kanglish, and mixed student speech. Reply in the same language or mixed style, short and natural. Never say you cannot speak Kannada or Hindi; use natural Kanglish or Hinglish if needed. " .
+            "Call gmu_voice_assistant only for student data, ERP queries, navigation, attendance, results, fees, certificates, registration, profile, grievance, courses, faculty, campus information, documents, and university-related requests. Do not call the tool for greetings, thanks, okay, yes, no, or casual small talk. " .
+            "For tool calls, send query as the exact user request, language as hi for Hindi/Hinglish, kn for Kannada/Kanglish, en for English, or multi only when truly mixed, and session_token exactly as: " . $sessionToken . ". " .
+            "Navigation safety: never navigate unless the user explicitly asks to open, go, navigate, show, or return to a page. Ignore incomplete or partial transcript fragments when deciding navigation. Do not infer navigation from a page name alone. Do not repeat navigation commands. Only navigate once per user request. If the same command was already executed recently, do not repeat it. " .
+            "Language switching: if the user asks to speak in Kannada, Hindi, or English, call the tool once and speak exactly its reply. " .
+            "After a tool response, speak only the reply field. If client_action exists, briefly confirm once and stop speaking further. Do not mention backend, API, database, tool calls, or internal routing.";
+    }
+    private static function firstMessage($language) {
+        if ($language === "hi") {
+            return "Namaste, main GMU VoiceBot hoon. Aap kya poochna chahenge?";
+        }
+        if ($language === "kn") {
+            return "Namaskara, nanu GMU VoiceBot. Nimge enu sahaya beku?";
+        }
+        return "Hello, I am GMU VoiceBot. What would you like to ask?";
+    }
+
+    private static function vapiLanguage($language) {
+        if ($language === "hi") return "hi";
+        if ($language === "kn") return "kn";
+        if ($language === "en") return "en";
+        return "multi";
+    }
+
+    private static function defaultWebhookUrl() {
+        $https = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off");
+        $scheme = $https ? "https" : "http";
+        $host = $_SERVER["HTTP_HOST"] ?? "localhost:8080";
+        $scriptDir = rtrim(str_replace("\\", "/", dirname($_SERVER["SCRIPT_NAME"] ?? "/gmu-voice-assistant/backend")), "/");
+        return $scheme . "://" . $host . $scriptDir . "/vapiWebhook.php";
+    }
+}

@@ -170,10 +170,10 @@ class SmartQueryResolver {
         $message = mb_strtolower(trim((string) $message), "UTF-8");
 
         $replacements = [
-            '/\b(scores|score|marks|mark|grades|grading)\b/ui' => ' result ',
-            '/अटेंडेंस|उपस्थिति|हाजिरी/u' => ' attendance ',
-            '/रिजल्ट|परिणाम|नतीजा/u' => ' result ',
-            '/फीस|शुल्क|बकाया/u' => ' fees due ',
+            '/\b(resértelo|resertelo|rezertelo|resultu|rijalt|resalt)\b/u' => ' result ',
+            '/अटेंडेंस|उपस्थिति/u' => ' attendance ',
+            '/रिजल्ट|परिणाम/u' => ' result ',
+            '/फीस|शुल्क|बाकाया/u' => ' fees due ',
             '/रजिस्ट्रेशन|पंजीकरण/u' => ' registration ',
             '/हॉल\s*टिकट|प्रवेश\s*पत्र/u' => ' hall ticket ',
             '/प्रोफाइल|प्रोफ़ाइल/u' => ' profile ',
@@ -321,48 +321,9 @@ class SmartQueryResolver {
         $entities = self::detectEntities($message, $lastContext);
         $requestedLanguage = self::detectRequestedLanguage($normalizedMessage, $language);
         $lastIntent = trim((string) ($lastContext['intent'] ?? ''));
-
-        // Hard-route explicit course-code queries so subject names like DBMS
-        // do not get pulled into attendance by conversational memory.
-        if (StudentController::isLikelyCourseCodeQuery($message)) {
-            $resolvedMessage = self::buildResolvedMessage('GET_COURSE_CODE', $message, $entities, $lastContext);
-
-            return [
-                'type' => 'resolved_intent',
-                'intent' => 'GET_COURSE_CODE',
-                'route' => 'database',
-                'confidence' => 'high',
-                'requested_language' => $requestedLanguage,
-                'source' => 'smart_query_resolver_explicit_course_code',
-                'entities' => $entities,
-                'rewritten_message' => $resolvedMessage,
-                'score' => 999
-            ];
-        }
-
-        if (
-            $lastIntent === 'GET_COURSE_CODE' &&
-            !empty($entities['subject']) &&
-            strpos($normalizedMessage, 'attendance') === false &&
-            strpos($normalizedMessage, 'result') === false &&
-            strpos($normalizedMessage, 'fees') === false &&
-            strpos($normalizedMessage, 'registration') === false
-        ) {
-            $resolvedMessage = self::buildResolvedMessage('GET_COURSE_CODE', $message, $entities, $lastContext);
-
-            return [
-                'type' => 'resolved_intent',
-                'intent' => 'GET_COURSE_CODE',
-                'route' => 'database',
-                'confidence' => 'high',
-                'requested_language' => $requestedLanguage,
-                'source' => 'smart_query_resolver_last_intent_course_code',
-                'entities' => $entities,
-                'rewritten_message' => $resolvedMessage,
-                'score' => 950
-            ];
-        }
-
+        $isCourseCodeLike = strpos($normalizedMessage, 'code') !== false
+            || strpos($normalizedMessage, 'course code') !== false
+            || strpos($normalizedMessage, 'subject code') !== false;
         $bestIntent = null;
         $bestScore = 0;
 
@@ -370,6 +331,10 @@ class SmartQueryResolver {
             $score = self::scoreIntent($normalizedMessage, $intent);
 
             if ($lastIntent === $intent && count($tokens) <= 7) {
+                if ($isCourseCodeLike && in_array($intent, ['GET_ATTENDANCE', 'GET_SUBJECT_ATTENDANCE'], true)) {
+                    continue;
+                }
+
                 $score += 25;
             }
 
@@ -377,7 +342,7 @@ class SmartQueryResolver {
                 $score += 22;
             }
 
-            if ($intent === 'GET_COURSE_CODE' && !empty($entities['subject']) && strpos($normalizedMessage, 'code') !== false) {
+            if ($intent === 'GET_COURSE_CODE' && !empty($entities['subject']) && $isCourseCodeLike) {
                 $score += 28;
             }
 
