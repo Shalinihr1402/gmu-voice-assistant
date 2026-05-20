@@ -87,6 +87,52 @@ CREATE TABLE student_payments (
     FOREIGN KEY (fee_id) REFERENCES fee_structure(fee_id)
         ON DELETE CASCADE
 ) ENGINE=InnoDB;
+CREATE TABLE support_tickets (
+    ticket_id INT AUTO_INCREMENT PRIMARY KEY,
+    ticket_code VARCHAR(30) NOT NULL UNIQUE,
+    student_id INT NOT NULL,
+    usn VARCHAR(30) DEFAULT NULL,
+    issue_type VARCHAR(50) NOT NULL,
+    issue_description TEXT NOT NULL,
+    priority VARCHAR(20) NOT NULL DEFAULT 'medium',
+    status VARCHAR(20) NOT NULL DEFAULT 'open',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_support_student (student_id),
+    INDEX idx_support_status (status),
+    INDEX idx_support_issue_type (issue_type),
+    FOREIGN KEY (student_id) REFERENCES students(student_id)
+        ON DELETE CASCADE
+) ENGINE=InnoDB;
+CREATE TABLE erp_deadlines (
+    deadline_id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(150) NOT NULL,
+    category VARCHAR(50) NOT NULL,
+    due_date DATE NOT NULL,
+    description TEXT,
+    is_active TINYINT(1) DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE hostel_applications (
+    application_id INT AUTO_INCREMENT PRIMARY KEY,
+    student_id INT NOT NULL,
+    usn VARCHAR(30),
+    status VARCHAR(30) NOT NULL DEFAULT 'pending',
+    remarks TEXT,
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (student_id) REFERENCES students(student_id)
+        ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE class_notices (
+    notice_id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(150) NOT NULL,
+    notice_date DATE NOT NULL,
+    class_scope VARCHAR(100) DEFAULT 'all',
+    is_cancelled TINYINT(1) DEFAULT 0,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
 
 CREATE TABLE results (
     result_id INT AUTO_INCREMENT PRIMARY KEY,

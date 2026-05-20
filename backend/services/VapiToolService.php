@@ -83,7 +83,6 @@ class VapiToolService {
                 "route" => "auth"
             ]);
         }
-
         $directCourseCode = self::directCourseCodeResult($query, $language, $session["session_id"] ?? "");
         if ($directCourseCode) {
             return self::toolResult($id, $directCourseCode);
@@ -92,6 +91,16 @@ class VapiToolService {
         $directResultNavigation = self::directResultNavigationResult($query, $language, $session["session_id"] ?? "");
         if ($directResultNavigation) {
             return self::toolResult($id, $directResultNavigation);
+        }
+
+        $directErpInfo = self::directErpInfoResult($query, $language, $session);
+        if ($directErpInfo) {
+            return self::toolResult($id, $directErpInfo);
+        }
+
+        $directSupportTicket = self::directSupportTicketResult($query, $language, $session);
+        if ($directSupportTicket) {
+            return self::toolResult($id, $directSupportTicket);
         }
 
         $apiResponse = self::callExistingApi($query, $language, $session["session_id"] ?? "");
@@ -163,6 +172,356 @@ class VapiToolService {
             "quick_actions" => [],
             "debug" => ["source" => "vapi_tool_service", "reply_source" => "direct_language_switch", "previous_language" => $currentLanguage]
         ];
+    }
+    private static function directErpInfoResult($query, $language, $session) {
+        $text = self::normalizeIntentText($query);
+        $studentId = (int) ($session["user_id"] ?? 0);
+
+        if (self::isTuitionDeadlineQuery($text)) {
+            return self::erpInfoPayload(self::tuitionDeadlineReply($language), "GET_TUITION_DEADLINE", $language);
+        }
+
+        if (self::isHostelApplicationQuery($text)) {
+            return self::erpInfoPayload(self::hostelApplicationReply($studentId, $language), "GET_HOSTEL_APPLICATION_STATUS", $language);
+        }
+
+        if (self::isClassCancellationQuery($text)) {
+            return self::erpInfoPayload(self::classCancellationReply($language), "GET_CLASS_CANCELLATION_STATUS", $language);
+        }
+
+        return null;
+    }
+
+    private static function isTuitionDeadlineQuery($text) {
+        $hasDeadline = self::textHasAny($text, [
+            "last date", "lastdate", "deadline", "due date", "due", "when", "by when",
+            "kab", "kab tak", "tak", "date", "antim tithi", "akhri tarikh",
+            "kone dinanka", "last dinanka", "last date yaavaga", "yaavaga", "yavaga"
+        ]);
+        $hasFee = self::textHasAny($text, [
+            "tuition", "tuition fee", "tuition fees", "college fee", "college fees",
+            "program fee", "program fees", "fee", "fees", "feesu", "shulk", "shulka"
+        ]);
+        return $hasDeadline && $hasFee;
+    }
+
+    private static function isHostelApplicationQuery($text) {
+        $hasHostel = self::textHasAny($text, ["hostel", "hostelu", "hostel application", "hostel room", "room"]);
+        $hasApplication = self::textHasAny($text, [
+            "application", "applied", "status", "approved", "approve", "rejected", "reject",
+            "through", "go through", "went through", "submit", "submitted", "pending",
+            "allotment", "allotted", "problem", "issue", "error", "apply agideya",
+            "approve agideya", "status enu", "hogideya", "aayta", "ayta", "mila", "hua", "ho gaya"
+        ]);
+        return $hasHostel && $hasApplication;
+    }
+
+    private static function isClassCancellationQuery($text) {
+        $hasClass = self::textHasAny($text, ["class", "classes", "lecture", "lectures", "period", "periods", "college"]);
+        $hasCancel = self::textHasAny($text, [
+            "cancelled", "canceled", "cancel", "holiday", "off", "not there", "today",
+            "aaj", "ivattu", "cancel agideya", "cancel aagideya", "class ideya", "classes ideya",
+            "chutti", " ?????? "
+        ]);
+        return $hasClass && $hasCancel;
+    }
+
+    private static function textHasAny($text, $needles) {
+        $text = " " . strtolower((string) $text) . " ";
+        foreach ($needles as $needle) {
+            $needle = strtolower(trim((string) $needle));
+            if ($needle !== "" && strpos($text, $needle) !== false) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function erpInfoPayload($reply, $intent, $language) {
+        return [
+            "reply" => self::prepareReplyForVoice($reply, $language),
+            "intent" => $intent,
+            "route" => "erp_info",
+            "language" => $language,
+            "client_action" => null,
+            "suggestion" => null,
+            "quick_actions" => [],
+            "debug" => ["source" => "vapi_tool_service", "reply_source" => "direct_erp_info"]
+        ];
+    }
+
+    private static function tuitionDeadlineReply($language) {
+        require __DIR__ . "/../config/db.php";
+        if (!isset($conn) || !$conn) {
+            return self::erpInfoUnavailableReply("tuition fee deadline", $language);
+        }
+
+        $stmt = $conn->prepare("SELECT title, due_date, description FROM erp_deadlines WHERE is_active = 1 AND (category IN ('tuition_fee', 'tuition', 'fees', 'fee') OR title LIKE '%tuition%' OR title LIKE '%fee%') ORDER BY due_date ASC LIMIT 1");
+        if (!$stmt) {
+            return self::erpInfoUnavailableReply("tuition fee deadline", $language);
+        }
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if (!$row) {
+            return self::erpInfoUnavailableReply("tuition fee deadline", $language);
+        }
+
+        $date = self::spokenDate((string) ($row["due_date"] ?? ""));
+        $description = trim((string) ($row["description"] ?? ""));
+        if ($language === "hi") return "Tuition fee pay karne ki last date " . $date . " hai." . ($description !== "" ? " " . $description : "");
+        if ($language === "kn") return "Tuition fee pay madalu last date " . $date . " ide." . ($description !== "" ? " " . $description : "");
+        return "The last date to pay tuition fee is " . $date . "." . ($description !== "" ? " " . $description : "");
+    }
+
+    private static function hostelApplicationReply($studentId, $language) {
+        if ($studentId <= 0) {
+            return self::erpInfoUnavailableReply("hostel application status", $language);
+        }
+        require __DIR__ . "/../config/db.php";
+        if (!isset($conn) || !$conn) {
+            return self::erpInfoUnavailableReply("hostel application status", $language);
+        }
+
+        $stmt = $conn->prepare("SELECT status, remarks, applied_at FROM hostel_applications WHERE student_id = ? ORDER BY applied_at DESC, application_id DESC LIMIT 1");
+        if (!$stmt) {
+            return self::erpInfoUnavailableReply("hostel application status", $language);
+        }
+        $stmt->bind_param("i", $studentId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if (!$row) {
+            if ($language === "hi") return "Mujhe aapki hostel application ka record nahi mila.";
+            if ($language === "kn") return "Nimma hostel application record sigalilla.";
+            return "I could not find a hostel application record for your account.";
+        }
+
+        $status = strtolower(trim((string) ($row["status"] ?? "pending")));
+        $remarks = trim((string) ($row["remarks"] ?? ""));
+        if ($language === "hi") return "Aapki hostel application status " . $status . " hai." . ($remarks !== "" ? " " . $remarks : "");
+        if ($language === "kn") return "Nimma hostel application status " . $status . " ide." . ($remarks !== "" ? " " . $remarks : "");
+        return "Your hostel application status is " . $status . "." . ($remarks !== "" ? " " . $remarks : "");
+    }
+
+    private static function classCancellationReply($language) {
+        require __DIR__ . "/../config/db.php";
+        if (!isset($conn) || !$conn) {
+            return self::erpInfoUnavailableReply("class cancellation notice", $language);
+        }
+
+        $today = date('Y-m-d');
+        $stmt = $conn->prepare("SELECT title, class_scope, is_cancelled, description FROM class_notices WHERE notice_date = ? ORDER BY is_cancelled DESC, notice_id DESC LIMIT 1");
+        if (!$stmt) {
+            return self::erpInfoUnavailableReply("class cancellation notice", $language);
+        }
+        $stmt->bind_param("s", $today);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if (!$row) {
+            if ($language === "hi") return "Aaj classes cancel hone ka koi notice nahi mila.";
+            if ($language === "kn") return "Ivattu classes cancel agive anta notice sigalilla.";
+            return "I could not find any class cancellation notice for today.";
+        }
+
+        $scope = trim((string) ($row["class_scope"] ?? "all"));
+        $description = trim((string) ($row["description"] ?? ""));
+        $isCancelled = (int) ($row["is_cancelled"] ?? 0) === 1;
+        if ($isCancelled) {
+            if ($language === "hi") return "Haan, aaj classes cancelled hain" . ($scope !== "" ? " for " . $scope : "") . "." . ($description !== "" ? " " . $description : "");
+            if ($language === "kn") return "Haudu, ivattu classes cancelled agive" . ($scope !== "" ? " for " . $scope : "") . "." . ($description !== "" ? " " . $description : "");
+            return "Yes, classes are cancelled today" . ($scope !== "" ? " for " . $scope : "") . "." . ($description !== "" ? " " . $description : "");
+        }
+
+        if ($language === "hi") return "Aaj classes cancel nahi hain" . ($scope !== "" ? " for " . $scope : "") . "." . ($description !== "" ? " " . $description : "");
+        if ($language === "kn") return "Ivattu classes cancel agilla" . ($scope !== "" ? " for " . $scope : "") . "." . ($description !== "" ? " " . $description : "");
+        return "Classes are not cancelled today" . ($scope !== "" ? " for " . $scope : "") . "." . ($description !== "" ? " " . $description : "");
+    }
+
+    private static function erpInfoUnavailableReply($topic, $language) {
+        if ($language === "hi") return "Mujhe abhi " . $topic . " ki information nahi mili.";
+        if ($language === "kn") return "Iga " . $topic . " information sigalilla.";
+        return "I could not find " . $topic . " information right now.";
+    }
+
+    private static function spokenDate($date) {
+        $timestamp = strtotime((string) $date);
+        if (!$timestamp) {
+            return (string) $date;
+        }
+        return date('j F Y', $timestamp);
+    }
+    private static function directSupportTicketResult($query, $language, $session) {
+        $text = self::normalizeIntentText($query);
+        if (!self::isSupportTicketIssue($text)) {
+            return null;
+        }
+
+        $wordCount = count(preg_split('/\s+/u', trim($text), -1, PREG_SPLIT_NO_EMPTY));
+        if ($wordCount <= 3 && !preg_match('/\b(payment\s+failed|erp\s+not\s+working|login\s+(issue|problem|error)|attendance\s+(issue|problem)|registration\s+(issue|error)|certificate\s+(issue|problem))\b/u', $text)) {
+            return [
+                "reply" => self::supportTicketDetailPrompt($language),
+                "intent" => "SUPPORT_TICKET_NEEDS_DETAILS",
+                "route" => "support_ticket",
+                "language" => $language,
+                "client_action" => null,
+                "suggestion" => null,
+                "quick_actions" => [],
+                "debug" => ["source" => "vapi_tool_service", "reply_source" => "support_ticket_clarification"]
+            ];
+        }
+
+        $studentId = (int) ($session["user_id"] ?? 0);
+        if ($studentId <= 0) {
+            return null;
+        }
+
+        $ticket = self::createSupportTicket($studentId, $query, self::classifySupportIssue($text));
+        if (!$ticket) {
+            return [
+                "reply" => self::supportTicketErrorReply($language),
+                "intent" => "SUPPORT_TICKET_ERROR",
+                "route" => "support_ticket",
+                "language" => $language,
+                "client_action" => null,
+                "suggestion" => null,
+                "quick_actions" => [],
+                "debug" => ["source" => "vapi_tool_service", "reply_source" => "support_ticket_error"]
+            ];
+        }
+
+        return [
+            "reply" => self::supportTicketSuccessReply($ticket["ticket_code"], $language),
+            "intent" => "CREATE_SUPPORT_TICKET",
+            "route" => "support_ticket",
+            "language" => $language,
+            "client_action" => null,
+            "suggestion" => null,
+            "quick_actions" => [],
+            "debug" => [
+                "source" => "vapi_tool_service",
+                "reply_source" => "support_ticket_created",
+                "ticket_id" => $ticket["ticket_code"],
+                "issue_type" => $ticket["issue_type"]
+            ]
+        ];
+    }
+
+    private static function isSupportTicketIssue($text) {
+        $hasProblemSignal = (bool) preg_match('/\b(issue|problem|error|failed|failure|not\s+working|not\s+updated|not\s+showing|not\s+opening|not\s+downloading|missing|unable|cannot|can\s*not|stuck|deducted|wrong|incorrect)\b/u', $text);
+        $hasErpArea = (bool) preg_match('/\b(erp|login|attendance|payment|fee|fees|tuition|hostel|class|classes|lecture|marks|result|registration|certificate|hall\s*ticket|profile|voicebot|voice\s*bot)\b|???|?????|??????|??????|?????|?????|????|?????|????????|??????|?????/u', $text);
+        return $hasProblemSignal && $hasErpArea;
+    }
+
+    private static function classifySupportIssue($text) {
+        if (preg_match('/\b(attendance|class\s+present|absent)\b/u', $text)) return "attendance";
+        if (preg_match('/\b(hostel)\b|??????|??????|?????????|????????/u', $text)) return "hostel";
+        if (preg_match('/\b(class|classes|lecture|lectures)\b|?????|?????|??????|?????|??????|???????/u', $text)) return "classes";
+        if (preg_match('/\b(tuition|payment|fee|fees|amount|deducted|transaction)\b|???|?????|????|?????/u', $text)) return "payment";
+        if (preg_match('/\b(result|results|marks|marksheet|grade)\b/u', $text)) return "results";
+        if (preg_match('/\b(registration|register)\b/u', $text)) return "registration";
+        if (preg_match('/\b(login|password|signin|sign\s+in)\b/u', $text)) return "login";
+        if (preg_match('/\b(certificate|competency|download)\b/u', $text)) return "certificates";
+        if (preg_match('/\b(hall\s*ticket|hallticket|admit\s+card)\b/u', $text)) return "hall_ticket";
+        if (preg_match('/\b(profile)\b/u', $text)) return "profile";
+        if (preg_match('/\b(voicebot|voice\s*bot|assistant)\b/u', $text)) return "voicebot";
+        return "general";
+    }
+
+    private static function createSupportTicket($studentId, $description, $issueType) {
+        require __DIR__ . "/../config/db.php";
+        if (!isset($conn) || !$conn) {
+            return null;
+        }
+
+        self::ensureSupportTicketsTable($conn);
+
+        $studentStmt = $conn->prepare("SELECT usn FROM students WHERE student_id = ? LIMIT 1");
+        if (!$studentStmt) {
+            return null;
+        }
+        $studentStmt->bind_param("i", $studentId);
+        $studentStmt->execute();
+        $student = $studentStmt->get_result()->fetch_assoc();
+        $studentStmt->close();
+
+        $usn = strtoupper((string) ($student["usn"] ?? ""));
+        $priority = self::ticketPriority($issueType, (string) $description);
+        $status = "open";
+
+        $stmt = $conn->prepare("INSERT INTO support_tickets (ticket_code, student_id, usn, issue_type, issue_description, priority, status) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        if (!$stmt) {
+            return null;
+        }
+
+        $placeholderCode = "GMU-TMP-" . bin2hex(random_bytes(6));
+        $stmt->bind_param("sisssss", $placeholderCode, $studentId, $usn, $issueType, $description, $priority, $status);
+        if (!$stmt->execute()) {
+            $stmt->close();
+            return null;
+        }
+        $id = (int) $stmt->insert_id;
+        $stmt->close();
+
+        $ticketCode = "GMU-" . str_pad((string) $id, 4, "0", STR_PAD_LEFT);
+        $update = $conn->prepare("UPDATE support_tickets SET ticket_code = ? WHERE ticket_id = ?");
+        if ($update) {
+            $update->bind_param("si", $ticketCode, $id);
+            $update->execute();
+            $update->close();
+        }
+
+        return ["ticket_code" => $ticketCode, "issue_type" => $issueType];
+    }
+
+    private static function ensureSupportTicketsTable($conn) {
+        $conn->query("CREATE TABLE IF NOT EXISTS support_tickets (
+            ticket_id INT AUTO_INCREMENT PRIMARY KEY,
+            ticket_code VARCHAR(30) NOT NULL UNIQUE,
+            student_id INT NOT NULL,
+            usn VARCHAR(30) DEFAULT NULL,
+            issue_type VARCHAR(50) NOT NULL,
+            issue_description TEXT NOT NULL,
+            priority VARCHAR(20) NOT NULL DEFAULT 'medium',
+            status VARCHAR(20) NOT NULL DEFAULT 'open',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_support_student (student_id),
+            INDEX idx_support_status (status),
+            INDEX idx_support_issue_type (issue_type)
+        ) ENGINE=InnoDB");
+    }
+
+    private static function ticketPriority($issueType, $description) {
+        $text = strtolower((string) $description);
+        if (preg_match('/\b(payment|fee|fees)\b/u', $issueType) || preg_match('/\b(failed|deducted|exam|urgent|deadline)\b/u', $text)) {
+            return "high";
+        }
+        if (in_array($issueType, ["login", "registration", "results", "certificates", "hostel", "classes"], true)) {
+            return "medium";
+        }
+        return "low";
+    }
+
+    private static function supportTicketDetailPrompt($language) {
+        if ($language === "hi") return "Main support ticket raise kar sakta hoon. Kripya problem thoda detail mein batayiye.";
+        if ($language === "kn") return "Nanu support ticket create madabahudu. Dayavittu problem swalpa detail aagi heli.";
+        return "I can raise a support ticket for this issue. Please briefly explain the problem.";
+    }
+
+    private static function supportTicketSuccessReply($ticketCode, $language) {
+        if ($language === "hi") return "Aapka ERP support ticket successfully raise ho gaya hai. Ticket ID: " . $ticketCode . ".";
+        if ($language === "kn") return "Nimma ERP support ticket create agide. Ticket ID: " . $ticketCode . ".";
+        return "Your ERP support ticket has been raised successfully. Ticket ID: " . $ticketCode . ".";
+    }
+
+    private static function supportTicketErrorReply($language) {
+        if ($language === "hi") return "Support ticket create karte waqt problem aayi. Kripya thodi der baad try kijiye.";
+        if ($language === "kn") return "Support ticket create maduvaga problem ayitu. Dayavittu swalpa samayada nantara try madi.";
+        return "I could not raise the support ticket right now. Please try again after some time.";
     }
     private static function directCourseCodeResult($query, $language, $sessionId) {
         $text = strtolower((string) $query);
