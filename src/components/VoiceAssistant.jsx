@@ -522,6 +522,30 @@ const VoiceAssistant = () => {
     immediateVapiCommandRef.current = { text: normalized, at: now }
     return false
   }
+
+  const rememberVoicebotResultRequest = (path) => {
+    const rawPath = String(path || "")
+    if (!rawPath.startsWith("/results")) return
+
+    try {
+      const url = new URL(rawPath, window.location.origin)
+      const semester = url.searchParams.get("semester") || ""
+      const examType = url.searchParams.get("exam") || "SEE"
+      const year = url.searchParams.get("year") || ""
+      const season = url.searchParams.get("season") || ""
+      const usn = url.searchParams.get("usn") || ""
+
+      sessionStorage.setItem("voicebot_result_request", JSON.stringify({
+        semester,
+        examType,
+        year,
+        season,
+        usn
+      }))
+    } catch {
+      sessionStorage.setItem("voicebot_result_request", JSON.stringify({ examType: "SEE" }))
+    }
+  }
   const applyVapiToolResult = (result) => {
     if (!result || typeof result !== "object") return false
 
@@ -560,6 +584,7 @@ const VoiceAssistant = () => {
       didApplyAction = applyLanguageSwitch(action.language, result.reply || "Language changed. Please tap the voice button again.") || didApplyAction
     }
     if (action?.type === "navigate" && action.path) {
+      rememberVoicebotResultRequest(action.path)
       runVoiceNavigation(action.path, action.page || action.path, 150)
       didApplyAction = true
     }

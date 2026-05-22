@@ -66,11 +66,6 @@ class VapiToolService {
             return self::toolResult($id, $directPaymentHelp);
         }
 
-        $directNavigation = self::directNavigationResult($query, $language);
-        if ($directNavigation) {
-            return self::toolResult($id, $directNavigation);
-        }
-
         $session = VapiSessionService::resolve($sessionToken);
         if (!$session) {
             $session = VapiSessionService::latestValidSession();
@@ -83,14 +78,20 @@ class VapiToolService {
                 "route" => "auth"
             ]);
         }
-        $directCourseCode = self::directCourseCodeResult($query, $language, $session["session_id"] ?? "");
-        if ($directCourseCode) {
-            return self::toolResult($id, $directCourseCode);
-        }
 
         $directResultNavigation = self::directResultNavigationResult($query, $language, $session["session_id"] ?? "");
         if ($directResultNavigation) {
             return self::toolResult($id, $directResultNavigation);
+        }
+
+        $directNavigation = self::directNavigationResult($query, $language);
+        if ($directNavigation) {
+            return self::toolResult($id, $directNavigation);
+        }
+
+        $directCourseCode = self::directCourseCodeResult($query, $language, $session["session_id"] ?? "");
+        if ($directCourseCode) {
+            return self::toolResult($id, $directCourseCode);
         }
 
         $directErpInfo = self::directErpInfoResult($query, $language, $session);

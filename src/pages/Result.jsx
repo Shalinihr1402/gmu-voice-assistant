@@ -74,7 +74,13 @@ const Result = () => {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
-    const requestedSemester = params.get("semester") || ""
+    let storedRequest = null
+    try {
+      storedRequest = JSON.parse(sessionStorage.getItem("voicebot_result_request") || "null")
+    } catch {
+      storedRequest = null
+    }
+    const requestedSemester = params.get("semester") || storedRequest?.semester || ""
 
     Promise.all([
       fetchJson("getProfile.php"),
@@ -92,11 +98,11 @@ const Result = () => {
         setStudent(profileData)
         setAvailableSelections(selections)
         setForm({
-          usn: (params.get("usn") || profileData.usn || "").toUpperCase(),
+          usn: (params.get("usn") || storedRequest?.usn || profileData.usn || "").toUpperCase(),
           semester: requestedSemester,
-          exam: params.get("exam") || defaultSelection?.exam || "",
-          year: params.get("year") || defaultSelection?.year || "",
-          season: params.get("season") || defaultSelection?.season || ""
+          exam: params.get("exam") || storedRequest?.examType || defaultSelection?.exam || "SEE",
+          year: params.get("year") || storedRequest?.year || defaultSelection?.year || "",
+          season: params.get("season") || storedRequest?.season || defaultSelection?.season || ""
         })
         setLoading(false)
       })
@@ -189,7 +195,8 @@ const Result = () => {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
-    const voiceRequestedResult = params.has("semester") || params.has("exam") || params.has("year") || params.has("season")
+    const hasStoredRequest = sessionStorage.getItem("voicebot_result_request") !== null
+    const voiceRequestedResult = hasStoredRequest || params.has("semester") || params.has("exam") || params.has("year") || params.has("season")
 
     if (!voiceRequestedResult || !student || submitting || voicePrefillSubmittedRef.current) return
     if (!form.usn || !form.semester || !form.exam || !form.year || !form.season) return
@@ -221,6 +228,7 @@ const Result = () => {
     if (!gradeSheetReady) return
 
     resultAlreadySpokenRef.current = true
+    sessionStorage.removeItem("voicebot_result_request")
 
     window.dispatchEvent(new CustomEvent("gmu:result-ready", {
       detail: {
