@@ -666,14 +666,16 @@ class VapiToolService {
         return $suggestion;
     }
     private static function directResultNavigationResult($query, $language, $sessionId) {
-        $text = strtolower((string) $query);
-        if (!preg_match('/\b(result|results|marks|marksheet|grade\s*sheet|sgpa)\b/u', $text)) {
+        $text = self::normalizeResultQueryText((string) $query);
+        $resultPattern = '/\b(result|results|marks|marksheet|grade\s*sheet|score|sgpa|cgpa|internal\s*marks)\b/u';
+        if (!preg_match($resultPattern, $text)) {
             return null;
         }
-        $hasResultNavigationVerb = (bool) preg_match('/\b(show|open|view|display|check|go|navigate|take|get|see|tell|kholo|khol|dikhao|torisu|hogu|maadi|madi)\b/u', $text);
-        $hasResultQuestionIntent = (bool) preg_match('/\b(what|which|where|how)\b.*\b(result|results|marks|marksheet|grade\s*sheet|sgpa)\b|\b(result|results|marks|marksheet|grade\s*sheet|sgpa)\b.*\b(what|which|where|how)\b/u', $text);
-        $hasSemesterMention = self::extractSemester($text) > 0 || (bool) preg_match('/\b(current|latest|present|previous|last)\s+(semester|sem)?\s*(result|results|marks)?\b/u', $text);
-        if (!$hasResultNavigationVerb && !($hasResultQuestionIntent && $hasSemesterMention)) {
+        $hasResultNavigationVerb = (bool) preg_match('/\b(show|open|view|display|check|go|navigate|take|get|see|tell|kholo|khol|dikhao|dikhana|batao|batana|torisu|torisi|hogu|hogi|nodu|nodi|beku|bekagide|maadi|madi|madu|kodu|kodi)\b/u', $text);
+        $hasResultQuestionIntent = (bool) preg_match('/\b(what|which|where|how|kya|kaise|kahan|kab|yaava|yava|hege|elli|enu)\b.*' . trim($resultPattern, '/') . '|' . trim($resultPattern, '/') . '.*\b(what|which|where|how|kya|kaise|kahan|kab|yaava|yava|hege|elli|enu)\b/u', $text);
+        $hasSemesterMention = self::extractSemester($text) > 0 || (bool) preg_match('/\b(current|latest|present|previous|last|abhi|pichla|hindina|eega|ivaga)\s+(semester|sem)?\s*(result|results|marks)?\b/u', $text);
+        $isResultOnlyRequest = (bool) preg_match($resultPattern, $text);
+        if (!$hasResultNavigationVerb && !$hasSemesterMention && !preg_match('/\b(sgpa|cgpa)\b/u', $text) && !($hasResultQuestionIntent && $hasSemesterMention) && !$isResultOnlyRequest) {
             return null;
         }
 
@@ -701,6 +703,12 @@ class VapiToolService {
         }
         if ($semester <= 0 && preg_match('/\b(previous|last)\s+(semester|sem)?\s*(result|results|marks)?\b/u', $text)) {
             $semester = max(1, $currentSemester - 1);
+        }
+        if ($semester <= 0 && $currentSemester > 0) {
+            $semester = $currentSemester;
+        }
+        if ($semester <= 0 && !empty($selections)) {
+            $semester = (int) ($selections[0]["semester"] ?? 0);
         }
         if ($semester <= 0) {
             return null;
@@ -741,11 +749,38 @@ class VapiToolService {
         if ($language === "kn") return "Result page ella available semesters jothe open agide.";
         return "Result page is open with all available semesters.";
     }
+    private static function normalizeResultQueryText($query) {
+        $text = strtolower(trim((string) $query));
+        $replacements = [
+            '/\bs\s*e\s*e\b|\bc\s*e\s*e\b|\bcee\b|\bc\s+(?=result|results|marks|sgpa|cgpa|grade)/u' => ' see ',
+            '/\bre\s+sit\b/u' => ' resit ',
+            '/\bre\s+valuation\b/u' => ' revaluation ',
+            '/\bre\s*[- ]?\s*registration\b|\breregistration\b/u' => ' re-registration ',
+            '/??????|??????|?????|???????|???|?????|???????|???????/u' => ' result ',
+            '/???????|???????|???????|????????|???|??????|???\s*??\s*??\s*?|???????/u' => ' result ',
+            '/\b(resultu|rijalt|resalt|marksu|marks card|grade card|gradecard|ankagalu|phalitansha|falitansha)\b/u' => ' result ',
+            '/\bna result|mera result|nanna result|result torisu|result nodu|marks torisu|sgpa torisu|sgpa dikhao\b/u' => ' result ',
+            '/\bpehla|pahla|firstu|ondu|ondane|modala\b/u' => ' first ',
+            '/\bdoosra|dusra|secondu|eradu|eradane\b/u' => ' second ',
+            '/\bteesra|tisra|thirdu|mooru|moorane\b/u' => ' third ',
+            '/\bchautha|choutha|fourthu|naalku|nalku|naalkane|nalkane\b/u' => ' fourth ',
+            '/\bpanchwa|paanchwa|fifthu|aidu|aidane\b/u' => ' fifth ',
+            '/\bchhatha|sixthu|aaru|aarane\b/u' => ' sixth ',
+            '/\bsaatwa|seventhu|elu|elane\b/u' => ' seventh ',
+            '/\baathwa|aathva|eighthu|entu|entane\b/u' => ' eighth '
+        ];
+        foreach ($replacements as $pattern => $replacement) {
+            $text = preg_replace($pattern, $replacement, $text);
+        }
+        $text = preg_replace('/[^\p{L}\p{N}\s+-]+/u', ' ', (string) $text);
+        return trim(preg_replace('/\s+/u', ' ', (string) $text));
+    }
     private static function extractSemester($text) {
+        $text = self::normalizeResultQueryText($text);
         if (preg_match('/\b(?:semester|sem)\s*(\d{1,2})\b/u', $text, $matches)) {
             return (int) $matches[1];
         }
-        if (preg_match('/\b([1-8])(?:st|nd|rd|th)\s*(?:semester|sem|result)\b/u', $text, $matches)) {
+        if (preg_match('/\b([1-8])(?:st|nd|rd|th)?\s*(?:semester|sem|result|marks)?\b/u', $text, $matches)) {
             return (int) $matches[1];
         }
         $words = ["first" => 1, "second" => 2, "third" => 3, "fourth" => 4, "fifth" => 5, "sixth" => 6, "seventh" => 7, "eighth" => 8];
@@ -1159,8 +1194,8 @@ class VapiToolService {
         if (preg_match('/[\x{0C80}-\x{0CFF}]/u', $query)) return "kn";
         if (preg_match('/[\x{0900}-\x{097F}]/u', $query)) return "hi";
         $roman = strtolower((string) $query);
-        if (preg_match('/\b(torisu|hogu|maadi|madi|beku|bekagide|kannada|kannadadalli|heli|mathadu|maatadu|sari|nimma|nanna|elli|yelli|madodu|madbeku)\b/u', $roman)) return "kn";
-        if (preg_match('/\b(hindi|mein|karo|kholo|dikhao|batao|chalo|mera|aapka|kripya|bharna|karna|kijiye|kaise|kahan)\b/u', $roman)) return "hi";
+        if (preg_match('/\b(torisu|torisi|hogu|hogi|nodu|nodi|maadi|madi|madu|beku|bekagide|kannada|kannadadalli|heli|mathadu|maatadu|sari|nimma|nanna|elli|yelli|yaava|yava|hege|madodu|madbeku|kodu|kodi)\b/u', $roman)) return "kn";
+        if (preg_match('/\b(hindi|mein|me|karo|kholo|dikhao|dikhana|batao|batana|chalo|mera|meri|aapka|kripya|bharna|karna|kijiye|kaise|kahan|kya|pichla|pehla|doosra|teesra|chautha|panchwa)\b/u', $roman)) return "hi";
         return "en";
     }
     private static function defaultApiUrl() {

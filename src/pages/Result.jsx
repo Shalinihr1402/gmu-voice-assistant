@@ -1,12 +1,49 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 
+import gmuLogo from "../assets/gmu-logo.png"
 import { fetchJson } from "../utils/api"
 import "./Result.css"
 
 const uniqueValues = (values) => Array.from(new Set(values.filter(Boolean)))
 const sortSemesters = (values) => [...values].sort((left, right) => Number(left) - Number(right))
 const sortAcademicYears = (values) => [...values].sort((left, right) => right.localeCompare(left))
+
+const gradeLetterFromPoint = (point) => {
+  const value = Number(point)
+  if (value >= 10) return "O"
+  if (value >= 9) return "A+"
+  if (value >= 8) return "A"
+  if (value >= 7) return "B+"
+  if (value >= 6) return "B"
+  if (value > 0) return "C"
+  return "F"
+}
+
+const pickDefaultSelection = (selections, semester) => {
+  const semesterSelections = selections.filter((selection) => String(selection.semester) === String(semester))
+  if (!semesterSelections.length) return null
+  return semesterSelections.find((selection) => String(selection.exam).toUpperCase() === "SEE") || semesterSelections[0]
+}
+
+const buildResultSummary = (data) => {
+  if (!data?.selection || !data?.summary) return ""
+
+  const semester = data.selection.semester
+  const exam = data.selection.exam || "SEE"
+  const sgpa = data.summary.sgpa
+  const topSubject = Array.isArray(data.subjects)
+    ? data.subjects
+        .filter((subject) => Number(subject.grade_point) > 0)
+        .sort((left, right) => Number(right.grade_point) - Number(left.grade_point))[0]
+    : null
+
+  const topLine = topSubject
+    ? ` You scored ${gradeLetterFromPoint(topSubject.grade_point)} in ${topSubject.course_title}.`
+    : ""
+
+  return `Your ${semester} semester ${exam} result is now open. Your SGPA is ${sgpa}.${topLine}`
+}
 
 const Result = () => {
   const navigate = useNavigate()
@@ -25,20 +62,19 @@ const Result = () => {
     season: ""
   })
   const voicePrefillSubmittedRef = useRef(false)
+  const resultAlreadySpokenRef = useRef(false)
+  const submitButtonRef = useRef(null)
 
   useEffect(() => {
     voicePrefillSubmittedRef.current = false
+    resultAlreadySpokenRef.current = false
+    setResultData(null)
+    setErrorMessage("")
   }, [location.search])
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
-    const voicePrefill = {
-      usn: (params.get("usn") || "").toUpperCase(),
-      semester: params.get("semester") || "",
-      exam: params.get("exam") || "",
-      year: params.get("year") || "",
-      season: params.get("season") || ""
-    }
+    const requestedSemester = params.get("semester") || ""
 
     Promise.all([
       fetchJson("getProfile.php"),
@@ -50,16 +86,18 @@ const Result = () => {
           return
         }
 
+        const selections = Array.isArray(availabilityData?.selections) ? availabilityData.selections : []
+        const defaultSelection = requestedSemester ? pickDefaultSelection(selections, requestedSemester) : null
+
         setStudent(profileData)
-        setAvailableSelections(Array.isArray(availabilityData?.selections) ? availabilityData.selections : [])
-        setForm((current) => ({
-          ...current,
-          usn: voicePrefill.usn || profileData.usn || "",
-          semester: voicePrefill.semester || current.semester || "",
-          exam: voicePrefill.exam || current.exam,
-          year: voicePrefill.year || current.year,
-          season: voicePrefill.season || current.season
-        }))
+        setAvailableSelections(selections)
+        setForm({
+          usn: (params.get("usn") || profileData.usn || "").toUpperCase(),
+          semester: requestedSemester,
+          exam: params.get("exam") || defaultSelection?.exam || "",
+          year: params.get("year") || defaultSelection?.year || "",
+          season: params.get("season") || defaultSelection?.season || ""
+        })
         setLoading(false)
       })
       .catch(() => navigate("/"))
@@ -96,77 +134,7 @@ const Result = () => {
       .map((selection) => selection.season)
   ), [availableSelections, form.exam, form.semester, form.year])
 
-  const handleChange = (field, value) => {
-    setForm((current) => {
-      if (field === "semester") {
-        return {
-          ...current,
-          semester: value,
-          exam: "",
-          year: "",
-          season: ""
-        }
-      }
-
-      if (field === "exam") {
-        return {
-          ...current,
-          exam: value,
-          year: "",
-          season: ""
-        }
-      }
-
-      if (field === "year") {
-        return {
-          ...current,
-          year: value,
-          season: ""
-        }
-      }
-
-      return {
-        ...current,
-        [field]: value
-      }
-    })
-  }
-
-  useEffect(() => {
-    const params = new URLSearchParams(location.search)
-    const hasVoicePrefill = ["usn", "semester", "exam", "year", "season"].every((key) => params.get(key))
-
-    if (!hasVoicePrefill || !student || submitting || voicePrefillSubmittedRef.current) {
-      return
-    }
-
-    if (!form.usn || !form.semester || !form.exam || !form.year || !form.season) {
-      return
-    }
-
-    voicePrefillSubmittedRef.current = true
-    setSubmitting(true)
-    setErrorMessage("")
-    setResultData(null)
-
-    fetchJson("getSemesterResult.php", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form)
-    })
-      .then((data) => {
-        setResultData(data)
-      })
-      .catch((error) => {
-        setErrorMessage(error.message || "Unable to fetch result right now.")
-      })
-      .finally(() => {
-        setSubmitting(false)
-      })
-  }, [form, location.search, student, submitting])
-
-  const handleSubmit = async (event) => {
-    event.preventDefault()
+  const fetchResult = async (payload) => {
     setSubmitting(true)
     setErrorMessage("")
     setResultData(null)
@@ -175,15 +143,98 @@ const Result = () => {
       const data = await fetchJson("getSemesterResult.php", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form)
+        body: JSON.stringify(payload)
       })
 
       setResultData(data)
+      window.requestAnimationFrame(() => {
+        const gradeSheet = document.querySelector("#grade-sheet-card")
+        if (gradeSheet) {
+          gradeSheet.scrollIntoView({ behavior: "smooth", block: "start" })
+        } else {
+          window.scrollTo({ top: 0, behavior: "smooth" })
+        }
+      })
     } catch (error) {
       setErrorMessage(error.message || "Unable to fetch result right now.")
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const handleChange = (field, value) => {
+    setForm((current) => {
+      if (field === "semester") {
+        const defaultSelection = pickDefaultSelection(availableSelections, value)
+        return {
+          ...current,
+          semester: value,
+          exam: defaultSelection?.exam || "",
+          year: defaultSelection?.year || "",
+          season: defaultSelection?.season || ""
+        }
+      }
+
+      if (field === "exam") {
+        return { ...current, exam: value, year: "", season: "" }
+      }
+
+      if (field === "year") {
+        return { ...current, year: value, season: "" }
+      }
+
+      return { ...current, [field]: value }
+    })
+  }
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const voiceRequestedResult = params.has("semester") || params.has("exam") || params.has("year") || params.has("season")
+
+    if (!voiceRequestedResult || !student || submitting || voicePrefillSubmittedRef.current) return
+    if (!form.usn || !form.semester || !form.exam || !form.year || !form.season) return
+
+    voicePrefillSubmittedRef.current = true
+    const timer = window.setTimeout(() => {
+      sessionStorage.setItem("voicebot_result_opened", "true")
+      document.querySelector("#submitBtn")?.click()
+    }, 250)
+
+    return () => window.clearTimeout(timer)
+  }, [form, location.search, student, submitting])
+
+  useEffect(() => {
+    if (!resultData || resultAlreadySpokenRef.current) return
+
+    const openedByVoiceBot = sessionStorage.getItem("voicebot_result_opened")
+    if (openedByVoiceBot !== "true") return
+
+    const summary = buildResultSummary(resultData)
+    if (!summary) return
+
+    const gradeSheetReady = Boolean(
+      document.querySelector("#grade-sheet-card")
+      && document.querySelector(".provisional-table")
+      && document.querySelector(".summary-table")
+    )
+
+    if (!gradeSheetReady) return
+
+    resultAlreadySpokenRef.current = true
+
+    window.dispatchEvent(new CustomEvent("gmu:result-ready", {
+      detail: {
+        summary,
+        semester: resultData.selection.semester,
+        exam: resultData.selection.exam,
+        sgpa: resultData.summary.sgpa
+      }
+    }))
+  }, [resultData])
+
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+    await fetchResult(form)
   }
 
   const handleDownload = () => {
@@ -195,187 +246,168 @@ const Result = () => {
   }
 
   return (
-    <div className="result-page">
-      <header className="result-header">
-        <div className="logo-text">GMU-ERP</div>
+    <div className={resultData ? "result-page sheet-mode" : "result-page"}>
+      {!resultData && (
+        <header className="result-header">
+          <div className="logo-text">GMU-ERP</div>
 
-        <nav className="header-nav">
-          <a href="#" onClick={(event) => { event.preventDefault(); navigate("/home") }}>
-            Student Hallticket
-          </a>
-          <a href="#" onClick={(event) => { event.preventDefault(); navigate("/profile") }}>
-            Profile
-          </a>
-          <a href="#" onClick={(event) => { event.preventDefault(); navigate("/registration") }}>
-            Student Registration
-          </a>
-          <a href="#" className="active" onClick={(event) => event.preventDefault()}>
-            Student Result
-          </a>
-          <a href="#" onClick={(event) => { event.preventDefault(); navigate("/certificate") }}>
-            Digital Competency Certificate
-          </a>
-        </nav>
+          <nav className="header-nav">
+            <a href="#" onClick={(event) => { event.preventDefault(); navigate("/home") }}>Student Hallticket</a>
+            <a href="#" onClick={(event) => { event.preventDefault(); navigate("/profile") }}>Profile</a>
+            <a href="#" onClick={(event) => { event.preventDefault(); navigate("/registration") }}>Student Registration</a>
+            <a href="#" className="active" onClick={(event) => event.preventDefault()}>Student Result</a>
+            <a href="#" onClick={(event) => { event.preventDefault(); navigate("/certificate") }}>Digital Competency Certificate</a>
+          </nav>
 
-        <div className="header-user">
-          👤 {student.full_name} ▾
-        </div>
-      </header>
+          <div className="header-user">{student.full_name} v</div>
+        </header>
+      )}
 
       <main className="result-main">
-        <section className="result-form-shell">
-          <h1>GM University Grade Sheet Generator</h1>
+        {!resultData && (
+          <section className="result-form-shell">
+            <h1>GM University Grade Sheet Generator</h1>
 
-          <form className="result-form-card" onSubmit={handleSubmit}>
-            <label>
-              <span>Enter USN</span>
-              <input
-                type="text"
-                value={form.usn}
-                onChange={(event) => handleChange("usn", event.target.value.toUpperCase())}
-                placeholder="Enter USN"
-              />
-            </label>
+            <form className="result-form-card" onSubmit={handleSubmit}>
+              <label>
+                <span>Enter USN</span>
+                <input
+                  type="text"
+                  value={form.usn}
+                  onChange={(event) => handleChange("usn", event.target.value.toUpperCase())}
+                  placeholder="Enter USN"
+                />
+              </label>
 
-            <label>
-              <span>Semester</span>
-              <select
-                value={form.semester}
-                onChange={(event) => handleChange("semester", event.target.value)}
-              >
-                <option value="">Select Semester</option>
-                {semesterOptions.map((semester) => (
-                  <option key={semester} value={semester}>{semester}</option>
-                ))}
-              </select>
-            </label>
+              <label>
+                <span>Semester</span>
+                <select value={form.semester} onChange={(event) => handleChange("semester", event.target.value)}>
+                  <option value="">Select Sem</option>
+                  {semesterOptions.map((semester) => <option key={semester} value={semester}>{semester}</option>)}
+                </select>
+              </label>
 
-            <label>
-              <span>Exam</span>
-              <select
-                value={form.exam}
-                onChange={(event) => handleChange("exam", event.target.value)}
-              >
-                <option value="">Select Exam</option>
-                {examOptions.map((exam) => (
-                  <option key={exam} value={exam}>{exam}</option>
-                ))}
-              </select>
-            </label>
+              <label>
+                <span>Exam</span>
+                <select value={form.exam} onChange={(event) => handleChange("exam", event.target.value)}>
+                  <option value="">Select Exam</option>
+                  {examOptions.map((exam) => <option key={exam} value={exam}>{exam}</option>)}
+                </select>
+              </label>
 
-            <label>
-              <span>Exam Conducted Year</span>
-              <select
-                value={form.year}
-                onChange={(event) => handleChange("year", event.target.value)}
-              >
-                <option value="">Select Academic Year</option>
-                {academicYearOptions.map((year) => (
-                  <option key={year} value={year}>{year}</option>
-                ))}
-              </select>
-            </label>
+              <label>
+                <span>Exam Conducted Year</span>
+                <select value={form.year} onChange={(event) => handleChange("year", event.target.value)}>
+                  <option value="">Select Academic Year</option>
+                  {academicYearOptions.map((year) => <option key={year} value={year}>{year}</option>)}
+                </select>
+              </label>
 
-            <label>
-              <span>Exam Conducted Season</span>
-              <select
-                value={form.season}
-                onChange={(event) => handleChange("season", event.target.value)}
-              >
-                <option value="">Select Season</option>
-                {seasonOptions.map((season) => (
-                  <option key={season} value={season}>{season}</option>
-                ))}
-              </select>
-            </label>
+              <label>
+                <span>Exam Conducted Season</span>
+                <select value={form.season} onChange={(event) => handleChange("season", event.target.value)}>
+                  <option value="">Select Season</option>
+                  {seasonOptions.map((season) => <option key={season} value={season}>{season}</option>)}
+                </select>
+              </label>
 
-            {!!availableSelections.length && (
-              <p className="result-availability-note">
-                Available demo result combinations:{" "}
-                {availableSelections
-                  .map((selection) => `Sem ${selection.semester} ${selection.exam} ${selection.year} ${selection.season}`)
-                  .join(" | ")}
-              </p>
-            )}
+              {errorMessage && <p className="result-error">{errorMessage}</p>}
 
-            {errorMessage && <p className="result-error">{errorMessage}</p>}
-
-            <div className="result-form-actions">
-              <button type="submit" disabled={submitting}>
-                {submitting ? "Loading..." : "Submit"}
-              </button>
-            </div>
-          </form>
-        </section>
+              <div className="result-form-actions">
+                <button id="submitBtn" ref={submitButtonRef} type="submit" disabled={submitting}>{submitting ? "Loading..." : "Submit"}</button>
+              </div>
+            </form>
+          </section>
+        )}
 
         {resultData && (
-          <section className="grade-sheet-card" id="grade-sheet-card">
-            <div className="grade-sheet-top">
+          <section className="provisional-sheet" id="grade-sheet-card">
+            <div className="sheet-banner">
+              <img src={gmuLogo} alt="GM University" />
               <div>
-                <p className="sheet-kicker">Semester Result</p>
-                <h2>{resultData.student.full_name}</h2>
-              </div>
-              <button type="button" onClick={handleDownload}>
-                Download Result
-              </button>
-            </div>
-
-            <div className="grade-sheet-grid">
-              <div><span>USN</span><strong>{resultData.student.usn}</strong></div>
-              <div><span>Branch</span><strong>{resultData.student.branch}</strong></div>
-              <div><span>Semester</span><strong>{resultData.selection.semester}</strong></div>
-              <div><span>Exam</span><strong>{resultData.selection.exam}</strong></div>
-              <div><span>Academic Year</span><strong>{resultData.selection.year}</strong></div>
-              <div><span>Season</span><strong>{resultData.selection.season}</strong></div>
-            </div>
-
-            <div className="grade-summary-row">
-              <div className="summary-box">
-                <span>SGPA</span>
-                <strong>{resultData.summary.sgpa}</strong>
-              </div>
-              <div className="summary-box">
-                <span>Total Credits</span>
-                <strong>{resultData.summary.credits}</strong>
-              </div>
-              <div className={`summary-box ${resultData.summary.status === "PASS" ? "pass" : "fail"}`}>
-                <span>Status</span>
-                <strong>{resultData.summary.status}</strong>
+                <p>Srishyla Educational Trust (R)</p>
+                <h1>GM UNIVERSITY</h1>
+                <p>(Established under the Karnataka State Act No. 19 of 2023)</p>
+                <p>P. B. Road, Davanagere, Karnataka - 577 006</p>
+                <p>E-mail: info@gmu.ac.in, Website: www.gmu.ac.in</p>
               </div>
             </div>
 
-            <div className="backlog-note">
-              {resultData.summary.backlog_count > 0
-                ? `Backlogs: ${resultData.summary.backlogs.join(", ")}`
-                : "No backlog in this semester."}
+            <div className="sheet-actions no-print">
+              <button type="button" onClick={() => setResultData(null)}>Back to Search</button>
+              <button type="button" onClick={handleDownload}>Download / Print</button>
             </div>
 
-            <div className="grade-table-wrap">
-              <table className="grade-table">
-                <thead>
-                  <tr>
-                    <th>Course Code</th>
-                    <th>Course Title</th>
-                    <th>Credits</th>
-                    <th>Grade Point</th>
-                    <th>Status</th>
+            <h2>PROVISIONAL GRADE SHEET</h2>
+
+            <div className="sheet-meta">
+              <div>
+                <p><strong>Name</strong><span>:</span><b>{resultData.student.full_name}</b></p>
+                <p><strong>USN</strong><span>:</span><b>{resultData.student.usn}</b></p>
+                <p><strong>Program</strong><span>:</span><b>{resultData.student.branch}</b></p>
+                <p><strong>Semester</strong><span>:</span><b>{resultData.selection.semester}</b></p>
+                <p><strong>Academic Year</strong><span>:</span><b>{resultData.selection.year}</b></p>
+              </div>
+              <p className="sheet-exam"><strong>Exam :</strong> {resultData.selection.exam} {resultData.selection.season}</p>
+            </div>
+
+            <table className="provisional-table">
+              <thead>
+                <tr>
+                  <th>SL.No</th>
+                  <th>Course Code</th>
+                  <th>Course Title</th>
+                  <th>Credits</th>
+                  <th>Grade Awarded</th>
+                  <th>Grade Point</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resultData.subjects.map((subject, index) => (
+                  <tr key={`${subject.course_code}-${subject.course_title}`}>
+                    <td>{index + 1}</td>
+                    <td>{subject.course_code}</td>
+                    <td>{subject.course_title}</td>
+                    <td>{Number(subject.credits).toFixed(2)}</td>
+                    <td>{gradeLetterFromPoint(subject.grade_point)}</td>
+                    <td>{subject.grade_point}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {resultData.subjects.map((subject) => (
-                    <tr key={`${subject.course_code}-${subject.course_title}`}>
-                      <td>{subject.course_code}</td>
-                      <td>{subject.course_title}</td>
-                      <td>{subject.credits}</td>
-                      <td>{subject.grade_point}</td>
-                      <td className={subject.status === "PASS" ? "pass-cell" : "fail-cell"}>
-                        {subject.status}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                ))}
+              </tbody>
+            </table>
+
+            <table className="summary-table">
+              <tbody>
+                <tr><th>Total Credits During the Semester</th><td>{resultData.summary.credits}</td></tr>
+                <tr><th>SGPA</th><td>{resultData.summary.sgpa}</td></tr>
+                <tr><th>Status</th><td>{resultData.summary.status}</td></tr>
+                {resultData.summary.backlog_count > 0 && (
+                  <tr><th>Backlogs</th><td>{resultData.summary.backlogs.join(", ")}</td></tr>
+                )}
+              </tbody>
+            </table>
+
+            <div className="signature-row">
+              <div>Signature<br />Registrar Assessment and Evaluation</div>
+              <div>Signature<br />Pro-Vice Chancellor</div>
             </div>
+
+            <h3>Grade Explanation</h3>
+            <table className="grade-explanation">
+              <tbody>
+                <tr><th>Grade Letter</th><th>Absolute Grading Marks Range</th><th>Grade Point</th></tr>
+                <tr><td>O</td><td>91-100</td><td>10</td></tr>
+                <tr><td>A+</td><td>81-90</td><td>9</td></tr>
+                <tr><td>A</td><td>71-80</td><td>8</td></tr>
+                <tr><td>B+</td><td>61-70</td><td>7</td></tr>
+                <tr><td>B</td><td>50-60</td><td>6</td></tr>
+                <tr><td>C</td><td>&lt;50</td><td>0</td></tr>
+              </tbody>
+            </table>
+
+            <p className="sheet-note">
+              Note: University is not responsible for any inadvertent error that may have crept in the results being published on ERP. The results published are for immediate information to the examinees. This cannot be treated as original Grade Sheet.
+            </p>
           </section>
         )}
       </main>

@@ -280,6 +280,7 @@ const VoiceAssistant = () => {
   const navigationTimerRef = useRef(null)
   const lastAppliedToolResultRef = useRef({ key: "", at: 0 })
   const lastNavigationRef = useRef({ path: "", at: 0 })
+  const lastResultReadySummaryRef = useRef({ summary: "", at: 0 })
   const navigationLockRef = useRef(false)
   const navigationLockTimerRef = useRef(null)
 
@@ -355,6 +356,44 @@ const VoiceAssistant = () => {
   useEffect(() => {
     vapiCallActiveRef.current = isVapiCallActive
   }, [isVapiCallActive])
+
+  useEffect(() => {
+    const handleResultReady = (event) => {
+      const openedByVoiceBot = sessionStorage.getItem("voicebot_result_opened")
+      if (openedByVoiceBot !== "true") return
+
+      const summary = String(event.detail?.summary || "").trim()
+      if (!summary) return
+
+      const now = Date.now()
+      if (lastResultReadySummaryRef.current.summary === summary && now - lastResultReadySummaryRef.current.at < 5000) {
+        return
+      }
+
+      const semester = event.detail?.semester || ""
+      const exam = event.detail?.exam || "SEE"
+      const sgpa = event.detail?.sgpa || ""
+      const localizedSummary = replyInSelectedLanguage(
+        summary,
+        `Aapka semester ${semester} ${exam} result open ho gaya hai. Aapka SGPA ${sgpa} hai.`,
+        `Nimma semester ${semester} ${exam} result open agide. Nimma SGPA ${sgpa}.`
+      )
+
+      sessionStorage.removeItem("voicebot_result_opened")
+      lastResultReadySummaryRef.current = { summary: localizedSummary, at: now }
+      setResponse(localizedSummary)
+      setReplySource("result_page")
+      setSuggestionText("")
+      setQuickActions([])
+
+      if (!vapiCallActiveRef.current) {
+        void speak(localizedSummary, { preferBrowser: true })
+      }
+    }
+
+    window.addEventListener("gmu:result-ready", handleResultReady)
+    return () => window.removeEventListener("gmu:result-ready", handleResultReady)
+  }, [])
 
   useEffect(() => {
     fetchJson("getCurrentUser.php")
