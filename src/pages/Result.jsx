@@ -26,23 +26,27 @@ const pickDefaultSelection = (selections, semester) => {
   return semesterSelections.find((selection) => String(selection.exam).toUpperCase() === "SEE") || semesterSelections[0]
 }
 
+const performanceFeedbackFromSgpa = (sgpa) => {
+  const value = Number(sgpa)
+  if (Number.isNaN(value)) return "Keep checking your academic progress regularly."
+  if (value >= 9.5) return "Outstanding performance. Keep up the excellent work."
+  if (value >= 9) return "Excellent performance. You are doing very well."
+  if (value >= 8) return "Very good performance. Keep maintaining this consistency."
+  if (value >= 7) return "Good performance. With a little more focus, you can improve further."
+  if (value >= 6) return "Average performance. Please focus more on weaker subjects."
+  if (value >= 5) return "You have passed, but improvement is needed. Please revise regularly."
+  return "Your performance needs serious attention. Please contact your mentor and work on improvement."
+}
+
 const buildResultSummary = (data) => {
   if (!data?.selection || !data?.summary) return ""
 
   const semester = data.selection.semester
   const exam = data.selection.exam || "SEE"
   const sgpa = data.summary.sgpa
-  const topSubject = Array.isArray(data.subjects)
-    ? data.subjects
-        .filter((subject) => Number(subject.grade_point) > 0)
-        .sort((left, right) => Number(right.grade_point) - Number(left.grade_point))[0]
-    : null
+  const feedback = performanceFeedbackFromSgpa(sgpa)
 
-  const topLine = topSubject
-    ? ` You scored ${gradeLetterFromPoint(topSubject.grade_point)} in ${topSubject.course_title}.`
-    : ""
-
-  return `Your ${semester} semester ${exam} result is now open. Your SGPA is ${sgpa}.${topLine}`
+  return `Your ${semester} semester ${exam} result is now open. Your SGPA is ${sgpa}. ${feedback}`
 }
 
 const Result = () => {
@@ -63,6 +67,7 @@ const Result = () => {
   })
   const voicePrefillSubmittedRef = useRef(false)
   const resultAlreadySpokenRef = useRef(false)
+  const lastVoiceSubmitRef = useRef({ key: "", at: 0 })
   const submitButtonRef = useRef(null)
 
   useEffect(() => {
@@ -140,6 +145,63 @@ const Result = () => {
       .map((selection) => selection.season)
   ), [availableSelections, form.exam, form.semester, form.year])
 
+  const buildFormFromVoiceRequest = (request) => {
+    const requestedSemester = String(request?.semester || form.semester || "")
+    const requestedExam = String(request?.examType || request?.exam || "").toUpperCase()
+    const semesterSelections = availableSelections.filter((selection) => String(selection.semester) === String(requestedSemester))
+    const defaultSelection = requestedSemester
+      ? (requestedExam ? semesterSelections.find((selection) => String(selection.exam).toUpperCase() === requestedExam) : null) || pickDefaultSelection(availableSelections, requestedSemester)
+      : null
+
+    return {
+      usn: String(request?.usn || form.usn || student?.usn || "").toUpperCase(),
+      semester: requestedSemester,
+      exam: String(requestedExam || defaultSelection?.exam || "SEE"),
+      year: String(request?.year || defaultSelection?.year || form.year || ""),
+      season: String(request?.season || defaultSelection?.season || form.season || "")
+    }
+  }
+  const getResultRequestKey = (payload) => ([
+    String(payload?.usn || "").toUpperCase(),
+    String(payload?.semester || ""),
+    String(payload?.exam || payload?.examType || "").toUpperCase(),
+    String(payload?.year || ""),
+    String(payload?.season || "").toUpperCase()
+  ].join("|"))
+
+  const shouldSkipDuplicateVoiceSubmit = (payload) => {
+    const requestKey = getResultRequestKey(payload)
+    const now = Date.now()
+    const lastSubmit = lastVoiceSubmitRef.current
+
+    if (lastSubmit.key === requestKey && now - lastSubmit.at < 15000) {
+      return true
+    }
+
+    lastVoiceSubmitRef.current = { key: requestKey, at: now }
+    return false
+  }
+  const buildUnavailableResultMessage = (payload, fallbackMessage = "") => {
+    const semesterText = payload?.semester ? `semester ${payload.semester}` : "the selected semester"
+    const examText = String(payload?.exam || payload?.examType || "selected exam").toUpperCase()
+    const yearText = payload?.year ? ` for academic year ${payload.year}` : ""
+    const seasonText = payload?.season ? ` ${String(payload.season).toUpperCase()} season` : ""
+    const availableText = String(fallbackMessage || "").match(/Available combinations[^.]*\./)?.[0] || ""
+
+    return `No published ${examText} result is available for ${semesterText}${yearText}${seasonText}.${availableText ? ` ${availableText}` : " Please check the exam type, year, and season, or contact the exam section."}`
+  }
+
+  const publishVoiceResultMessage = (summary, type = "result") => {
+    const message = String(summary || "").trim()
+    if (!message) return
+
+    const resultSummaryPayload = { summary: message, type }
+    sessionStorage.setItem("voicebot_result_summary", JSON.stringify(resultSummaryPayload))
+    window.dispatchEvent(new CustomEvent("gmu:result-ready", {
+      detail: resultSummaryPayload
+    }))
+  }
+
   const fetchResult = async (payload) => {
     setSubmitting(true)
     setErrorMessage("")
@@ -162,11 +224,40 @@ const Result = () => {
         }
       })
     } catch (error) {
-      setErrorMessage(error.message || "Unable to fetch result right now.")
+      const message = buildUnavailableResultMessage(payload, error.message || "")
+      const openedByVoiceBot = sessionStorage.getItem("voicebot_result_opened") === "true"
+      if (openedByVoiceBot) {
+        publishVoiceResultMessage(message, "error")
+      } else {
+        sessionStorage.removeItem("voicebot_result_opened")
+      }
+      setErrorMessage(message || error.message || "Unable to fetch result right now.")
     } finally {
       setSubmitting(false)
     }
   }
+
+  useEffect(() => {
+    const handleVoicebotResultRequest = (event) => {
+      if (!student || !availableSelections.length) return
+
+      const payload = buildFormFromVoiceRequest(event.detail || {})
+      if (!payload.usn || !payload.semester || !payload.exam || !payload.year || !payload.season) return
+      if (shouldSkipDuplicateVoiceSubmit(payload)) return
+
+      voicePrefillSubmittedRef.current = true
+      resultAlreadySpokenRef.current = false
+      setResultData(null)
+      setErrorMessage("")
+      setForm(payload)
+
+      sessionStorage.setItem("voicebot_result_opened", "true")
+      void fetchResult(payload)
+    }
+
+    window.addEventListener("gmu:voicebot-result-request", handleVoicebotResultRequest)
+    return () => window.removeEventListener("gmu:voicebot-result-request", handleVoicebotResultRequest)
+  }, [availableSelections, form, student])
 
   const handleChange = (field, value) => {
     setForm((current) => {
@@ -202,12 +293,10 @@ const Result = () => {
     if (!form.usn || !form.semester || !form.exam || !form.year || !form.season) return
 
     voicePrefillSubmittedRef.current = true
-    const timer = window.setTimeout(() => {
-      sessionStorage.setItem("voicebot_result_opened", "true")
-      document.querySelector("#submitBtn")?.click()
-    }, 250)
-
-    return () => window.clearTimeout(timer)
+    const payload = { ...form }
+    if (shouldSkipDuplicateVoiceSubmit(payload)) return
+    sessionStorage.setItem("voicebot_result_opened", "true")
+    void fetchResult(payload)
   }, [form, location.search, student, submitting])
 
   useEffect(() => {
@@ -230,14 +319,7 @@ const Result = () => {
     resultAlreadySpokenRef.current = true
     sessionStorage.removeItem("voicebot_result_request")
 
-    window.dispatchEvent(new CustomEvent("gmu:result-ready", {
-      detail: {
-        summary,
-        semester: resultData.selection.semester,
-        exam: resultData.selection.exam,
-        sgpa: resultData.summary.sgpa
-      }
-    }))
+    publishVoiceResultMessage(summary)
   }, [resultData])
 
   const handleSubmit = async (event) => {
@@ -249,8 +331,10 @@ const Result = () => {
     window.print()
   }
 
-  if (loading || !student) {
-    return <div className="result-loading">Loading result page...</div>
+  const isVoiceResultLoading = submitting && sessionStorage.getItem("voicebot_result_opened") === "true" && !resultData && !errorMessage
+
+  if (loading || !student || isVoiceResultLoading) {
+    return <div className="result-loading">{isVoiceResultLoading ? "Loading result sheet..." : "Loading result page..."}</div>
   }
 
   return (

@@ -69,7 +69,7 @@ $publishedSelection = ResultCatalogService::findPublishedSelection(
 if (!$publishedSelection) {
     $availableSelections = ResultCatalogService::getPublishedSelections($conn, $student_id);
     $semesterHint = ResultCatalogService::describeSelectionsForSemester($availableSelections, $semester);
-    $message = "No published result is available for the selected semester, exam, academic year, and season.";
+    $message = "No published " . strtoupper($exam) . " result is available for semester " . $semester . ", academic year " . $year . ", " . strtoupper($season) . " season.";
 
     if ($semesterHint !== "") {
         $message .= " Available combinations for semester {$semester}: {$semesterHint}.";
@@ -132,7 +132,7 @@ $conn->close();
 
 if (empty($subjects)) {
     http_response_code(404);
-    echo json_encode(["error" => "No result found for the selected semester."]);
+    echo json_encode(["error" => "No result records were found for semester " . $semester . " " . strtoupper($exam) . " " . $year . " " . strtoupper($season) . "."]);
     exit();
 }
 

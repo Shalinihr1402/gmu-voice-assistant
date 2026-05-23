@@ -673,7 +673,9 @@ class VapiToolService {
             return null;
         }
         $hasResultNavigationVerb = (bool) preg_match('/\b(show|open|view|display|check|go|navigate|take|get|see|tell|kholo|khol|dikhao|dikhana|batao|batana|torisu|torisi|hogu|hogi|nodu|nodi|beku|bekagide|maadi|madi|madu|kodu|kodi)\b/u', $text);
-        $hasResultQuestionIntent = (bool) preg_match('/\b(what|which|where|how|kya|kaise|kahan|kab|yaava|yava|hege|elli|enu)\b.*' . trim($resultPattern, '/') . '|' . trim($resultPattern, '/') . '.*\b(what|which|where|how|kya|kaise|kahan|kab|yaava|yava|hege|elli|enu)\b/u', $text);
+        $resultWords = '\b(result|results|marks|marksheet|grade\s*sheet|score|sgpa|cgpa|internal\s*marks)\b';
+        $questionWords = '\b(what|which|where|how|kya|kaise|kahan|kab|yaava|yava|hege|elli|enu)\b';
+        $hasResultQuestionIntent = (bool) preg_match('/' . $questionWords . '.*' . $resultWords . '|' . $resultWords . '.*' . $questionWords . '/u', $text);
         $hasSemesterMention = self::extractSemester($text) > 0 || (bool) preg_match('/\b(current|latest|present|previous|last|abhi|pichla|hindina|eega|ivaga)\s+(semester|sem)?\s*(result|results|marks)?\b/u', $text);
         $isResultOnlyRequest = (bool) preg_match($resultPattern, $text);
         if (!$hasResultNavigationVerb && !$hasSemesterMention && !preg_match('/\b(sgpa|cgpa)\b/u', $text) && !($hasResultQuestionIntent && $hasSemesterMention) && !$isResultOnlyRequest) {
@@ -738,7 +740,18 @@ class VapiToolService {
             "intent" => "OPEN_FILTERED_RESULT",
             "route" => "navigation",
             "language" => $language,
-            "client_action" => ["type" => "navigate", "path" => $path, "page" => "results"],
+            "client_action" => [
+                "type" => "navigate",
+                "path" => $path,
+                "page" => "results",
+                "result_request" => [
+                    "semester" => (string) $semester,
+                    "examType" => (string) ($selected["exam"] ?? "SEE"),
+                    "year" => (string) ($selected["year"] ?? ""),
+                    "season" => (string) ($selected["season"] ?? ""),
+                    "usn" => (string) ($student["usn"] ?? "")
+                ]
+            ],
             "suggestion" => null,
             "quick_actions" => [],
             "debug" => ["source" => "vapi_tool_service", "reply_source" => "direct_result_navigation"]
@@ -754,11 +767,12 @@ class VapiToolService {
         $text = strtolower(trim((string) $query));
         $replacements = [
             '/\bs\s*e\s*e\b|\bc\s*e\s*e\b|\bcee\b|\bc\s+(?=result|results|marks|sgpa|cgpa|grade)/u' => ' see ',
+            '/\bsea\s+(?=result|results|marks|sgpa|cgpa|grade)/u' => ' see ',
             '/\bre\s+sit\b/u' => ' resit ',
             '/\bre\s+valuation\b/u' => ' revaluation ',
             '/\bre\s*[- ]?\s*registration\b|\breregistration\b/u' => ' re-registration ',
-            '/??????|??????|?????|???????|???|?????|???????|???????/u' => ' result ',
-            '/???????|???????|???????|????????|???|??????|???\s*??\s*??\s*?|???????/u' => ' result ',
+            '/\x{0930}\x{093F}\x{091C}\x{0932}\x{094D}\x{091F}|\x{092A}\x{0930}\x{093F}\x{0923}\x{093E}\x{092E}|\x{0928}\x{0924}\x{0940}\x{091C}\x{093E}|\x{092E}\x{093E}\x{0930}\x{094D}\x{0915}\x{094D}\x{0938}|\x{0905}\x{0902}\x{0915}|\x{0917}\x{094D}\x{0930}\x{0947}\x{0921}/u' => ' result ',
+            '/\x{0CB0}\x{0CBF}\x{0CB8}\x{0CB2}\x{0CCD}\x{0C9F}\x{0CCD}|\x{0CB0}\x{0CBF}\x{0C9C}\x{0CB2}\x{0CCD}\x{0C9F}\x{0CCD}|\x{0CAB}\x{0CB2}\x{0CBF}\x{0CA4}\x{0CBE}\x{0C82}\x{0CB6}|\x{0CAE}\x{0CBE}\x{0CB0}\x{0CCD}\x{0C95}\x{0CCD}\x{0CB8}\x{0CCD}|\x{0C85}\x{0C82}\x{0C95}|\x{0C97}\x{0CCD}\x{0CB0}\x{0CC7}\x{0CA1}\x{0CCD}/u' => ' result ',
             '/\b(resultu|rijalt|resalt|marksu|marks card|grade card|gradecard|ankagalu|phalitansha|falitansha)\b/u' => ' result ',
             '/\bna result|mera result|nanna result|result torisu|result nodu|marks torisu|sgpa torisu|sgpa dikhao\b/u' => ' result ',
             '/\bpehla|pahla|firstu|ondu|ondane|modala\b/u' => ' first ',
@@ -820,6 +834,12 @@ class VapiToolService {
 
         if (!empty($filtered)) {
             $selections = $filtered;
+        } elseif ($exam !== "" || $season !== "" || $year !== "") {
+            return [
+                "exam" => $exam !== "" ? $exam : "SEE",
+                "year" => $year,
+                "season" => $season
+            ];
         }
 
         foreach ($selections as $selection) {
@@ -830,15 +850,113 @@ class VapiToolService {
         return $selections[0];
     }
 
+    private static function resultSummaryFromSelection($sessionId, $student, $semester, $selected, $language) {
+        if ($sessionId === "" || !is_array($selected) || empty($selected)) {
+            return "";
+        }
+
+        $payload = [
+            "usn" => strtoupper((string) ($student["usn"] ?? "")),
+            "semester" => (int) $semester,
+            "exam" => (string) ($selected["exam"] ?? "SEE"),
+            "year" => (string) ($selected["year"] ?? ""),
+            "season" => (string) ($selected["season"] ?? "")
+        ];
+
+        if ($payload["semester"] <= 0 || $payload["exam"] === "" || $payload["year"] === "" || $payload["season"] === "") {
+            return "";
+        }
+
+        $url = preg_replace('/api\.php(?:\?.*)?$/', 'getSemesterResult.php', VapiAssistantConfigService::getEnvValue("VOICEBOT_INTERNAL_API_URL", self::defaultApiUrl()));
+        $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $body,
+            CURLOPT_HTTPHEADER => ["Content-Type: application/json", "Cookie: PHPSESSID=" . $sessionId],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 12
+        ]);
+        $response = curl_exec($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($response === false || $status >= 400) {
+            return "";
+        }
+
+        $decoded = json_decode((string) $response, true);
+        if (!is_array($decoded)) {
+            return "";
+        }
+
+        $selection = is_array($decoded["selection"] ?? null) ? $decoded["selection"] : $selected;
+        $summary = is_array($decoded["summary"] ?? null) ? $decoded["summary"] : [];
+        $sgpa = $summary["sgpa"] ?? null;
+        if ($sgpa === null || $sgpa === "") {
+            return "";
+        }
+
+        return self::resultSummaryReply(
+            (string) ($selection["semester"] ?? $semester),
+            (string) ($selection["exam"] ?? $payload["exam"]),
+            $sgpa,
+            $language
+        );
+    }
+
+    private static function resultSummaryReply($semester, $exam, $sgpa, $language) {
+        $sgpaText = rtrim(rtrim(number_format((float) $sgpa, 2, '.', ''), '0'), '.');
+        $examText = strtoupper((string) $exam);
+        $feedback = self::sgpaFeedback((float) $sgpa, $language);
+
+        if ($language === "hi") {
+            return "Aapka semester " . $semester . " " . $examText . " result open ho gaya hai. Aapka SGPA " . $sgpaText . " hai. " . $feedback;
+        }
+        if ($language === "kn") {
+            return "Nimma semester " . $semester . " " . $examText . " result open agide. Nimma SGPA " . $sgpaText . ". " . $feedback;
+        }
+        return "Your semester " . $semester . " " . $examText . " result is now open. Your SGPA is " . $sgpaText . ". " . $feedback;
+    }
+
+    private static function sgpaFeedback($sgpa, $language) {
+        if ($language === "hi") {
+            if ($sgpa >= 9.5) return "Outstanding performance. Aise hi excellent work continue kijiye.";
+            if ($sgpa >= 9) return "Excellent performance. Aap bahut achha kar rahe hain.";
+            if ($sgpa >= 8) return "Very good performance. Is consistency ko maintain kijiye.";
+            if ($sgpa >= 7) return "Good performance. Thoda aur focus karenge to aur improve hoga.";
+            if ($sgpa >= 6) return "Average performance. Weak areas par zyada focus kijiye.";
+            if ($sgpa >= 5) return "Aap pass hain, lekin improvement zaroori hai. Regular revision kijiye.";
+            return "Performance ko serious attention chahiye. Mentor se baat karke improvement plan banaiye.";
+        }
+
+        if ($language === "kn") {
+            if ($sgpa >= 9.5) return "Outstanding performance. Ee excellent work munduvarisi.";
+            if ($sgpa >= 9) return "Excellent performance. Neevu tumba chennagi maduttiddira.";
+            if ($sgpa >= 8) return "Very good performance. Ee consistency maintain madi.";
+            if ($sgpa >= 7) return "Good performance. Innu swalpa focus madidare improve agutte.";
+            if ($sgpa >= 6) return "Average performance. Weak areas mele hecchu focus madi.";
+            if ($sgpa >= 5) return "Neevu pass agiddira, aadre improvement beku. Regular revision madi.";
+            return "Performance ge serious attention beku. Mentor jothe matadi improvement plan madi.";
+        }
+
+        if ($sgpa >= 9.5) return "Outstanding performance. Keep up the excellent work.";
+        if ($sgpa >= 9) return "Excellent performance. You are doing very well.";
+        if ($sgpa >= 8) return "Very good performance. Keep maintaining this consistency.";
+        if ($sgpa >= 7) return "Good performance. With a little more focus, you can improve further.";
+        if ($sgpa >= 6) return "Average performance. Please focus more on weaker areas.";
+        if ($sgpa >= 5) return "You have passed, but improvement is needed. Please revise regularly.";
+        return "Your performance needs serious attention. Please contact your mentor and work on improvement.";
+    }
     private static function resultNavigationReply($semester, $hasFullSelection, $language) {
         if ($hasFullSelection) {
-            if ($language === "hi") return "Semester " . $semester . " result filters ke saath open ho gaya.";
-            if ($language === "kn") return "Semester " . $semester . " result filters jothe open agide.";
-            return "Semester " . $semester . " result is open with filters.";
+            if ($language === "hi") return "Semester " . $semester . " result check kar raha hoon.";
+            if ($language === "kn") return "Semester " . $semester . " result check maduttiddene.";
+            return "Checking semester " . $semester . " result.";
         }
-        if ($language === "hi") return "Semester " . $semester . " result page open ho gaya. Baaki filters select kijiye.";
-        if ($language === "kn") return "Semester " . $semester . " result page open agide. Ulida filters select madi.";
-        return "Semester " . $semester . " result page is open. Please select the remaining filters.";
+        if ($language === "hi") return "Semester " . $semester . " result ke liye details load kar raha hoon.";
+        if ($language === "kn") return "Semester " . $semester . " result details load maduttiddene.";
+        return "Loading details for semester " . $semester . " result.";
     }
 
     private static function loadResultAvailability($sessionId) {

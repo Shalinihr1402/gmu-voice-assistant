@@ -13,6 +13,8 @@ const LOCAL_SILENCE_MS = 350
 const LOCAL_MIN_SPEECH_MS = 250
 const USE_BROWSER_TTS_BY_DEFAULT = true
 const USE_VAPI_AS_PRIMARY_VOICE = true
+const VAPI_RESULT_FALLBACK_DELAY_MS = 900
+const VOICE_IDLE_SHUTDOWN_MS = 60000
 const VAPI_TOOL_NAME = "gmu_voice_assistant"
 const RESULT_EXAM_OPTIONS = ["SEE", "RESIT", "RE-REGISTRATION"]
 const RESULT_SEASON_OPTIONS = ["ODD", "EVEN"]
@@ -277,12 +279,18 @@ const VoiceAssistant = () => {
   const pendingResultQueryRef = useRef(createEmptyResultQuery())
   const pendingSuggestionActionRef = useRef(null)
   const immediateVapiCommandRef = useRef({ text: "", at: 0 })
+  const vapiResultFallbackTimerRef = useRef(null)
+  const lastVapiResultFallbackRef = useRef({ text: "", at: 0 })
+  const lastVoicebotResultRequestRef = useRef({ key: "", at: 0 })
   const navigationTimerRef = useRef(null)
   const lastAppliedToolResultRef = useRef({ key: "", at: 0 })
   const lastNavigationRef = useRef({ path: "", at: 0 })
   const lastResultReadySummaryRef = useRef({ summary: "", at: 0 })
   const navigationLockRef = useRef(false)
   const navigationLockTimerRef = useRef(null)
+  const idleShutdownTimerRef = useRef(null)
+  const nextQuestionTimeoutRef = useRef(null)
+  const autoRestartVapiAfterSpeechRef = useRef(false)
 
   const navigate = useNavigate()
   const languageConfig = VOICE_LANGUAGE_OPTIONS[voiceLanguage] || VOICE_LANGUAGE_OPTIONS.en
@@ -358,43 +366,111 @@ const VoiceAssistant = () => {
   }, [isVapiCallActive])
 
   useEffect(() => {
-    const handleResultReady = (event) => {
+    const applyResultSummary = (detail) => {
       const openedByVoiceBot = sessionStorage.getItem("voicebot_result_opened")
-      if (openedByVoiceBot !== "true") return
+      if (openedByVoiceBot !== "true") return false
 
-      const summary = String(event.detail?.summary || "").trim()
-      if (!summary) return
+      const summary = String(detail?.summary || "").trim()
+      if (!summary) return false
 
       const now = Date.now()
-      if (lastResultReadySummaryRef.current.summary === summary && now - lastResultReadySummaryRef.current.at < 5000) {
-        return
+      const localizedSummary = summary
+
+      if (lastResultReadySummaryRef.current.summary === localizedSummary && now - lastResultReadySummaryRef.current.at < 5000) {
+        return true
       }
 
-      const semester = event.detail?.semester || ""
-      const exam = event.detail?.exam || "SEE"
-      const sgpa = event.detail?.sgpa || ""
-      const localizedSummary = replyInSelectedLanguage(
-        summary,
-        `Aapka semester ${semester} ${exam} result open ho gaya hai. Aapka SGPA ${sgpa} hai.`,
-        `Nimma semester ${semester} ${exam} result open agide. Nimma SGPA ${sgpa}.`
-      )
-
       sessionStorage.removeItem("voicebot_result_opened")
+      sessionStorage.removeItem("voicebot_result_summary")
       lastResultReadySummaryRef.current = { summary: localizedSummary, at: now }
       setResponse(localizedSummary)
-      setReplySource("result_page")
+      setReplySource(detail?.type === "error" ? "result_page_error" : "result_page")
       setSuggestionText("")
       setQuickActions([])
 
-      if (!vapiCallActiveRef.current) {
+      if (vapiCallActiveRef.current && vapiRef.current) {
+        vapiRef.current.stop()
+        vapiRef.current = null
+        setIsVapiCallActive(false)
+      }
+      vapiCallActiveRef.current = false
+      setIsListening(false)
+      setIsProcessing(false)
+      setStartupStatus("")
+
+      window.setTimeout(() => {
         void speak(localizedSummary, { preferBrowser: true })
+      }, 250)
+
+      return true
+    }
+
+    const handleResultReady = (event) => {
+      applyResultSummary(event.detail || {})
+    }
+
+    const readStoredResultSummary = () => {
+      try {
+        const stored = JSON.parse(sessionStorage.getItem("voicebot_result_summary") || "null")
+        if (stored) applyResultSummary(stored)
+      } catch {
+        sessionStorage.removeItem("voicebot_result_summary")
       }
     }
 
     window.addEventListener("gmu:result-ready", handleResultReady)
-    return () => window.removeEventListener("gmu:result-ready", handleResultReady)
-  }, [])
+    readStoredResultSummary()
+    const interval = window.setInterval(readStoredResultSummary, 400)
 
+    return () => {
+      window.removeEventListener("gmu:result-ready", handleResultReady)
+      window.clearInterval(interval)
+    }
+  }, [voiceLanguage])
+
+  const clearIdleShutdownTimer = () => {
+    if (idleShutdownTimerRef.current) {
+      clearTimeout(idleShutdownTimerRef.current)
+      idleShutdownTimerRef.current = null
+    }
+  }
+
+  const clearNextQuestionTimeout = () => {
+    if (nextQuestionTimeoutRef.current) {
+      clearTimeout(nextQuestionTimeoutRef.current)
+      nextQuestionTimeoutRef.current = null
+    }
+  }
+
+  const scheduleNextQuestionTimeout = () => {
+    clearNextQuestionTimeout()
+    nextQuestionTimeoutRef.current = setTimeout(() => {
+      nextQuestionTimeoutRef.current = null
+      shutdownIdleAssistant()
+    }, VOICE_IDLE_SHUTDOWN_MS)
+  }
+
+  const shutdownIdleAssistant = () => {
+    clearIdleShutdownTimer()
+    setIsActive(false)
+    isActiveRef.current = false
+    isSpeakingRef.current = false
+    lastSpokenTextRef.current = ""
+    isProcessingRef.current = false
+    setIsVapiCallActive(false)
+    vapiCallActiveRef.current = false
+    setIsListening(false)
+    setIsProcessing(false)
+    setIsSpeaking(false)
+    setStartupStatus("")
+    cleanupRecorder()
+    if (vapiRef.current) {
+      vapiRef.current.stop()
+    }
+    void stopCurrentSpeech()
+    cleanupAudio()
+    window.speechSynthesis.cancel()
+  }
   useEffect(() => {
     fetchJson("getCurrentUser.php")
       .then((data) => {
@@ -510,8 +586,88 @@ const VoiceAssistant = () => {
     go()
     return true
   }
+  const normalizeVapiCommandText = (text) => (
+    String(text || "")
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s-]/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  )
+
+  const isVapiResultCommand = (text) => {
+    const normalized = normalizeVapiCommandText(text)
+    if (!normalized) return false
+
+    if (/\b(grievance|complaint|ticket|support|payment grievance)\b/.test(normalized)) {
+      return false
+    }
+
+    return /\b(result|results|marks|marksheet|grade sheet|gradesheet|sgpa|cgpa|semester result|latest result|previous result)\b/.test(normalized)
+  }
+
+  const clearVapiResultFallback = () => {
+    if (vapiResultFallbackTimerRef.current) {
+      clearTimeout(vapiResultFallbackTimerRef.current)
+      vapiResultFallbackTimerRef.current = null
+    }
+  }
+
+  const runVapiResultFallback = async (text) => {
+    const normalized = normalizeVapiCommandText(text)
+    const now = Date.now()
+    const lastFallback = lastVapiResultFallbackRef.current
+    if (!normalized || (lastFallback.text === normalized && now - lastFallback.at < 5000)) {
+      return
+    }
+
+    lastVapiResultFallbackRef.current = { text: normalized, at: now }
+
+    const config = vapiConfigRef.current || {}
+    const sessionToken = config.session_token
+      || config.assistant_overrides?.variableValues?.student_session_token
+      || ""
+
+    try {
+      const data = await fetchJson("vapiWebhook.php", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: {
+            type: "tool-calls",
+            toolCalls: [{
+              id: `frontend-result-fallback-${now}`,
+              function: {
+                name: VAPI_TOOL_NAME,
+                arguments: JSON.stringify({
+                  query: text,
+                  language: languageConfig.apiLanguage || voiceLanguage || "multi",
+                  session_token: sessionToken
+                })
+              }
+            }]
+          }
+        })
+      })
+
+      const results = Array.isArray(data?.results) ? data.results : []
+      results.forEach((item) => applyVapiToolResult(item?.result || item))
+    } catch (error) {
+      setErrorMessage(error?.message || "Unable to fetch result details.")
+    }
+  }
+
+  const scheduleVapiResultFallback = (text) => {
+    if (!isVapiResultCommand(text)) return
+
+    clearVapiResultFallback()
+    vapiResultFallbackTimerRef.current = setTimeout(() => {
+      vapiResultFallbackTimerRef.current = null
+      void runVapiResultFallback(text)
+    }, VAPI_RESULT_FALLBACK_DELAY_MS)
+  }
+
   const handleImmediateVapiUserCommand = (text) => {
-    const normalized = String(text || "").toLowerCase().replace(/\s+/g, " ").trim()
+    const normalized = normalizeVapiCommandText(text)
     if (!normalized) return false
 
     const now = Date.now()
@@ -520,31 +676,50 @@ const VoiceAssistant = () => {
     }
 
     immediateVapiCommandRef.current = { text: normalized, at: now }
+    scheduleVapiResultFallback(text)
     return false
   }
-
-  const rememberVoicebotResultRequest = (path) => {
+  const rememberVoicebotResultRequest = (path, resultRequest = null) => {
     const rawPath = String(path || "")
     if (!rawPath.startsWith("/results")) return
 
+    const normalizedRequest = {
+      semester: String(resultRequest?.semester || ""),
+      examType: String(resultRequest?.examType || resultRequest?.exam || ""),
+      year: String(resultRequest?.year || ""),
+      season: String(resultRequest?.season || ""),
+      usn: String(resultRequest?.usn || "")
+    }
+
     try {
       const url = new URL(rawPath, window.location.origin)
-      const semester = url.searchParams.get("semester") || ""
-      const examType = url.searchParams.get("exam") || "SEE"
-      const year = url.searchParams.get("year") || ""
-      const season = url.searchParams.get("season") || ""
-      const usn = url.searchParams.get("usn") || ""
-
-      sessionStorage.setItem("voicebot_result_request", JSON.stringify({
-        semester,
-        examType,
-        year,
-        season,
-        usn
-      }))
+      normalizedRequest.semester ||= url.searchParams.get("semester") || ""
+      normalizedRequest.examType ||= url.searchParams.get("exam") || "SEE"
+      normalizedRequest.year ||= url.searchParams.get("year") || ""
+      normalizedRequest.season ||= url.searchParams.get("season") || ""
+      normalizedRequest.usn ||= url.searchParams.get("usn") || ""
     } catch {
-      sessionStorage.setItem("voicebot_result_request", JSON.stringify({ examType: "SEE" }))
+      normalizedRequest.examType ||= "SEE"
     }
+
+    normalizedRequest.examType ||= "SEE"
+
+    const requestKey = [
+      normalizedRequest.usn,
+      normalizedRequest.semester,
+      normalizedRequest.examType,
+      normalizedRequest.year,
+      normalizedRequest.season
+    ].join("|")
+    const now = Date.now()
+    const lastRequest = lastVoicebotResultRequestRef.current
+    if (lastRequest.key === requestKey && now - lastRequest.at < 15000) {
+      return
+    }
+
+    lastVoicebotResultRequestRef.current = { key: requestKey, at: now }
+    sessionStorage.setItem("voicebot_result_request", JSON.stringify(normalizedRequest))
+    window.dispatchEvent(new CustomEvent("gmu:voicebot-result-request", { detail: normalizedRequest }))
   }
   const applyVapiToolResult = (result) => {
     if (!result || typeof result !== "object") return false
@@ -584,7 +759,8 @@ const VoiceAssistant = () => {
       didApplyAction = applyLanguageSwitch(action.language, result.reply || "Language changed. Please tap the voice button again.") || didApplyAction
     }
     if (action?.type === "navigate" && action.path) {
-      rememberVoicebotResultRequest(action.path)
+      if (String(action.path).startsWith("/results")) clearVapiResultFallback()
+      rememberVoicebotResultRequest(action.path, action.result_request || action.resultRequest)
       runVoiceNavigation(action.path, action.page || action.path, 150)
       didApplyAction = true
     }
@@ -667,6 +843,7 @@ const VoiceAssistant = () => {
       setStartupStatus(localizedText.listeningStatus)
     })
     vapi.on("call-end", () => {
+      clearVapiResultFallback()
       setIsVapiCallActive(false)
       setIsListening(false)
       setIsProcessing(false)
@@ -703,14 +880,17 @@ const VoiceAssistant = () => {
     return config
   }
 
-  const startVapiCall = async () => {
+  const startVapiCall = async (options = {}) => {
+    const { keepResponse = false, waitForNextQuestion = false } = options
+    clearIdleShutdownTimer()
+    clearNextQuestionTimeout()
     setIsActive(true)
     isActiveRef.current = true
     setErrorMessage("")
     setReplySource("vapi")
     setSuggestionText("")
     setQuickActions([])
-    setResponse(localizedText.listening)
+    if (!keepResponse) setResponse(localizedText.listening)
     setStartupStatus(localizedText.listeningStatus)
     setIsProcessing(true)
 
@@ -718,12 +898,17 @@ const VoiceAssistant = () => {
     const vapi = getOrCreateVapi(config.public_key)
 
     await vapi.start(config.assistant, config.assistant_overrides || {})
+    if (waitForNextQuestion) scheduleNextQuestionTimeout()
   }
 
   const stopVapiCall = () => {
+    clearNextQuestionTimeout()
+    autoRestartVapiAfterSpeechRef.current = false
     if (vapiRef.current) {
       vapiRef.current.stop()
+      vapiRef.current = null
     }
+    vapiCallActiveRef.current = false
     setIsVapiCallActive(false)
     setIsListening(false)
     setIsProcessing(false)
@@ -732,6 +917,7 @@ const VoiceAssistant = () => {
   }
 
   const toggleVapiCall = async () => {
+    clearIdleShutdownTimer()
     try {
       if (vapiCallActiveRef.current) {
         stopVapiCall()
@@ -878,7 +1064,7 @@ const VoiceAssistant = () => {
 
     try {
       await stopCurrentSpeech()
-      setResponse(localizedText.listening)
+      if (!keepResponse) setResponse(localizedText.listening)
       setReplySource("")
       await startListening()
     } finally {
@@ -979,9 +1165,18 @@ const VoiceAssistant = () => {
     setIsSpeaking(false)
     setStartupStatus("")
     void stopInterruptMonitor()
+
+    if (autoRestartVapiAfterSpeechRef.current && isActiveRef.current) {
+      autoRestartVapiAfterSpeechRef.current = false
+      window.setTimeout(() => {
+        if (!isActiveRef.current || vapiCallActiveRef.current || isProcessingRef.current) return
+        void startVapiCall({ keepResponse: true, waitForNextQuestion: true })
+      }, 300)
+    }
   }
 
   const stopCurrentSpeech = async () => {
+    autoRestartVapiAfterSpeechRef.current = false
     isSpeakingRef.current = false
     setIsSpeaking(false)
     await stopInterruptMonitor()
@@ -3295,6 +3490,10 @@ const spellTokenForSpeech = (token) => (
 
   useEffect(() => {
     return () => {
+      clearVapiResultFallback()
+      clearIdleShutdownTimer()
+      clearNextQuestionTimeout()
+      autoRestartVapiAfterSpeechRef.current = false
       cleanupRecorder()
       void stopInterruptMonitor()
       void stopStreamingTts({ clearRemote: false })
@@ -3303,7 +3502,19 @@ const spellTokenForSpeech = (token) => (
     }
   }, [])
 
+  useEffect(() => {
+    clearIdleShutdownTimer()
+
+    if (!isActive || isListening || isProcessing || isSpeaking || isVapiCallActive) {
+      return undefined
+    }
+
+    idleShutdownTimerRef.current = setTimeout(shutdownIdleAssistant, VOICE_IDLE_SHUTDOWN_MS)
+
+    return clearIdleShutdownTimer
+  }, [isActive, isListening, isProcessing, isSpeaking, isVapiCallActive, response, replySource])
   const activateAssistant = () => {
+    clearIdleShutdownTimer()
     if (isActiveRef.current) return
 
     setIsActive(true)
@@ -3345,6 +3556,22 @@ const spellTokenForSpeech = (token) => (
   }
 
   const handleAssistantButtonClick = async () => {
+    clearIdleShutdownTimer()
+
+    if (hasResultPageReply) {
+      await stopCurrentSpeech()
+      cleanupRecorder()
+      setReplySource("")
+      setSuggestionText("")
+      setQuickActions([])
+      setTranscript("")
+      if (!keepResponse) setResponse(localizedText.listening)
+      setStartupStatus(localizedText.listeningStatus)
+      setIsListening(false)
+      setIsProcessing(false)
+      setIsSpeaking(false)
+    }
+
     if (USE_VAPI_AS_PRIMARY_VOICE) {
       await toggleVapiCall()
       return
@@ -3363,12 +3590,17 @@ const spellTokenForSpeech = (token) => (
       await stopCurrentSpeech()
     }
 
-    setResponse(localizedText.listening)
+    if (!keepResponse) setResponse(localizedText.listening)
     setReplySource("")
     await startListening()
   }
 
   const closeAssistant = () => {
+    clearIdleShutdownTimer()
+    clearNextQuestionTimeout()
+    autoRestartVapiAfterSpeechRef.current = false
+    clearNextQuestionTimeout()
+    autoRestartVapiAfterSpeechRef.current = false
     setIsActive(false)
     isActiveRef.current = false
     isSpeakingRef.current = false
@@ -3390,14 +3622,16 @@ const spellTokenForSpeech = (token) => (
     window.speechSynthesis.cancel()
   }
 
+  const hasResultPageReply = replySource === "result_page" || replySource === "result_page_error"
+  const resultIdleStatus = replySource === "result_page_error" ? "Result not available" : "Result shown"
   const statusLabel = isSpeaking
     ? localizedText.speaking
     : isListening
       ? localizedText.listeningStatus
       : isProcessing
         ? localizedText.thinking
-        : startupStatus || localizedText.tapToAsk
-  const showTapHint = isActive && !isListening && !isProcessing && !isSpeaking && !isVapiCallActive
+        : startupStatus || (hasResultPageReply ? resultIdleStatus : localizedText.tapToAsk)
+  const showTapHint = isActive && !hasResultPageReply && !isListening && !isProcessing && !isSpeaking && !isVapiCallActive
 
   return (
     <div className="voice-assistant-container">
