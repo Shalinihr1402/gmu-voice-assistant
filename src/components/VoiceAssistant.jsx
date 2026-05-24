@@ -521,7 +521,7 @@ const VoiceAssistant = () => {
       return { path: "/home", page: "home", reply: "Returning to main page." }
     }
     if (!hasNavVerb && !/\b(page|portal|panna|puta)\b/.test(normalized)) return null
-    if (/\b(registration|register)\b/.test(normalized)) return { path: "/registration", page: "registration", reply: "Opening registration page." }
+    if (/\b(registration|register)\b/.test(normalized) || (/\berp\s+page\b/.test(normalized) && hasNavVerb)) return { path: "/registration", page: "registration", reply: "Opening registration page." }
     if (/\b(profile|profail)\b/.test(normalized)) return { path: "/profile", page: "profile", reply: "Opening profile page." }
     if (/\b(payment|fees payment|fee payment)\b/.test(normalized)) return { path: "/payment", page: "payment", reply: "Opening payment portal." }
     if (/\b(result|results|marks)\b/.test(normalized)) return { path: "/results", page: "results", reply: "Opening result page." }
@@ -534,7 +534,13 @@ const VoiceAssistant = () => {
 
   const runVoiceNavigation = (path, page, delayMs = 0) => {
     const targetPath = String(path || "").trim()
-    if (!targetPath || navigationLockRef.current) return false
+    if (!targetPath) return false
+    if (navigationLockRef.current && targetPath !== "/home") return false
+    if (targetPath === "/home" && navigationLockTimerRef.current) {
+      clearTimeout(navigationLockTimerRef.current)
+      navigationLockTimerRef.current = null
+      navigationLockRef.current = false
+    }
 
     const now = Date.now()
     const currentPath = `${window.location.pathname}${window.location.search}`
@@ -565,7 +571,6 @@ const VoiceAssistant = () => {
       navigate(targetPath)
       lastPageRef.current = page || targetPath
       lastNavigationRef.current = { path: targetPath, at: Date.now() }
-      immediateVapiCommandRef.current = { text: "", at: 0 }
       lastAppliedToolResultRef.current = { key: "", at: 0 }
       resetStreamingTranscript()
       setTranscript("")
@@ -733,6 +738,18 @@ const VoiceAssistant = () => {
       result.reply || ""
     ].join("|")
     const now = Date.now()
+    if (action?.type === "navigate" && action.path) {
+      const actionPath = String(action.path)
+      const lastNavigation = lastNavigationRef.current
+      if (lastNavigation.path === "/home" && actionPath !== "/home" && now - lastNavigation.at < 5000) {
+        return true
+      }
+      const recentCommand = immediateVapiCommandRef.current
+      const expectedNavigation = now - recentCommand.at < 8000 ? getImmediateNavigationRequest(recentCommand.text) : null
+      if (expectedNavigation?.path && expectedNavigation.path !== actionPath) {
+        return true
+      }
+    }
     const lastApplied = lastAppliedToolResultRef.current
     if (lastApplied.key === resultKey && now - lastApplied.at < 2500) {
       return true
@@ -759,7 +776,8 @@ const VoiceAssistant = () => {
       didApplyAction = applyLanguageSwitch(action.language, result.reply || "Language changed. Please tap the voice button again.") || didApplyAction
     }
     if (action?.type === "navigate" && action.path) {
-      if (String(action.path).startsWith("/results")) clearVapiResultFallback()
+      const actionPath = String(action.path)
+      if (actionPath.startsWith("/results")) clearVapiResultFallback()
       rememberVoicebotResultRequest(action.path, action.result_request || action.resultRequest)
       runVoiceNavigation(action.path, action.page || action.path, 150)
       didApplyAction = true

@@ -26,6 +26,7 @@ class VapiSessionService {
             "token" => $token,
             "session_id" => session_id(),
             "user_id" => (int) $userId,
+            "student_id" => isset($_SESSION["student_id"]) ? (int) $_SESSION["student_id"] : null,
             "created_at" => time(),
             "expires_at" => time() + self::TOKEN_TTL_SECONDS
         ];
@@ -76,4 +77,5 @@ class VapiSessionService {
         return self::TOKEN_TTL_SECONDS;
     }
 }
+
 

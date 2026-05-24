@@ -61,11 +61,6 @@ class VapiToolService {
             return self::toolResult($id, $directLanguageSwitch);
         }
 
-        $directPaymentHelp = self::directPaymentHelpResult($query, $language);
-        if ($directPaymentHelp) {
-            return self::toolResult($id, $directPaymentHelp);
-        }
-
         $session = VapiSessionService::resolve($sessionToken);
         if (!$session) {
             $session = VapiSessionService::latestValidSession();
@@ -77,6 +72,21 @@ class VapiToolService {
                 "intent" => "SESSION_EXPIRED",
                 "route" => "auth"
             ]);
+        }
+
+        $directSupportTicket = self::directSupportTicketResult($query, $language, $session);
+        if ($directSupportTicket) {
+            return self::toolResult($id, $directSupportTicket);
+        }
+
+        $directErpInfo = self::directErpInfoResult($query, $language, $session);
+        if ($directErpInfo) {
+            return self::toolResult($id, $directErpInfo);
+        }
+
+        $directPaymentHelp = self::directPaymentHelpResult($query, $language);
+        if ($directPaymentHelp) {
+            return self::toolResult($id, $directPaymentHelp);
         }
 
         $directResultNavigation = self::directResultNavigationResult($query, $language, $session["session_id"] ?? "");
@@ -93,17 +103,6 @@ class VapiToolService {
         if ($directCourseCode) {
             return self::toolResult($id, $directCourseCode);
         }
-
-        $directErpInfo = self::directErpInfoResult($query, $language, $session);
-        if ($directErpInfo) {
-            return self::toolResult($id, $directErpInfo);
-        }
-
-        $directSupportTicket = self::directSupportTicketResult($query, $language, $session);
-        if ($directSupportTicket) {
-            return self::toolResult($id, $directSupportTicket);
-        }
-
         $apiResponse = self::callExistingApi($query, $language, $session["session_id"] ?? "");
         $result = self::shapeResult($apiResponse, $query, $language);
         return self::toolResult($id, $result);
@@ -176,7 +175,7 @@ class VapiToolService {
     }
     private static function directErpInfoResult($query, $language, $session) {
         $text = self::normalizeIntentText($query);
-        $studentId = (int) ($session["user_id"] ?? 0);
+        $studentId = self::studentIdFromSession($session);
 
         if (self::isTuitionDeadlineQuery($text)) {
             return self::erpInfoPayload(self::tuitionDeadlineReply($language), "GET_TUITION_DEADLINE", $language);
@@ -363,7 +362,8 @@ class VapiToolService {
         }
 
         $wordCount = count(preg_split('/\s+/u', trim($text), -1, PREG_SPLIT_NO_EMPTY));
-        if ($wordCount <= 3 && !preg_match('/\b(payment\s+failed|erp\s+not\s+working|login\s+(issue|problem|error)|attendance\s+(issue|problem)|registration\s+(issue|error)|certificate\s+(issue|problem))\b/u', $text)) {
+        $hasEnoughTicketDetail = self::hasEnoughSupportTicketDetail($text);
+        if (!$hasEnoughTicketDetail && $wordCount <= 3 && !preg_match('/\b(payment\s+failed|erp\s+not\s+working|login\s+(issue|problem|error)|attendance\s+(issue|problem)|registration\s+(issue|error)|certificate\s+(issue|problem))\b/u', $text)) {
             return [
                 "reply" => self::supportTicketDetailPrompt($language),
                 "intent" => "SUPPORT_TICKET_NEEDS_DETAILS",
@@ -376,7 +376,7 @@ class VapiToolService {
             ];
         }
 
-        $studentId = (int) ($session["user_id"] ?? 0);
+        $studentId = self::studentIdFromSession($session);
         if ($studentId <= 0) {
             return null;
         }
@@ -412,17 +412,24 @@ class VapiToolService {
         ];
     }
 
+    private static function hasEnoughSupportTicketDetail($text) {
+        $text = strtolower((string) $text);
+        if (preg_match('/\battendance\b.*\bnot\s+updated\b|\bnot\s+updated\b.*\battendance\b/u', $text)) return true;
+        if (preg_match('/\b(payment|fee|fees)\b.*\b(failed|deducted|not\s+updated|receipt\s+not\s+generated)\b/u', $text)) return true;
+        if (preg_match('/\b(login|registration|certificate|result|marks|profile|hall\s*ticket)\b.*\b(issue|problem|error|not\s+working|not\s+showing|not\s+opening|missing)\b/u', $text)) return true;
+        return count(preg_split('/\s+/u', trim($text), -1, PREG_SPLIT_NO_EMPTY)) >= 5;
+    }
     private static function isSupportTicketIssue($text) {
-        $hasProblemSignal = (bool) preg_match('/\b(issue|problem|error|failed|failure|not\s+working|not\s+updated|not\s+showing|not\s+opening|not\s+downloading|missing|unable|cannot|can\s*not|stuck|deducted|wrong|incorrect)\b/u', $text);
-        $hasErpArea = (bool) preg_match('/\b(erp|login|attendance|payment|fee|fees|tuition|hostel|class|classes|lecture|marks|result|registration|certificate|hall\s*ticket|profile|voicebot|voice\s*bot)\b|???|?????|??????|??????|?????|?????|????|?????|????????|??????|?????/u', $text);
+        $hasProblemSignal = (bool) preg_match('/\b(issue|problem|error|failed|failure|not\s+working|not\s+updated|not\s+showing|not\s+opening|not\s+downloading|missing|unable|cannot|can\s*not|stuck|deducted|wrong|incorrect|raise|create|submit|arise|arice)\b/u', $text);
+        $hasErpArea = (bool) preg_match('/\b(erp|login|attendance|attendence|atendance|payment|fee|fees|tuition|hostel|class|classes|lecture|marks|result|registration|certificate|hall\s*ticket|profile|voicebot|voice\s*bot|support|ticket|ticked|tiket)\b/u', $text);
         return $hasProblemSignal && $hasErpArea;
     }
 
     private static function classifySupportIssue($text) {
-        if (preg_match('/\b(attendance|class\s+present|absent)\b/u', $text)) return "attendance";
-        if (preg_match('/\b(hostel)\b|??????|??????|?????????|????????/u', $text)) return "hostel";
-        if (preg_match('/\b(class|classes|lecture|lectures)\b|?????|?????|??????|?????|??????|???????/u', $text)) return "classes";
-        if (preg_match('/\b(tuition|payment|fee|fees|amount|deducted|transaction)\b|???|?????|????|?????/u', $text)) return "payment";
+        if (preg_match('/\b(attendance|attendence|atendance|class\s+present|absent)\b/u', $text)) return "attendance";
+        if (preg_match('/\b(hostel)\b/u', $text)) return "hostel";
+        if (preg_match('/\b(class|classes|lecture|lectures)\b/u', $text)) return "classes";
+        if (preg_match('/\b(tuition|payment|fee|fees|amount|deducted|transaction)\b/u', $text)) return "payment";
         if (preg_match('/\b(result|results|marks|marksheet|grade)\b/u', $text)) return "results";
         if (preg_match('/\b(registration|register)\b/u', $text)) return "registration";
         if (preg_match('/\b(login|password|signin|sign\s+in)\b/u', $text)) return "login";
@@ -432,7 +439,34 @@ class VapiToolService {
         if (preg_match('/\b(voicebot|voice\s*bot|assistant)\b/u', $text)) return "voicebot";
         return "general";
     }
+    private static function studentIdFromSession($session) {
+        $studentId = (int) ($session["student_id"] ?? 0);
+        if ($studentId > 0) {
+            return $studentId;
+        }
 
+        $userId = (int) ($session["user_id"] ?? 0);
+        if ($userId <= 0) {
+            return 0;
+        }
+
+        require __DIR__ . "/../config/db.php";
+        if (!isset($conn) || !$conn) {
+            return 0;
+        }
+
+        $stmt = $conn->prepare("SELECT student_id FROM users WHERE user_id = ? AND is_active = 1 LIMIT 1");
+        if (!$stmt) {
+            return 0;
+        }
+
+        $stmt->bind_param("i", $userId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        return (int) ($row["student_id"] ?? 0);
+    }
     private static function createSupportTicket($studentId, $description, $issueType) {
         require __DIR__ . "/../config/db.php";
         if (!isset($conn) || !$conn) {
@@ -584,6 +618,10 @@ class VapiToolService {
         $hasPayment = (bool) preg_match('/\b(payment|pay|fees?|fee|receipt|transaction|amount|money|balance)\b/u', $normalized);
         $asksApply = (bool) preg_match('/\b(apply|raise|submit|file|register|where|how|need|want|create)\b/u', $normalized);
         $asksStatus = (bool) preg_match('/\b(status|result|track|check|view|see|history)\b/u', $normalized);
+        $asksDeadline = (bool) preg_match('/\b(last\s+date|deadline|due\s+date|due|by\s+when|when)\b/u', $normalized) && (bool) preg_match('/\b(fees?|fee|tuition|payment)\b/u', $normalized);
+        if ($asksDeadline) {
+            return null;
+        }
         $asksPayFees = (bool) preg_match('/\b(where|how|pay|payment|paid)\b/u', $normalized) && (bool) preg_match('/\b(fees?|fee|amount)\b/u', $normalized);
         $asksOptions = (bool) preg_match('/\b(options?|methods?|available|what can i pay|which fee)\b/u', $normalized) && $hasPayment;
 
@@ -1214,7 +1252,7 @@ class VapiToolService {
         if (self::isExplicitHomeCommand($text)) {
             return "home";
         }
-        if (preg_match('/\b(registration|register|registation|ragistration|rijistreshan)\b/u', $text)) {
+        if (preg_match('/\b(registration|register|registation|ragistration|rijistreshan)\b/u', $text) || (preg_match('/\berp\s+page\b/u', $text) && preg_match('/\b(open|go|navigate|show|take|visit)\b/u', $text))) {
             return "registration";
         }
         if (preg_match('/\b(competency\s+certificate|digital\s+competency|digital\s+certificate|certificate\s+page|certificate)\b/u', $text)) {
@@ -1261,6 +1299,9 @@ class VapiToolService {
             "dashboard" => "dashboard",
             "student dashboard" => "dashboard",
             "registration" => "registration",
+            "registration page" => "registration",
+            "erp registration" => "registration",
+            "erp registration page" => "registration",
             "register" => "registration",
             "payment" => "payment",
             "payment portal" => "payment",
@@ -1324,6 +1365,8 @@ class VapiToolService {
         return $scheme . "://" . $host . $scriptDir . "/api.php";
     }
 }
+
+
 
 
 
