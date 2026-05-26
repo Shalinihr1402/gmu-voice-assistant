@@ -25,6 +25,16 @@ export const setStoredUiLanguage = (language) => {
   return normalized
 }
 
+
+export const clearStoredUiLanguage = () => {
+  try {
+    window.localStorage.removeItem(UI_LANGUAGE_STORAGE_KEY)
+    window.dispatchEvent(new CustomEvent("gmu-ui-language-change", { detail: "en" }))
+  } catch {}
+
+  return "en"
+}
+
 export const useUiLanguage = () => {
   const [language, setLanguage] = useState(getStoredUiLanguage())
 

@@ -28,5 +28,5 @@ if (!in_array($language, ["en", "hi", "kn", "multi"], true)) {
     $language = "multi";
 }
 
-$tokenPayload = VapiSessionService::createForCurrentSession($_SESSION['user_id']);
+$tokenPayload = VapiSessionService::createForCurrentSession($_SESSION['user_id'], $language);
 echo json_encode(VapiAssistantConfigService::buildConfig($tokenPayload, $language), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);

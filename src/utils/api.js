@@ -32,7 +32,7 @@ export const fetchJson = async (path, options = {}) => {
 
   if (text) {
     try {
-      data = JSON.parse(text)
+      data = JSON.parse(text.replace(/^\uFEFF/, ""))
     } catch {
       const snippet = text.replace(/\s+/g, " ").slice(0, 140)
       throw new Error(

@@ -1,7 +1,8 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import "./Login.css"
 import { fetchJson } from "../utils/api"
+import { clearStoredUiLanguage } from "../utils/uiLanguage"
 
 const Login = ({ setIsAuthenticated }) => {
   const [loginId, setLoginId] = useState("")
@@ -10,6 +11,10 @@ const Login = ({ setIsAuthenticated }) => {
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
+  useEffect(() => {
+    console.log("VOICE LANGUAGE RESET ON LOGIN")
+    clearStoredUiLanguage()
+  }, [])
   const handleLogin = async (e) => {
     e.preventDefault()
 

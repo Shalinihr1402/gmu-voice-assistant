@@ -3,6 +3,7 @@
 require_once __DIR__ . "/VapiSessionService.php";
 require_once __DIR__ . "/VapiAssistantConfigService.php";
 require_once __DIR__ . "/LlmService.php";
+require_once __DIR__ . "/ERPQueryService.php";
 
 class VapiToolService {
     public static function extractToolCalls($payload) {
@@ -37,6 +38,7 @@ class VapiToolService {
     private static function handleToolCall($toolCall, $payload = []) {
         $id = $toolCall["id"] ?? $toolCall["toolCallId"] ?? "";
         $function = $toolCall["function"] ?? [];
+        $toolName = (string) ($toolCall["name"] ?? $function["name"] ?? "gmu_voice_assistant");
         $args = $function["arguments"] ?? $toolCall["arguments"] ?? [];
 
         if (is_string($args)) {
@@ -46,69 +48,169 @@ class VapiToolService {
 
         $query = trim((string) ($args["query"] ?? $args["message"] ?? ""));
         $language = self::normalizeLanguage($args["language"] ?? "multi", $query);
+        $preferredLanguage = self::extractPreferredLanguage($payload);
         $sessionToken = self::extractSessionToken($args, $payload);
 
         if ($query === "") {
-            return self::toolResult($id, [
+            return self::toolResult($id, $toolName, [
                 "reply" => "Please repeat your question.",
                 "intent" => "EMPTY_QUERY",
                 "route" => "clarification"
             ]);
         }
 
-        $directLanguageSwitch = self::directLanguageSwitchResult($query, $language);
+        $directLanguageSwitch = self::directLanguageSwitchResult($query, $language, $sessionToken);
         if ($directLanguageSwitch) {
-            return self::toolResult($id, $directLanguageSwitch);
+            return self::toolResult($id, $toolName, $directLanguageSwitch);
         }
-
         $session = VapiSessionService::resolve($sessionToken);
         if (!$session) {
             $session = VapiSessionService::latestValidSession();
         }
 
         if (!$session) {
-            return self::toolResult($id, [
+            return self::toolResult($id, $toolName, [
                 "reply" => self::sessionExpiredReply($language),
                 "intent" => "SESSION_EXPIRED",
                 "route" => "auth"
             ]);
         }
 
-        $directSupportTicket = self::directSupportTicketResult($query, $language, $session);
-        if ($directSupportTicket) {
-            return self::toolResult($id, $directSupportTicket);
+        $sessionLanguage = self::languageFromSession($session);
+        if ($sessionLanguage !== "multi") {
+            error_log("VOICE LANGUAGE SESSION: {$language} -> {$sessionLanguage}");
+            $language = $sessionLanguage;
+        } elseif ($preferredLanguage !== "multi") {
+            $language = $preferredLanguage;
         }
 
-        $directErpInfo = self::directErpInfoResult($query, $language, $session);
-        if ($directErpInfo) {
-            return self::toolResult($id, $directErpInfo);
+        $route = self::routeIntent($query, $language, $session);
+        $sessionId = $session["session_id"] ?? "";
+        $result = null;
+
+        switch ($route["handler"]) {
+            case "support_ticket":
+                $result = self::directSupportTicketResult($query, $language, $session);
+                break;
+            case "erp_info":
+                $result = self::directErpInfoResult($query, $language, $session);
+                break;
+            case "erp_query":
+                $result = ERPQueryService::handle($route["intent"] ?? "", $query, $language, $session);
+                break;
+            case "payment_help":
+                $result = self::directPaymentHelpResult($query, $language);
+                break;
+            case "page_navigation":
+                $result = self::directNavigationResult($query, $language);
+                break;
+            case "result_navigation":
+                $result = self::directResultNavigationResult($query, $language, $sessionId);
+                break;
+            case "course_code":
+                $result = self::directCourseCodeResult($query, $language, $sessionId);
+                break;
+            default:
+                $apiResponse = self::callExistingApi($query, $language, $sessionId);
+                $result = self::shapeResult($apiResponse, $query, $language);
+                break;
         }
 
-        $directPaymentHelp = self::directPaymentHelpResult($query, $language);
-        if ($directPaymentHelp) {
-            return self::toolResult($id, $directPaymentHelp);
+        if (!is_array($result)) {
+            $apiResponse = self::callExistingApi($query, $language, $sessionId);
+            $result = self::shapeResult($apiResponse, $query, $language);
         }
 
-        $directResultNavigation = self::directResultNavigationResult($query, $language, $session["session_id"] ?? "");
-        if ($directResultNavigation) {
-            return self::toolResult($id, $directResultNavigation);
+        if (isset($result["reply"])) {
+            $result["reply"] = self::prepareReplyForVoice((string) $result["reply"], $language);
         }
 
-        $directNavigation = self::directNavigationResult($query, $language);
-        if ($directNavigation) {
-            return self::toolResult($id, $directNavigation);
-        }
-
-        $directCourseCode = self::directCourseCodeResult($query, $language, $session["session_id"] ?? "");
-        if ($directCourseCode) {
-            return self::toolResult($id, $directCourseCode);
-        }
-        $apiResponse = self::callExistingApi($query, $language, $session["session_id"] ?? "");
-        $result = self::shapeResult($apiResponse, $query, $language);
-        return self::toolResult($id, $result);
+        $result["debug"]["intent_router"] = $route;
+        return self::toolResult($id, $toolName, $result);
     }
 
+    private static function routeIntent($query, $language, $session) {
+        $text = self::normalizeIntentText($query);
+        $page = self::detectPage($text, []);
+        $isHomeNavigation = $page === "home" && self::isExplicitHomeCommand($text);
+        $isNonResultNavigation = $page !== "" && $page !== "results" && self::hasNavigationVerb($text);
 
+        if ($isHomeNavigation || $isNonResultNavigation) {
+            return ["handler" => "page_navigation", "intent" => "OPEN_PAGE", "reason" => "explicit_page_navigation", "page" => $page];
+        }
+
+        if (self::isSupportTicketIssue($text)) {
+            return ["handler" => "support_ticket", "intent" => "SUPPORT_TICKET", "reason" => "erp_problem_signal"];
+        }
+
+        $erpIntent = class_exists("ERPQueryService") ? ERPQueryService::detectIntent($query, $language) : "";
+        if ($erpIntent !== "") {
+            error_log("ERP QUERY DETECTED: " . $erpIntent);
+            return ["handler" => "erp_query", "intent" => $erpIntent, "reason" => "erp_query_service"];
+        }
+
+        if (self::isTuitionDeadlineQuery($text) || self::isHostelApplicationQuery($text) || self::isClassCancellationQuery($text)) {
+            return ["handler" => "erp_info", "intent" => "ERP_INFO", "reason" => "erp_info_signal"];
+        }
+
+        if (self::isPaymentHelpQuery($text)) {
+            return ["handler" => "payment_help", "intent" => "PAYMENT_HELP", "reason" => "payment_help_signal"];
+        }
+
+        if (self::isResultIntent($query)) {
+            return ["handler" => "result_navigation", "intent" => "RESULT", "reason" => "result_signal"];
+        }
+
+        if (self::isCourseCodeIntent($text)) {
+            return ["handler" => "course_code", "intent" => "GET_COURSE_CODE", "reason" => "course_code_signal"];
+        }
+
+        return ["handler" => "api", "intent" => "API_ROUTER", "reason" => "fallback"];
+    }
+
+    private static function isPaymentHelpQuery($text) {
+        $normalized = self::normalizeIntentText($text);
+        $hasPayment = (bool) preg_match('/\b(payment|pay|fees?|fee|receipt|transaction|amount|money|balance)\b/u', $normalized);
+        $hasGrievance = (bool) preg_match('/\b(grievance|grievences|grevence|grevance|graviance|grevience|complaint|complain|shikayat|sikayat)\b/u', $normalized);
+        $asksPayFees = (bool) preg_match('/\b(where|how|pay|payment|paid|process|steps)\b/u', $normalized) && (bool) preg_match('/\b(fees?|fee|amount)\b/u', $normalized);
+        $asksGrievanceHelp = $hasGrievance && (bool) preg_match('/\b(apply|raise|submit|file|register|where|how|need|want|create|status|track|check|view|see|history)\b/u', $normalized);
+        $asksOptions = (bool) preg_match('/\b(options?|methods?|available|what can i pay|which fee)\b/u', $normalized) && $hasPayment;
+        $asksDeadline = (bool) preg_match('/\b(last\s+date|deadline|due\s+date|due|by\s+when|when)\b/u', $normalized) && (bool) preg_match('/\b(fees?|fee|tuition|payment)\b/u', $normalized);
+
+        return !$asksDeadline && ($asksPayFees || $asksGrievanceHelp || $asksOptions);
+    }
+
+    private static function isResultIntent($query) {
+        $text = self::normalizeResultQueryText((string) $query);
+        if (self::isExplicitHomeCommand(self::normalizeIntentText($query))) {
+            return false;
+        }
+
+        return (bool) preg_match('/\b(result|results|marks|marksheet|grade\s*sheet|score|sgpa|cgpa|internal\s*marks)\b/u', $text);
+    }
+
+    private static function isCourseCodeIntent($text) {
+        $normalized = self::normalizeIntentText($text);
+        return (bool) preg_match('/\b(course|cource|subject)\s*code\b|\bcode\s*(of|for)\b/u', $normalized);
+    }
+    private static function extractPreferredLanguage($payload) {
+        $candidates = [
+            $payload["message"]["call"]["assistantOverrides"]["variableValues"]["voice_language"] ?? null,
+            $payload["message"]["assistantOverrides"]["variableValues"]["voice_language"] ?? null,
+            $payload["call"]["assistantOverrides"]["variableValues"]["voice_language"] ?? null,
+            $payload["assistantOverrides"]["variableValues"]["voice_language"] ?? null,
+            $payload["variableValues"]["voice_language"] ?? null
+        ];
+
+        foreach ($candidates as $candidate) {
+            $language = strtolower(trim((string) $candidate));
+            if (in_array($language, ["en", "hi", "kn"], true)) {
+                return $language;
+            }
+        }
+
+        return "multi";
+    }
     private static function sessionExpiredReply($language) {
         if ($language === "hi") return "Aapka secure voice session expire ho gaya. Page refresh karke phir try kijiye.";
         if ($language === "kn") return "Nimma secure voice session expire agide. Page refresh madi matte try madi.";
@@ -137,30 +239,45 @@ class VapiToolService {
         return "";
     }
 
-    private static function directLanguageSwitchResult($query, $language) {
+    private static function directLanguageSwitchResult($query, $language, $sessionToken = "") {
         $text = strtolower((string) $query);
         $normalized = preg_replace('/[^a-z0-9\s]+/u', ' ', $text);
         $normalized = preg_replace('/\s+/', ' ', (string) $normalized);
         $normalized = trim((string) $normalized);
-        $asksToSpeak = preg_match('/\b(speak|speaak|speek|talk|baat|bath|batao|bolo|mathadu|maatadu|matadu|maathadu|matanadu|reply|answer|language|mode)\b/u', $normalized)
-            || preg_match('/kannadadalli|hindiyalli|englishalli|hindi me|hindi mein|kannada me|kannada mein|english me|english mein/u', $normalized);
-        if (!$asksToSpeak) {
-            return null;
-        }
 
-        if (preg_match('/\b(kannada|kannadadalli|kannada dalli|kanada|kannad)\b/u', $normalized)) {
-            return self::languageSwitchPayload('kn', 'Sari, innu Kannada/Kanglish nalli mataduttene. Nimma prashne heli.', $language);
+        error_log("VOICE LANGUAGE CHECK: current={$language}; query={$normalized}");
+
+        $englishRequested = (bool) preg_match('/\b(speak\s+in\s+english|switch\s+to\s+english|english\s+mode|talk\s+in\s+english|use\s+english|reply\s+in\s+english|answer\s+in\s+english|englishalli|english\s+me|english\s+mein|inglish)\b/u', $normalized);
+        $kannadaRequested = (bool) preg_match('/\b(speak\s+in\s+kannada|switch\s+to\s+kannada|kannada\s+mode|talk\s+in\s+kannada|use\s+kannada|reply\s+in\s+kannada|answer\s+in\s+kannada|kannadadalli|kannada\s+dalli|kannada\s+me|kannada\s+mein|kanada|kannad)\b/u', $normalized);
+        $hindiRequested = (bool) preg_match('/\b(speak\s+in\s+hindi|switch\s+to\s+hindi|hindi\s+mode|talk\s+in\s+hindi|use\s+hindi|reply\s+in\s+hindi|answer\s+in\s+hindi|hindiyalli|hindi\s+me|hindi\s+mein|hindi\s+mai|hindhi)\b/u', $normalized);
+
+        if ($englishRequested) {
+            error_log("VOICE LANGUAGE UPDATE: {$language} -> en");
+            self::persistLanguageSwitch($sessionToken, 'en', $language);
+            return self::languageSwitchPayload('en', 'Switched to English mode.', $language);
         }
-        if (preg_match('/\b(hindi|hindiyalli|hindi me|hindi mein|hindi mai|hindhi)\b/u', $normalized)) {
-            return self::languageSwitchPayload('hi', 'Theek hai, ab main Hindi/Hinglish mein baat karunga. Aap apna sawaal poochiye.', $language);
+        if ($kannadaRequested) {
+            error_log("VOICE LANGUAGE UPDATE: {$language} -> kn");
+            self::persistLanguageSwitch($sessionToken, 'kn', $language);
+            return self::languageSwitchPayload('kn', 'Kannada mode enabled.', $language);
         }
-        if (preg_match('/\b(english|englishalli|english me|english mein|inglish)\b/u', $normalized)) {
-            return self::languageSwitchPayload('en', 'Sure, I will continue in English. Please ask your question.', $language);
+        if ($hindiRequested) {
+            error_log("VOICE LANGUAGE UPDATE: {$language} -> hi");
+            self::persistLanguageSwitch($sessionToken, 'hi', $language);
+            return self::languageSwitchPayload('hi', 'Hindi mode enabled.', $language);
         }
 
         return null;
     }
+    private static function persistLanguageSwitch($sessionToken, $requestedLanguage, $currentLanguage) {
+        $updated = VapiSessionService::updateLanguage($sessionToken, $requestedLanguage);
+        error_log("VOICE LANGUAGE PERSIST: current={$currentLanguage}; requested={$requestedLanguage}; updated=" . ($updated ? "yes" : "no"));
+    }
 
+    private static function languageFromSession($session) {
+        $language = strtolower(trim((string) ($session["language"] ?? "multi")));
+        return in_array($language, ["en", "hi", "kn"], true) ? $language : "multi";
+    }
     private static function languageSwitchPayload($languageKey, $reply, $currentLanguage) {
         return [
             "reply" => $reply,
@@ -170,7 +287,7 @@ class VapiToolService {
             "client_action" => ["type" => "set_language", "language" => $languageKey],
             "suggestion" => null,
             "quick_actions" => [],
-            "debug" => ["source" => "vapi_tool_service", "reply_source" => "direct_language_switch", "previous_language" => $currentLanguage]
+            "debug" => ["source" => "vapi_tool_service", "reply_source" => "direct_language_switch", "previous_language" => $currentLanguage, "requested_language" => $languageKey]
         ];
     }
     private static function directErpInfoResult($query, $language, $session) {
@@ -773,8 +890,10 @@ class VapiToolService {
             return $value !== "" && $value !== null;
         }));
 
+        $summaryReply = $selected ? self::resultSummaryFromSelection($sessionId, $student, $semester, $selected, $language) : "";
+
         return [
-            "reply" => self::resultNavigationReply($semester, (bool) $selected, $language),
+            "reply" => $summaryReply !== "" ? $summaryReply : self::resultNavigationReply($semester, (bool) $selected, $language),
             "intent" => "OPEN_FILTERED_RESULT",
             "route" => "navigation",
             "language" => $language,
@@ -816,8 +935,8 @@ class VapiToolService {
             '/\bpehla|pahla|firstu|ondu|ondane|modala\b/u' => ' first ',
             '/\bdoosra|dusra|secondu|eradu|eradane\b/u' => ' second ',
             '/\bteesra|tisra|thirdu|mooru|moorane\b/u' => ' third ',
-            '/\bchautha|choutha|fourthu|naalku|nalku|naalkane|nalkane\b/u' => ' fourth ',
-            '/\bpanchwa|paanchwa|fifthu|aidu|aidane\b/u' => ' fifth ',
+            '/\bchautha|choutha|fourthu|forth|fourthh|naalku|nalku|naalkane|nalkane\b/u' => ' fourth ',
+            '/\bpanchwa|paanchwa|fifthu|fitsh|fith|fivth|fiveth|aidu|aidane\b/u' => ' fifth ',
             '/\bchhatha|sixthu|aaru|aarane\b/u' => ' sixth ',
             '/\bsaatwa|seventhu|elu|elane\b/u' => ' seventh ',
             '/\baathwa|aathva|eighthu|entu|entane\b/u' => ' eighth '
@@ -1211,30 +1330,9 @@ class VapiToolService {
         return $special[$number] ?? self::numberToEnglish($number);
     }
     private static function clientActionFromResponse($apiResponse, $query) {
-        $existingAction = $apiResponse["client_action"] ?? $apiResponse["clientAction"] ?? null;
-        if (is_array($existingAction) && ($existingAction["type"] ?? "") === "navigate") {
-            $path = self::sanitizePath((string) ($existingAction["path"] ?? ""));
-            if ($path !== "") {
-                return [
-                    "type" => "navigate",
-                    "path" => $path,
-                    "page" => self::canonicalPage((string) ($existingAction["page"] ?? basename($path)))
-                ];
-            }
-        }
-
-        $route = (string) ($apiResponse["route"] ?? "");
-        $intent = (string) ($apiResponse["intent"] ?? "");
-        $text = self::normalizeIntentText($query);
-
-        if ($route === "navigation" || $intent === "OPEN_PAGE") {
-            $page = self::detectPage($text, $apiResponse);
-            if ($page !== "") {
-                $path = self::pagePath($page);
-                return $path === "" ? null : ["type" => "navigate", "path" => $path, "page" => $page];
-            }
-        }
-
+        // Navigation is intentionally owned only by routeIntent(). Fallback
+        // api.php responses may classify text as navigation, but they must not
+        // move the frontend because that reintroduces competing routers.
         return null;
     }
 
@@ -1264,11 +1362,11 @@ class VapiToolService {
         if (preg_match('/\b(payment|fee\s+payment|fees\s+payment|payment\s+portal)\b/u', $text)) {
             return "payment";
         }
-        if (preg_match('/\b(result|results|marksheet|marks|result\s+page)\b/u', $text)) {
-            return "results";
-        }
         if (preg_match('/\b(profile|profail|profle)\b/u', $text)) {
             return "profile";
+        }
+        if (preg_match('/\b(result|results|marksheet|marks|result\s+page)\b/u', $text)) {
+            return "results";
         }
         if (preg_match('/\b(portal|role\s+portal)\b/u', $text)) {
             return "portal";
@@ -1276,18 +1374,43 @@ class VapiToolService {
         return "";
     }
 
+    private static function normalizeKannadaNavigationTerms($text) {
+        $normalized = (string) $text;
+        $replacements = [
+            '/\\b(?:hogu|hogi|hofgu|hoggu|hogbu|hgo|ge\\s+hogu|ge\\s+hofgu|ge\\s+hogi)\\b/u' => ' go ',
+            '/ಹೋಗಿ|ಹೋಗು|ಹೋಗ್ಬು|ಹೋಗಬೇಕು|ಹೋಗಬೇಕಾಗಿದೆ/u' => ' go ',
+            '/ತೆರೆಯಿರಿ|ತೆರೆ|ತೆರೆಯು|ಓಪನ್\s*ಮಾಡಿ|ಓಪನ್\s*ಮಾಡು|ಓಪನ್/u' => ' open ',
+            '/ತೋರಿಸಿ|ತೋರಿಸು|ನೋಡಿ|ನೋಡು/u' => ' show ',
+            '/ಪುಟ|ಪೇಜ್/u' => ' page ',
+            '/ಮುಖ್ಯ\s*ಪುಟ|ಮೇನ್\s*ಪೇಜ್|ಹೋಮ್|ಮನೆ/u' => ' home ',
+            '/\\b(?:registration|register|rijistreshan|registreshan|regestration)\\b/u' => ' registration ',
+            '/ರಿಜಿಸ್ಟ್ರೇಷನ್|ರಿಜಿಸ್ಟ್ರೇಶನ್|ನೋಂದಣಿ/u' => ' registration ',
+            '/ಪ್ರೊಫೈಲ್/u' => ' profile ',
+            '/ಪೇಮೆಂಟ್|ಪಾವತಿ|ಶುಲ್ಕ/u' => ' payment ',
+            '/ರಿಸಲ್ಟ್|ಫಲಿತಾಂಶ|ಅಂಕಪಟ್ಟಿ|ಮಾರ್ಕ್ಸ್/u' => ' result ',
+            '/ಸರ್ಟಿಫಿಕೇಟ್|ಪ್ರಮಾಣಪತ್ರ|ಡಿಜಿಟಲ್/u' => ' certificate ',
+            '/ಡ್ಯಾಶ್\s*ಬೋರ್ಡ್|ಡ್ಯಾಶ್‌ಬೋರ್ಡ್|ಡ್ಯಾಶ್ಬೋರ್ಡ್/u' => ' dashboard ',
+            '/ಪೋರ್ಟಲ್/u' => ' portal '
+        ];
+
+        foreach ($replacements as $pattern => $replacement) {
+            $normalized = preg_replace($pattern, $replacement, $normalized);
+        }
+
+        return $normalized;
+    }
     private static function normalizeIntentText($text) {
-        $text = strtolower(trim((string) $text));
+        $text = self::normalizeKannadaNavigationTerms(strtolower(trim((string) $text)));
         $text = preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $text);
         return trim(preg_replace('/\s+/u', ' ', (string) $text));
     }
 
     private static function hasNavigationVerb($text) {
-        return (bool) preg_match('/\b(open|go|goto|navigate|show|take|visit|kholo|khol|dikhao|jao|chalo|torisu|hogu|maadi|madi|tere|tereyiri)\b/u', $text);
+        return (bool) preg_match('/\b(open|go|goto|navigate|show|take|visit|kholo|khol|dikhao|jao|chalo|torisu|hogu|hogi|hofgu|hoggu|nodi|maadi|madi|tere|tereyiri)\b/u', $text);
     }
 
     private static function isExplicitHomeCommand($text) {
-        return (bool) preg_match('/\b(come\s+back|comeback|go\s+back|back\s+home|back\s+to\s+home|back\s+to\s+main|return\s+home|return\s+to\s+home|return\s+to\s+main|go\s+home|home\s+page|main\s+page)\b/u', $text);
+        return (bool) preg_match('/\b(come\s+back|comeback|go\s+back|back\s+home|back\s+to\s+home|back\s+to\s+main|return\s+home|return\s+to\s+home|return\s+to\s+main|go\s+home|open\s+home|show\s+home|home\s+page|main\s+page)\b|\bhome(?:\s+\p{L}+){0,2}\s+(?:go|open|show)\b/u', $text);
     }
 
     private static function canonicalPage($page) {
@@ -1339,10 +1462,16 @@ class VapiToolService {
         return $map[$page] ?? "";
     }
 
-    private static function toolResult($toolCallId, $result) {
+    private static function toolResult($toolCallId, $toolName, $result) {
+        $encodedResult = json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($encodedResult === false) {
+            $encodedResult = json_encode(["reply" => "Tool result could not be encoded."], JSON_UNESCAPED_SLASHES);
+        }
+
         return [
+            "name" => $toolName !== "" ? $toolName : "gmu_voice_assistant",
             "toolCallId" => $toolCallId,
-            "result" => $result
+            "result" => $encodedResult
         ];
     }
 
@@ -1365,6 +1494,13 @@ class VapiToolService {
         return $scheme . "://" . $host . $scriptDir . "/api.php";
     }
 }
+
+
+
+
+
+
+
 
 
 

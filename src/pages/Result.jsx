@@ -26,29 +26,6 @@ const pickDefaultSelection = (selections, semester) => {
   return semesterSelections.find((selection) => String(selection.exam).toUpperCase() === "SEE") || semesterSelections[0]
 }
 
-const performanceFeedbackFromSgpa = (sgpa) => {
-  const value = Number(sgpa)
-  if (Number.isNaN(value)) return "Keep checking your academic progress regularly."
-  if (value >= 9.5) return "Outstanding performance. Keep up the excellent work."
-  if (value >= 9) return "Excellent performance. You are doing very well."
-  if (value >= 8) return "Very good performance. Keep maintaining this consistency."
-  if (value >= 7) return "Good performance. With a little more focus, you can improve further."
-  if (value >= 6) return "Average performance. Please focus more on weaker subjects."
-  if (value >= 5) return "You have passed, but improvement is needed. Please revise regularly."
-  return "Your performance needs serious attention. Please contact your mentor and work on improvement."
-}
-
-const buildResultSummary = (data) => {
-  if (!data?.selection || !data?.summary) return ""
-
-  const semester = data.selection.semester
-  const exam = data.selection.exam || "SEE"
-  const sgpa = data.summary.sgpa
-  const feedback = performanceFeedbackFromSgpa(sgpa)
-
-  return `Your ${semester} semester ${exam} result is now open. Your SGPA is ${sgpa}. ${feedback}`
-}
-
 const Result = () => {
   const navigate = useNavigate()
   const location = useLocation()
@@ -65,27 +42,17 @@ const Result = () => {
     year: "",
     season: ""
   })
-  const voicePrefillSubmittedRef = useRef(false)
-  const resultAlreadySpokenRef = useRef(false)
-  const lastVoiceSubmitRef = useRef({ key: "", at: 0 })
-  const submitButtonRef = useRef(null)
+  const autoSubmitRef = useRef(false)
 
   useEffect(() => {
-    voicePrefillSubmittedRef.current = false
-    resultAlreadySpokenRef.current = false
+    autoSubmitRef.current = false
     setResultData(null)
     setErrorMessage("")
   }, [location.search])
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
-    let storedRequest = null
-    try {
-      storedRequest = JSON.parse(sessionStorage.getItem("voicebot_result_request") || "null")
-    } catch {
-      storedRequest = null
-    }
-    const requestedSemester = params.get("semester") || storedRequest?.semester || ""
+    const requestedSemester = params.get("semester") || ""
 
     Promise.all([
       fetchJson("getProfile.php"),
@@ -103,11 +70,11 @@ const Result = () => {
         setStudent(profileData)
         setAvailableSelections(selections)
         setForm({
-          usn: (params.get("usn") || storedRequest?.usn || profileData.usn || "").toUpperCase(),
+          usn: (params.get("usn") || profileData.usn || "").toUpperCase(),
           semester: requestedSemester,
-          exam: params.get("exam") || storedRequest?.examType || defaultSelection?.exam || "SEE",
-          year: params.get("year") || storedRequest?.year || defaultSelection?.year || "",
-          season: params.get("season") || storedRequest?.season || defaultSelection?.season || ""
+          exam: params.get("exam") || defaultSelection?.exam || "SEE",
+          year: params.get("year") || defaultSelection?.year || "",
+          season: params.get("season") || defaultSelection?.season || ""
         })
         setLoading(false)
       })
@@ -145,42 +112,6 @@ const Result = () => {
       .map((selection) => selection.season)
   ), [availableSelections, form.exam, form.semester, form.year])
 
-  const buildFormFromVoiceRequest = (request) => {
-    const requestedSemester = String(request?.semester || form.semester || "")
-    const requestedExam = String(request?.examType || request?.exam || "").toUpperCase()
-    const semesterSelections = availableSelections.filter((selection) => String(selection.semester) === String(requestedSemester))
-    const defaultSelection = requestedSemester
-      ? (requestedExam ? semesterSelections.find((selection) => String(selection.exam).toUpperCase() === requestedExam) : null) || pickDefaultSelection(availableSelections, requestedSemester)
-      : null
-
-    return {
-      usn: String(request?.usn || form.usn || student?.usn || "").toUpperCase(),
-      semester: requestedSemester,
-      exam: String(requestedExam || defaultSelection?.exam || "SEE"),
-      year: String(request?.year || defaultSelection?.year || form.year || ""),
-      season: String(request?.season || defaultSelection?.season || form.season || "")
-    }
-  }
-  const getResultRequestKey = (payload) => ([
-    String(payload?.usn || "").toUpperCase(),
-    String(payload?.semester || ""),
-    String(payload?.exam || payload?.examType || "").toUpperCase(),
-    String(payload?.year || ""),
-    String(payload?.season || "").toUpperCase()
-  ].join("|"))
-
-  const shouldSkipDuplicateVoiceSubmit = (payload) => {
-    const requestKey = getResultRequestKey(payload)
-    const now = Date.now()
-    const lastSubmit = lastVoiceSubmitRef.current
-
-    if (lastSubmit.key === requestKey && now - lastSubmit.at < 15000) {
-      return true
-    }
-
-    lastVoiceSubmitRef.current = { key: requestKey, at: now }
-    return false
-  }
   const buildUnavailableResultMessage = (payload, fallbackMessage = "") => {
     const semesterText = payload?.semester ? `semester ${payload.semester}` : "the selected semester"
     const examText = String(payload?.exam || payload?.examType || "selected exam").toUpperCase()
@@ -189,17 +120,6 @@ const Result = () => {
     const availableText = String(fallbackMessage || "").match(/Available combinations[^.]*\./)?.[0] || ""
 
     return `No published ${examText} result is available for ${semesterText}${yearText}${seasonText}.${availableText ? ` ${availableText}` : " Please check the exam type, year, and season, or contact the exam section."}`
-  }
-
-  const publishVoiceResultMessage = (summary, type = "result") => {
-    const message = String(summary || "").trim()
-    if (!message) return
-
-    const resultSummaryPayload = { summary: message, type }
-    sessionStorage.setItem("voicebot_result_summary", JSON.stringify(resultSummaryPayload))
-    window.dispatchEvent(new CustomEvent("gmu:result-ready", {
-      detail: resultSummaryPayload
-    }))
   }
 
   const fetchResult = async (payload) => {
@@ -225,39 +145,11 @@ const Result = () => {
       })
     } catch (error) {
       const message = buildUnavailableResultMessage(payload, error.message || "")
-      const openedByVoiceBot = sessionStorage.getItem("voicebot_result_opened") === "true"
-      if (openedByVoiceBot) {
-        publishVoiceResultMessage(message, "error")
-      } else {
-        sessionStorage.removeItem("voicebot_result_opened")
-      }
       setErrorMessage(message || error.message || "Unable to fetch result right now.")
     } finally {
       setSubmitting(false)
     }
   }
-
-  useEffect(() => {
-    const handleVoicebotResultRequest = (event) => {
-      if (!student || !availableSelections.length) return
-
-      const payload = buildFormFromVoiceRequest(event.detail || {})
-      if (!payload.usn || !payload.semester || !payload.exam || !payload.year || !payload.season) return
-      if (shouldSkipDuplicateVoiceSubmit(payload)) return
-
-      voicePrefillSubmittedRef.current = true
-      resultAlreadySpokenRef.current = false
-      setResultData(null)
-      setErrorMessage("")
-      setForm(payload)
-
-      sessionStorage.setItem("voicebot_result_opened", "true")
-      void fetchResult(payload)
-    }
-
-    window.addEventListener("gmu:voicebot-result-request", handleVoicebotResultRequest)
-    return () => window.removeEventListener("gmu:voicebot-result-request", handleVoicebotResultRequest)
-  }, [availableSelections, form, student])
 
   const handleChange = (field, value) => {
     setForm((current) => {
@@ -286,41 +178,14 @@ const Result = () => {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
-    const hasStoredRequest = sessionStorage.getItem("voicebot_result_request") !== null
-    const voiceRequestedResult = hasStoredRequest || params.has("semester") || params.has("exam") || params.has("year") || params.has("season")
+    const urlRequestedResult = params.has("semester") || params.has("exam") || params.has("year") || params.has("season")
 
-    if (!voiceRequestedResult || !student || submitting || voicePrefillSubmittedRef.current) return
+    if (!urlRequestedResult || !student || submitting || autoSubmitRef.current) return
     if (!form.usn || !form.semester || !form.exam || !form.year || !form.season) return
 
-    voicePrefillSubmittedRef.current = true
-    const payload = { ...form }
-    if (shouldSkipDuplicateVoiceSubmit(payload)) return
-    sessionStorage.setItem("voicebot_result_opened", "true")
-    void fetchResult(payload)
+    autoSubmitRef.current = true
+    void fetchResult({ ...form })
   }, [form, location.search, student, submitting])
-
-  useEffect(() => {
-    if (!resultData || resultAlreadySpokenRef.current) return
-
-    const openedByVoiceBot = sessionStorage.getItem("voicebot_result_opened")
-    if (openedByVoiceBot !== "true") return
-
-    const summary = buildResultSummary(resultData)
-    if (!summary) return
-
-    const gradeSheetReady = Boolean(
-      document.querySelector("#grade-sheet-card")
-      && document.querySelector(".provisional-table")
-      && document.querySelector(".summary-table")
-    )
-
-    if (!gradeSheetReady) return
-
-    resultAlreadySpokenRef.current = true
-    sessionStorage.removeItem("voicebot_result_request")
-
-    publishVoiceResultMessage(summary)
-  }, [resultData])
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -331,10 +196,8 @@ const Result = () => {
     window.print()
   }
 
-  const isVoiceResultLoading = submitting && sessionStorage.getItem("voicebot_result_opened") === "true" && !resultData && !errorMessage
-
-  if (loading || !student || isVoiceResultLoading) {
-    return <div className="result-loading">{isVoiceResultLoading ? "Loading result sheet..." : "Loading result page..."}</div>
+  if (loading || !student || (submitting && !resultData && !errorMessage)) {
+    return <div className="result-loading">{submitting ? "Loading result sheet..." : "Loading result page..."}</div>
   }
 
   return (
@@ -406,7 +269,7 @@ const Result = () => {
               {errorMessage && <p className="result-error">{errorMessage}</p>}
 
               <div className="result-form-actions">
-                <button id="submitBtn" ref={submitButtonRef} type="submit" disabled={submitting}>{submitting ? "Loading..." : "Submit"}</button>
+                <button id="submitBtn" type="submit" disabled={submitting}>{submitting ? "Loading..." : "Submit"}</button>
               </div>
             </form>
           </section>

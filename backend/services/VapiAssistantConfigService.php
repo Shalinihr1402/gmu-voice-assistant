@@ -48,20 +48,21 @@ class VapiAssistantConfigService {
         return [
             "name" => "GMU Multilingual VoiceBot",
             "firstMessage" => self::firstMessage($language),
+            "firstMessageMode" => "assistant-speaks-first",
             "model" => [
                 "provider" => $modelProvider,
                 "model" => $model,
                 "temperature" => 0.2,
                 "messages" => [[
                     "role" => "system",
-                    "content" => self::systemPrompt($sessionToken)
+                    "content" => self::systemPrompt($sessionToken, $language)
                 ]],
                 "tools" => [self::gmuToolDefinition($webhookUrl)]
             ],
             "transcriber" => [
                 "provider" => $transcriberProvider,
                 "model" => $transcriberModel,
-                "language" => self::vapiLanguage($language)
+                "language" => self::vapiLanguage($language, $transcriberProvider, $transcriberModel)
             ],
             "voice" => self::voiceConfig($voiceProvider, $voiceId, $voiceModel),
             "server" => [
@@ -100,9 +101,11 @@ class VapiAssistantConfigService {
         ];
     }
 
-    private static function systemPrompt($sessionToken) {
+    private static function systemPrompt($sessionToken, $language = "multi") {
+        $selectedLanguage = in_array($language, ["en", "hi", "kn"], true) ? $language : "multi";
+        $selectedLanguageText = ["en" => "English", "hi" => "Hindi/Hinglish", "kn" => "Kannada/Kanglish", "multi" => "automatic multilingual"][$selectedLanguage] ?? "automatic multilingual";
         return "You are GMU VoiceBot, the official ERP voice assistant for GM University students. " .
-            "Understand English, Hindi, Kannada, Hinglish, Kanglish, and mixed student speech. Reply in the dominant language used by the student. If the student speaks mostly English, reply fully in English. Do not switch to Hindi or Kannada unless the user clearly speaks those languages. Keep replies short and natural. Never say you cannot speak Kannada or Hindi; use natural Kanglish or Hinglish if needed. " .
+            "Understand English, Hindi, Kannada, Hinglish, Kanglish, and mixed student speech. Current selected voice language is " . $selectedLanguageText . ". If selected voice language is Kannada/Kanglish, reply in Kannada/Kanglish even when the transcript is roman text like page ge hogu. If selected voice language is Hindi/Hinglish, reply in Hindi/Hinglish. If selected voice language is English, reply in English. If selected voice language is automatic multilingual, reply in the dominant language used by the student. Keep replies short and natural. Never say you cannot speak Kannada or Hindi; use natural Kanglish or Hinglish if needed. " .
             "You must call gmu_voice_assistant for all student data and ERP queries. This includes attendance, result, results, marks, marksheet, grade sheet, SGPA, CGPA, semester result, latest result, previous result, all results, fees, tuition deadlines, hostel application status, class cancellation notices, certificates, registration, profile, grievance, courses, faculty, campus information, documents, and university-related requests. " .
             "Never answer result, marks, marksheet, grade, SGPA, CGPA, semester result, or latest result questions from your own knowledge. Always call gmu_voice_assistant first so the backend can fetch the student's result data or open the result page. " .
             "Do not call the tool for greetings, thanks, okay, yes, no, or casual small talk. " .
@@ -119,10 +122,17 @@ class VapiAssistantConfigService {
         if ($language === "kn") {
             return "Namaskara, nanu GMU VoiceBot. Nimge enu sahaya beku?";
         }
-        return "Hello, I am GMU VoiceBot. What would you like to ask?";
+        return "Hello. Welcome to the GM university AI assistant. How can I help you today?";
     }
 
-    private static function vapiLanguage($language) {
+    private static function vapiLanguage($language, $transcriberProvider = "", $transcriberModel = "") {
+        $provider = strtolower((string) $transcriberProvider);
+        $model = strtolower((string) $transcriberModel);
+
+        if ($provider === "deepgram" && $model === "flux-general-en") {
+            return "en";
+        }
+
         if ($language === "hi") return "hi";
         if ($language === "kn") return "kn";
         if ($language === "en") return "en";
@@ -137,3 +147,7 @@ class VapiAssistantConfigService {
         return $scheme . "://" . $host . $scriptDir . "/vapiWebhook.php";
     }
 }
+
+
+
+
