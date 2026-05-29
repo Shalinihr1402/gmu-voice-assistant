@@ -9,13 +9,15 @@ class ERPQueryService {
         $text = self::normalizeText($query);
         if ($text === "") return "";
 
+        if (self::isPaymentGrievanceResultQuery($text)) return "GET_PAYMENT_GRIEVANCE_RESULT";
         if (self::isPaymentGrievanceQuery($text)) return "GET_PAYMENT_GRIEVANCE";
         if (self::isGrievanceProcessQuery($text)) return "GET_GRIEVANCE_PROCESS";
-        if (self::hasAny($text, ["last working day", "last class day", "working day last", "last day of class", "classes end", "college last working", "kone working day", "last working dinanka"])) return "GET_LAST_WORKING_DAY";
+        if (self::isFeeReceiptQuery($text)) return "GET_FEE_RECEIPT";
         if (self::isFeeDeadlineQuery($text)) return "GET_LAST_DATE_FEES";
-        if (self::hasAny($text, ["hostel fee", "hostel fees", "hostel balance", "hostel amount", "hostel charge", "hostel shulk", "hostel feesu"])) return "GET_HOSTEL_FEES";
-        if (self::hasAny($text, ["tuition fee", "tuition fees", "college fee", "program fee", "academic fee", "course fee", "tuition balance", "tuition amount"])) return "GET_TUITION_FEES";
-        if (self::hasAny($text, ["fee balance", "fees balance", "fee pending", "fees pending", "pending fee", "pending fees", "amount due", "balance fee", "balance fees", "fee due", "fees due", "my fees", "my fee", "baki fee", "bakki fees", "feesu balance"])) return "GET_FEES_BALANCE";
+        if (self::isFeePaymentNavigationQuery($text)) return "GET_FEE_PAYMENT_NAVIGATION";
+        if (self::isFeeBalanceQuery($text)) return "GET_FEES_BALANCE";
+        if (self::isFeeInfoQuery($text)) return "GET_FEE_INFO";
+        if (self::hasAny($text, ["last working day", "last class day", "working day last", "last day of class", "classes end", "college last working", "kone working day", "last working dinanka"])) return "GET_LAST_WORKING_DAY";
         if (self::hasAny($text, ["subject code", "subject codes", "course code", "course codes", "codes of subjects", "code for subject", "code of subject"])) return "GET_SUBJECT_CODES";
         if (self::hasAny($text, ["my subjects", "what are my subjects", "show my subjects", "registered subjects", "subject list", "my courses", "registered courses", "course list", "subjects yavuvu", "subjects kya", "subjects torisu"])) return "GET_SUBJECTS";
         if (self::hasAny($text, ["attendance", "attendence", "atendance", "attendance percentage", "overall attendance", "hajari", "hajarati"])) return "GET_ATTENDANCE";
@@ -37,7 +39,13 @@ class ERPQueryService {
 
         switch ($intent) {
             case "GET_FEES_BALANCE":
-                return self::payload(self::getFeesBalance($studentId, $language), $intent, $language, "fees_balance");
+                return self::payload(FeeController::answerFeeQuery($studentId, $query, $language, "balance"), $intent, $language, "fees_balance");
+            case "GET_FEE_INFO":
+                return self::payload(FeeController::answerFeeQuery($studentId, $query, $language, "fee_info"), $intent, $language, "fee_info");
+            case "GET_FEE_PAYMENT_NAVIGATION":
+                return self::payload(FeeController::answerFeeQuery($studentId, $query, $language, "payment_navigation"), $intent, $language, "payment_navigation");
+            case "GET_FEE_RECEIPT":
+                return self::payload(FeeController::answerFeeQuery($studentId, $query, $language, "receipt"), $intent, $language, "receipt");
             case "GET_ATTENDANCE":
                 return self::payload(self::getAttendance($studentId, $query, $language), $intent, $language, "attendance");
             case "GET_SUBJECTS":
@@ -54,17 +62,19 @@ class ERPQueryService {
             case "GET_FINAL_REGISTRATION_STATUS":
                 return self::payload(FeeController::getFinalRegistrationStatus($studentId, $language), $intent, $language, "final_registration");
             case "GET_HOSTEL_FEES":
-                return self::payload(self::getHostelFees($studentId, $language), $intent, $language, "hostel_fees");
+                return self::payload(FeeController::answerFeeQuery($studentId, $query, $language, "balance"), $intent, $language, "hostel_fees");
             case "GET_TUITION_FEES":
-                return self::payload(self::getTuitionFees($studentId, $language), $intent, $language, "tuition_fees");
+                return self::payload(FeeController::answerFeeQuery($studentId, $query, $language, "fee_info"), $intent, $language, "tuition_fees");
             case "GET_LAST_DATE_FEES":
                 return self::payload(self::getFeeDeadline($language), $intent, $language, "fee_deadline");
             case "GET_LAST_WORKING_DAY":
                 return self::payload(self::getLastWorkingDay($language), $intent, $language, "last_working_day");
             case "GET_GRIEVANCE_PROCESS":
-                return self::payload(self::grievanceProcessReply($language), $intent, $language, "grievance_process");
+                return self::payload(FeeController::answerFeeQuery($studentId, $query, $language, "grievance"), $intent, $language, "grievance_process");
             case "GET_PAYMENT_GRIEVANCE":
-                return self::payload(self::paymentGrievanceReply($language), $intent, $language, "payment_grievance");
+                return self::payload(FeeController::answerFeeQuery($studentId, $query, $language, "grievance"), $intent, $language, "payment_grievance");
+            case "GET_PAYMENT_GRIEVANCE_RESULT":
+                return self::payload(FeeController::answerFeeQuery($studentId, $query, $language, "grievance"), $intent, $language, "payment_grievance_result");
         }
 
         return null;
@@ -204,7 +214,7 @@ class ERPQueryService {
     }
 
     private static function requiresStudent($intent) {
-        return !in_array($intent, ["GET_LAST_DATE_FEES", "GET_LAST_WORKING_DAY", "GET_GRIEVANCE_PROCESS", "GET_PAYMENT_GRIEVANCE"], true);
+        return !in_array($intent, ["GET_LAST_DATE_FEES", "GET_LAST_WORKING_DAY", "GET_GRIEVANCE_PROCESS", "GET_PAYMENT_GRIEVANCE", "GET_PAYMENT_GRIEVANCE_RESULT", "GET_FEE_PAYMENT_NAVIGATION", "GET_FEE_RECEIPT"], true);
     }
 
     private static function studentIdFromSession($session) {
@@ -233,10 +243,31 @@ class ERPQueryService {
         return $row ?: null;
     }
 
+
+    private static function isFeeReceiptQuery($text) {
+        return self::hasAny($text, ["receipt", "invoice", "download receipt", "payment receipt", "fee receipt"]);
+    }
+
+    private static function isFeePaymentNavigationQuery($text) {
+        return self::hasAny($text, ["where can i pay", "how to pay", "pay my fees", "pay fees", "payment portal", "fee payment", "erp fee payment", "where is tuition fee payment", "how to pay hostel fees", "how to pay balance fees", "pay skill assessment", "late registration payment", "certificate fee payment", "other fee payment"])
+            || (self::hasAny($text, ["where", "how", "pay", "payment"]) && self::hasAny($text, ["fee", "fees", "tuition", "hostel", "skill", "balance", "late registration", "certificate", "bonafide", "study certificate", "bank estimate", "photo copy", "photocopy", "breakage", "byoc", "malpractice", "pg application", "phd application", "admission"]));
+    }
+
+    private static function isFeeBalanceQuery($text) {
+        return self::hasAny($text, ["fee balance", "fees balance", "remaining fees", "remaining fee", "pending fee", "pending fees", "due amount", "unpaid fees", "balance fee", "balance fees", "fee due", "fees due", "hostel fee balance", "tuition fee pending", "skill fee due", "baki fee", "bakki fees", "feesu balance"])
+            || (self::hasAny($text, ["balance", "pending", "remaining", "due", "unpaid", "baki", "bakki"]) && self::hasAny($text, ["fee", "fees", "tuition", "hostel", "skill", "amount"]));
+    }
+
+    private static function isFeeInfoQuery($text) {
+        return self::hasAny($text, ["what is hostel fee", "hostel fee amount", "tuition fee amount", "skill fee details", "fee structure", "fee details", "complete fee details", "full fee summary", "all fees", "what are my fees", "what is my fee", "what is my fees"]);
+    }
     private static function isFeeDeadlineQuery($text) {
         return self::hasAny($text, ["last date", "deadline", "due date", "when pay", "pay by", "kab tak", "akhri tarikh", "last dinanka"]) && self::hasAny($text, ["fee", "fees", "tuition", "payment", "shulk", "feesu"]);
     }
 
+    private static function isPaymentGrievanceResultQuery($text) {
+        return self::hasAny($text, ["grievance result", "complaint status", "grievance status", "track grievance", "check grievance", "payment complaint status"]);
+    }
     private static function isPaymentGrievanceQuery($text) {
         return self::hasAny($text, ["payment grievance", "fee grievance", "payment complaint", "transaction grievance", "grievance result", "payment issue grievance"]);
     }

@@ -48,11 +48,18 @@ const Result = () => {
     autoSubmitRef.current = false
     setResultData(null)
     setErrorMessage("")
-  }, [location.search])
+  }, [location.search, location.state])
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
-    const requestedSemester = params.get("semester") || ""
+    const voiceRequest = location.state?.voiceAction?.result_request || location.state?.voiceResult?.client_action?.result_request || {}
+    const requestedSemester = params.get("semester") || String(voiceRequest.semester || "")
+    const requestedExam = params.get("exam") || String(voiceRequest.exam || voiceRequest.examType || "")
+    const requestedYear = params.get("year") || String(voiceRequest.year || "")
+    const requestedSeason = params.get("season") || String(voiceRequest.season || "")
+    const requestedUsn = params.get("usn") || String(voiceRequest.usn || "")
+
+    console.log("RESULT VOICE REQUEST:", { requestedSemester, requestedExam, requestedYear, requestedSeason, requestedUsn })
 
     Promise.all([
       fetchJson("getProfile.php"),
@@ -70,16 +77,16 @@ const Result = () => {
         setStudent(profileData)
         setAvailableSelections(selections)
         setForm({
-          usn: (params.get("usn") || profileData.usn || "").toUpperCase(),
+          usn: (requestedUsn || profileData.usn || "").toUpperCase(),
           semester: requestedSemester,
-          exam: params.get("exam") || defaultSelection?.exam || "SEE",
-          year: params.get("year") || defaultSelection?.year || "",
-          season: params.get("season") || defaultSelection?.season || ""
+          exam: requestedExam || defaultSelection?.exam || "SEE",
+          year: requestedYear || defaultSelection?.year || "",
+          season: requestedSeason || defaultSelection?.season || ""
         })
         setLoading(false)
       })
       .catch(() => navigate("/"))
-  }, [location.search, navigate])
+  }, [location.search, location.state, navigate])
 
   const semesterOptions = useMemo(() => sortSemesters(uniqueValues(
     availableSelections.map((selection) => String(selection.semester || ""))
@@ -178,14 +185,16 @@ const Result = () => {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
-    const urlRequestedResult = params.has("semester") || params.has("exam") || params.has("year") || params.has("season")
+    const voiceRequest = location.state?.voiceAction?.result_request || location.state?.voiceResult?.client_action?.result_request || {}
+    const stateRequestedResult = Boolean(voiceRequest.semester || voiceRequest.exam || voiceRequest.examType || voiceRequest.year || voiceRequest.season)
+    const urlRequestedResult = params.has("semester") || params.has("exam") || params.has("year") || params.has("season") || stateRequestedResult
 
     if (!urlRequestedResult || !student || submitting || autoSubmitRef.current) return
     if (!form.usn || !form.semester || !form.exam || !form.year || !form.season) return
 
     autoSubmitRef.current = true
     void fetchResult({ ...form })
-  }, [form, location.search, student, submitting])
+  }, [form, location.search, location.state, student, submitting])
 
   const handleSubmit = async (event) => {
     event.preventDefault()

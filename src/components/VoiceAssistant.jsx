@@ -67,14 +67,43 @@ const ALLOWED_NAVIGATION_PATHS = new Set([
   "/attendance-analytics"
 ])
 
+const buildResultPath = (path, resultRequest = {}) => {
+  const rawPath = String(path || "/results").trim() || "/results"
+  const [basePath, query = ""] = rawPath.split("?")
+  if (basePath !== "/results") return rawPath
+
+  const params = new URLSearchParams(query)
+  const mappings = {
+    semester: resultRequest.semester,
+    usn: resultRequest.usn,
+    exam: resultRequest.exam || resultRequest.examType,
+    year: resultRequest.year,
+    season: resultRequest.season
+  }
+
+  Object.entries(mappings).forEach(([key, value]) => {
+    const normalized = String(value || "").trim()
+    if (normalized && !params.has(key)) params.set(key, normalized)
+  })
+
+  const nextQuery = params.toString()
+  return nextQuery ? `${basePath}?${nextQuery}` : basePath
+}
+
 const resolveNavigationPath = (action, result = {}) => {
+  const rawPath = String(action?.path || "").trim()
+  const [rawBasePath] = rawPath.split("?")
+
+  if (rawBasePath === "/results" || result.intent === "OPEN_FILTERED_RESULT") {
+    return buildResultPath(rawPath || "/results", action?.result_request || result.result_request || {})
+  }
+
   const intentPath = INTENT_ROUTE_MAP[result.intent]
   if (intentPath) return intentPath
 
   const pageKey = String(action?.page || result.page || result.target_page || result.entities?.target_page || "").toLowerCase()
   if (PAGE_ROUTE_MAP[pageKey]) return PAGE_ROUTE_MAP[pageKey]
 
-  const rawPath = String(action?.path || "").trim()
   if (!rawPath) return ""
 
   const [basePath] = rawPath.split("?")
@@ -394,7 +423,7 @@ const VoiceAssistant = () => {
     console.log("BEFORE NAVIGATE:", path)
     console.log("CURRENT URL:", window.location.pathname)
     console.log("NAVIGATE TOOL CALL ID:", toolCallId || latestProcessedToolCallIdRef.current)
-    navigate(path, { replace: true })
+    navigate(path, { replace: true, state: { voiceAction: action, voiceResult: result } })
     console.log("VOICE NAVIGATION ACTUAL:", path)
     console.log("NAVIGATE EXECUTED:", path)
     setTimeout(() => {
