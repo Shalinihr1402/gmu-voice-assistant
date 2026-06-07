@@ -205,6 +205,10 @@ class VoiceUnderstandingService {
         $scores = [
             "GET_SUBJECT_ATTENDANCE" => self::score($text, ["attendance"]) + (!empty($entities["subject"]) ? 35 : 0),
             "GET_COURSE_CODE" => self::score($text, ["course code", "subject code", " code "]) + (!empty($entities["subject"]) ? 25 : 0),
+            "GET_TIMETABLE" => self::score($text, ["today timetable", "class timetable", "next class", "tomorrow schedule", "today schedule"]),
+            "GET_EXAM_TIMETABLE" => self::score($text, ["exam timetable", "exam schedule", "exam date", "when is my exam", "show exam schedule"]),
+            "GET_INTERNAL_MARKS" => self::score($text, ["internal marks", "cia marks", "cie marks", "assignment marks", "assessment marks"]),
+            "GET_ASSIGNMENTS" => self::score($text, ["pending assignments", "assignment deadline", "assignments", "assignment due", "submission date"]),
             "GET_ATTENDANCE" => self::score($text, ["attendance", "overall"]),
             "GET_ACADEMIC_PERFORMANCE_SUMMARY" => self::score($text, ["overall academic performance", "academic performance", "performance summary", "overall performance", "my performance", "academic summary"]),
             "GET_SGPA" => self::score($text, ["sgpa", "result", "marks"]),

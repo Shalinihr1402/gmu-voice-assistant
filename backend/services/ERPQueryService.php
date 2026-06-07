@@ -18,6 +18,10 @@ class ERPQueryService {
         if (self::isFeeBalanceQuery($text)) return "GET_FEES_BALANCE";
         if (self::isFeeInfoQuery($text)) return "GET_FEE_INFO";
         if (self::hasAny($text, ["last working day", "last class day", "working day last", "last day of class", "classes end", "college last working", "kone working day", "last working dinanka"])) return "GET_LAST_WORKING_DAY";
+        if (self::isInternalMarksQuery($text)) return "GET_INTERNAL_MARKS";
+        if (self::isAssignmentQuery($text)) return "GET_ASSIGNMENTS";
+        if (self::isExamTimetableQuery($text)) return "GET_EXAM_TIMETABLE";
+        if (self::isTimetableQuery($text)) return "GET_TIMETABLE";
         if (self::hasAny($text, ["subject code", "subject codes", "course code", "course codes", "codes of subjects", "code for subject", "code of subject"])) return "GET_SUBJECT_CODES";
         if (self::hasAny($text, ["my subjects", "what are my subjects", "show my subjects", "registered subjects", "subject list", "my courses", "registered courses", "course list", "subjects yavuvu", "subjects kya", "subjects torisu"])) return "GET_SUBJECTS";
         if (self::isAcademicPerformanceQuery($text)) return "GET_ACADEMIC_PERFORMANCE_SUMMARY";
@@ -49,6 +53,14 @@ class ERPQueryService {
                 return self::payload(FeeController::answerFeeQuery($studentId, $query, $language, "payment_navigation"), $intent, $language, "payment_navigation");
             case "GET_FEE_RECEIPT":
                 return self::payload(FeeController::answerFeeQuery($studentId, $query, $language, "receipt"), $intent, $language, "receipt");
+            case "GET_TIMETABLE":
+                return self::payload(self::getTimetable($studentId, $query, $language), $intent, $language, "timetable");
+            case "GET_EXAM_TIMETABLE":
+                return self::payload(self::getExamTimetable($studentId, $query, $language), $intent, $language, "exam_timetable");
+            case "GET_INTERNAL_MARKS":
+                return self::payload(self::getInternalMarks($studentId, $query, $language), $intent, $language, "internal_marks");
+            case "GET_ASSIGNMENTS":
+                return self::payload(self::getAssignments($studentId, $query, $language), $intent, $language, "assignments");
             case "GET_ATTENDANCE":
                 return self::handleAttendanceQuery($studentId, $query, $language, $intent);
             case "GET_ACADEMIC_PERFORMANCE_SUMMARY":
@@ -242,6 +254,145 @@ class ERPQueryService {
         return self::localize("Your current semester subject codes are: " . $preview . ".", $language);
     }
 
+    public static function getTimetable($studentId, $query = "", $language = "en") {
+        global $conn;
+        $student = self::getStudent($studentId);
+        if (!$student) return self::studentDataMissingReply($language);
+        if (!self::tableHasColumns("class_timetable", ["program", "semester", "day_of_week", "start_time", "end_time", "course_id"])) {
+            return self::erpDataNotUpdatedReply("class timetable", $language);
+        }
+
+        $day = self::requestedDayName($query);
+        $program = (string) ($student["branch"] ?? "");
+        $semester = (int) ($student["semester"] ?? 0);
+        $stmt = $conn->prepare("
+            SELECT t.start_time, t.end_time, t.room_no, t.faculty_name, c.course_code, c.course_title
+            FROM class_timetable t
+            LEFT JOIN courses c ON c.course_id = t.course_id
+            WHERE t.program = ? AND t.semester = ? AND LOWER(t.day_of_week) = LOWER(?)
+            ORDER BY t.start_time ASC
+            LIMIT 8
+        ");
+        if (!$stmt) return self::erpTechnicalReply("class timetable", $language);
+        $stmt->bind_param("sis", $program, $semester, $day);
+        $stmt->execute();
+        $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+        if (empty($rows)) return self::noErpRecordsReply("class timetable for {$day}", $language);
+
+        $items = [];
+        foreach ($rows as $row) {
+            $subject = trim((string) (($row["course_code"] ?? "") . " " . ($row["course_title"] ?? ""))) ?: "class";
+            $time = self::shortTime($row["start_time"] ?? "") . " to " . self::shortTime($row["end_time"] ?? "");
+            $room = trim((string) ($row["room_no"] ?? ""));
+            $faculty = trim((string) ($row["faculty_name"] ?? ""));
+            $items[] = trim($time . ", " . $subject . ($room !== "" ? ", room " . $room : "") . ($faculty !== "" ? ", by " . $faculty : ""));
+        }
+        return self::localizedPrefix("Your {$day} timetable is: ", $language) . implode("; ", $items) . ".";
+    }
+
+    public static function getExamTimetable($studentId, $query = "", $language = "en") {
+        global $conn;
+        $student = self::getStudent($studentId);
+        if (!$student) return self::studentDataMissingReply($language);
+        if (!self::tableHasColumns("exam_timetable", ["program", "semester", "course_id", "exam_date", "start_time", "end_time"])) {
+            return self::erpDataNotUpdatedReply("exam timetable", $language);
+        }
+
+        $program = (string) ($student["branch"] ?? "");
+        $semester = (int) ($student["semester"] ?? 0);
+        $stmt = $conn->prepare("
+            SELECT e.exam_date, e.start_time, e.end_time, e.exam_type, e.venue, c.course_code, c.course_title
+            FROM exam_timetable e
+            LEFT JOIN courses c ON c.course_id = e.course_id
+            WHERE e.program = ? AND e.semester = ? AND e.exam_date >= CURDATE()
+            ORDER BY e.exam_date ASC, e.start_time ASC
+            LIMIT 6
+        ");
+        if (!$stmt) return self::erpTechnicalReply("exam timetable", $language);
+        $stmt->bind_param("si", $program, $semester);
+        $stmt->execute();
+        $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+        if (empty($rows)) return self::noErpRecordsReply("upcoming exam timetable", $language);
+
+        $items = [];
+        foreach ($rows as $row) {
+            $subject = trim((string) (($row["course_code"] ?? "") . " " . ($row["course_title"] ?? ""))) ?: "exam";
+            $date = self::spokenDate((string) ($row["exam_date"] ?? ""));
+            $time = self::shortTime($row["start_time"] ?? "") . " to " . self::shortTime($row["end_time"] ?? "");
+            $venue = trim((string) ($row["venue"] ?? ""));
+            $type = trim((string) ($row["exam_type"] ?? ""));
+            $items[] = trim($subject . " on " . $date . ", " . $time . ($type !== "" ? ", " . strtoupper($type) : "") . ($venue !== "" ? ", venue " . $venue : ""));
+        }
+        return self::localizedPrefix("Your upcoming exam timetable is: ", $language) . implode("; ", $items) . ".";
+    }
+
+    public static function getInternalMarks($studentId, $query = "", $language = "en") {
+        global $conn;
+        if (!self::tableHasColumns("internal_marks", ["student_id", "course_id", "component", "marks_obtained", "max_marks"])) {
+            return self::erpDataNotUpdatedReply("internal marks", $language);
+        }
+
+        $stmt = $conn->prepare("
+            SELECT c.course_code, c.course_title, im.component, im.marks_obtained, im.max_marks
+            FROM internal_marks im
+            LEFT JOIN courses c ON c.course_id = im.course_id
+            WHERE im.student_id = ?
+            ORDER BY c.semester DESC, c.course_code ASC, im.component ASC
+            LIMIT 10
+        ");
+        if (!$stmt) return self::erpTechnicalReply("internal marks", $language);
+        $stmt->bind_param("i", $studentId);
+        $stmt->execute();
+        $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+        if (empty($rows)) return self::noErpRecordsReply("internal marks", $language);
+
+        $items = [];
+        foreach ($rows as $row) {
+            $subject = trim((string) (($row["course_code"] ?? "") . " " . ($row["course_title"] ?? ""))) ?: "subject";
+            $component = trim((string) ($row["component"] ?? "internal"));
+            $items[] = $subject . " " . $component . ": " . self::formatDecimal($row["marks_obtained"] ?? 0) . " out of " . self::formatDecimal($row["max_marks"] ?? 0);
+        }
+        return self::localizedPrefix("Your internal marks are: ", $language) . implode("; ", $items) . ".";
+    }
+
+    public static function getAssignments($studentId, $query = "", $language = "en") {
+        global $conn;
+        $student = self::getStudent($studentId);
+        if (!$student) return self::studentDataMissingReply($language);
+        if (!self::tableHasColumns("assignments", ["program", "semester", "course_id", "title", "due_date", "status"])) {
+            return self::erpDataNotUpdatedReply("assignments", $language);
+        }
+
+        $program = (string) ($student["branch"] ?? "");
+        $semester = (int) ($student["semester"] ?? 0);
+        $stmt = $conn->prepare("
+            SELECT a.title, a.due_date, a.status, c.course_code, c.course_title
+            FROM assignments a
+            LEFT JOIN courses c ON c.course_id = a.course_id
+            WHERE a.program = ? AND a.semester = ? AND (a.due_date >= CURDATE() OR LOWER(a.status) IN ('pending', 'open'))
+            ORDER BY a.due_date ASC
+            LIMIT 8
+        ");
+        if (!$stmt) return self::erpTechnicalReply("assignments", $language);
+        $stmt->bind_param("si", $program, $semester);
+        $stmt->execute();
+        $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+        if (empty($rows)) return self::noErpRecordsReply("pending assignments", $language);
+
+        $items = [];
+        foreach ($rows as $row) {
+            $subject = trim((string) (($row["course_code"] ?? "") . " " . ($row["course_title"] ?? ""))) ?: "subject";
+            $title = trim((string) ($row["title"] ?? "assignment"));
+            $date = self::spokenDate((string) ($row["due_date"] ?? ""));
+            $status = trim((string) ($row["status"] ?? "pending"));
+            $items[] = $subject . " - " . $title . ", due on " . $date . ", status " . $status;
+        }
+        return self::localizedPrefix("Your pending assignments are: ", $language) . implode("; ", $items) . ".";
+    }
     public static function getAcademicPerformanceSummary($studentId, $language = "en") {
         $student = self::getStudent($studentId);
         if (!$student) return self::academicTechnicalReply($language);
@@ -696,6 +847,90 @@ class ERPQueryService {
         return self::hasAny($text, ["last date", "deadline", "due date", "when pay", "pay by", "kab tak", "akhri tarikh", "last dinanka"]) && self::hasAny($text, ["fee", "fees", "tuition", "payment", "shulk", "feesu"]);
     }
 
+    private static function isTimetableQuery($text) {
+        return self::hasAny($text, ["today timetable", "today's timetable", "class timetable", "my timetable", "timetable", "next class", "tomorrow schedule", "today schedule", "class schedule", "schedule today", "next period"]);
+    }
+
+    private static function isExamTimetableQuery($text) {
+        return self::hasAny($text, ["exam timetable", "exam schedule", "exam date", "when is my exam", "when is dbms exam", "show exam schedule", "see exam timetable", "cie timetable", "see timetable"])
+            || (self::hasAny($text, ["exam", "cie", "see"]) && self::hasAny($text, ["when", "date", "schedule", "timetable", "time", "dbms", "subject"]));
+    }
+
+    private static function isInternalMarksQuery($text) {
+        return self::hasAny($text, ["internal marks", "cia marks", "cie marks", "assignment marks", "internal score", "show my internal", "my internal marks", "test marks", "assessment marks"]);
+    }
+
+    private static function isAssignmentQuery($text) {
+        return self::hasAny($text, ["pending assignments", "assignment deadline", "assignments", "my assignments", "any assignment", "assignment due", "submission date", "homework", "assignment status"]);
+    }
+
+    private static function tableHasColumns($table, $columns) {
+        global $conn;
+        $table = (string) $table;
+        if (!preg_match('/^[a-zA-Z0-9_]+$/', $table)) return false;
+        $stmt = $conn->prepare("SHOW TABLES LIKE ?");
+        if (!$stmt) return false;
+        $stmt->bind_param("s", $table);
+        $stmt->execute();
+        $exists = (bool) $stmt->get_result()->fetch_row();
+        $stmt->close();
+        if (!$exists) return false;
+
+        $result = $conn->query("SHOW COLUMNS FROM `{$table}`");
+        if (!$result) return false;
+        $available = [];
+        while ($row = $result->fetch_assoc()) {
+            $available[strtolower((string) ($row["Field"] ?? ""))] = true;
+        }
+        foreach ($columns as $column) {
+            if (empty($available[strtolower((string) $column)])) return false;
+        }
+        return true;
+    }
+
+    private static function requestedDayName($query) {
+        $text = self::normalizeText($query);
+        if (strpos($text, "tomorrow") !== false) return strtolower(date('l', strtotime('+1 day')));
+        foreach (["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as $day) {
+            if (strpos($text, $day) !== false) return $day;
+        }
+        return strtolower(date('l'));
+    }
+
+    private static function shortTime($time) {
+        $timestamp = strtotime((string) $time);
+        return $timestamp ? date('g:i A', $timestamp) : trim((string) $time);
+    }
+
+    private static function localizedPrefix($prefix, $language) {
+        if ($language === "hi") return $prefix;
+        if ($language === "kn") return $prefix;
+        return $prefix;
+    }
+
+    private static function studentDataMissingReply($language) {
+        if ($language === "hi") return "Student details ERP mein abhi available nahi hain. Kripya login check kijiye.";
+        if ($language === "kn") return "Student details ERP nalli ivaga available illa. Dayavittu login check maadi.";
+        return "I could not find your student details in ERP right now. Please check your login.";
+    }
+
+    private static function erpDataNotUpdatedReply($section, $language) {
+        if ($language === "hi") return ucfirst($section) . " ERP mein abhi update nahi hai. College ERP team data update karne ke baad main bata paunga.";
+        if ($language === "kn") return ucfirst($section) . " ERP nalli ivaga update agilla. College ERP team data update madida nantara nanu helabahudu.";
+        return ucfirst($section) . " is not updated in ERP right now. Once the college ERP team updates it, I can show it here.";
+    }
+
+    private static function noErpRecordsReply($section, $language) {
+        if ($language === "hi") return "ERP records mein " . $section . " available nahi hai.";
+        if ($language === "kn") return "ERP records nalli " . $section . " available illa.";
+        return "I could not find " . $section . " in ERP records right now.";
+    }
+
+    private static function erpTechnicalReply($section, $language) {
+        if ($language === "hi") return ucfirst($section) . " check karte waqt technical issue aaya. Kripya thodi der baad try kijiye.";
+        if ($language === "kn") return ucfirst($section) . " check maduvaga technical issue aayitu. Dayavittu swalpa samayada nantara try maadi.";
+        return "I could not check " . $section . " right now due to a technical issue. Please try again after some time.";
+    }
     private static function isAcademicPerformanceQuery($text) {
         return self::hasAny($text, [
             "overall academic performance",
