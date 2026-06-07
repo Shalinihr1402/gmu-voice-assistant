@@ -4,6 +4,7 @@ require_once __DIR__ . "/VapiSessionService.php";
 require_once __DIR__ . "/VapiAssistantConfigService.php";
 require_once __DIR__ . "/LlmService.php";
 require_once __DIR__ . "/ERPQueryService.php";
+require_once __DIR__ . "/ResultCatalogService.php";
 
 class VapiToolService {
     public static function extractToolCalls($payload) {
@@ -69,6 +70,16 @@ class VapiToolService {
         }
 
         if (!$session) {
+            $navigationResult = self::directNavigationResult($query, $language);
+            if (is_array($navigationResult)) {
+                return self::toolResult($id, $toolName, $navigationResult);
+            }
+
+            $paymentHelpResult = self::directPaymentHelpResult($query, $language);
+            if (is_array($paymentHelpResult)) {
+                return self::toolResult($id, $toolName, $paymentHelpResult);
+            }
+
             return self::toolResult($id, $toolName, [
                 "reply" => self::sessionExpiredReply($language),
                 "intent" => "SESSION_EXPIRED",
@@ -105,7 +116,7 @@ class VapiToolService {
                 $result = self::directNavigationResult($query, $language);
                 break;
             case "result_navigation":
-                $result = self::directResultNavigationResult($query, $language, $sessionId);
+                $result = self::directResultNavigationResult($query, $language, $session);
                 break;
             case "course_code":
                 $result = self::directCourseCodeResult($query, $language, $sessionId);
@@ -254,17 +265,17 @@ class VapiToolService {
         if ($englishRequested) {
             error_log("VOICE LANGUAGE UPDATE: {$language} -> en");
             self::persistLanguageSwitch($sessionToken, 'en', $language);
-            return self::languageSwitchPayload('en', 'Switched to English mode.', $language);
+            return self::languageSwitchPayload('en', 'Sure, I will speak in English now. How can I help you?', $language);
         }
         if ($kannadaRequested) {
             error_log("VOICE LANGUAGE UPDATE: {$language} -> kn");
             self::persistLanguageSwitch($sessionToken, 'kn', $language);
-            return self::languageSwitchPayload('kn', 'Kannada mode enabled.', $language);
+            return self::languageSwitchPayload('kn', 'Haudu, naanu Kannada dalli mathaduttene. Heli, nimge hege sahaya madali?', $language);
         }
         if ($hindiRequested) {
             error_log("VOICE LANGUAGE UPDATE: {$language} -> hi");
             self::persistLanguageSwitch($sessionToken, 'hi', $language);
-            return self::languageSwitchPayload('hi', 'Hindi mode enabled.', $language);
+            return self::languageSwitchPayload('hi', 'Ji haan, main ab Hindi mein baat karunga. Batayiye, main aapki kaise madad kar sakta hoon?', $language);
         }
 
         return null;
@@ -292,7 +303,7 @@ class VapiToolService {
     }
     private static function directErpInfoResult($query, $language, $session) {
         $text = self::normalizeIntentText($query);
-        $studentId = self::studentIdFromSession($session);
+        $studentId = (int) ($session["student_id"] ?? 0);
 
         if (self::isTuitionDeadlineQuery($text)) {
             return self::erpInfoPayload(self::tuitionDeadlineReply($language), "GET_TUITION_DEADLINE", $language);
@@ -493,7 +504,7 @@ class VapiToolService {
             ];
         }
 
-        $studentId = self::studentIdFromSession($session);
+        $studentId = (int) ($session["student_id"] ?? 0);
         if ($studentId <= 0) {
             return null;
         }
@@ -849,7 +860,8 @@ class VapiToolService {
         if ($language === "kn") return "Neevu helabahudu: open payment portal, apply payment grievance, athava check grievance result.";
         return $suggestion;
     }
-    private static function directResultNavigationResult($query, $language, $sessionId) {
+    private static function directResultNavigationResult($query, $language, $session) {
+        $sessionId = (string) ($session["session_id"] ?? "");
         $text = self::normalizeResultQueryText((string) $query);
         $resultPattern = '/\b(result|results|marks|marksheet|grade\s*sheet|score|sgpa|cgpa|internal\s*marks)\b/u';
         if (!preg_match($resultPattern, $text)) {
@@ -865,7 +877,7 @@ class VapiToolService {
             return null;
         }
 
-        $availability = self::loadResultAvailability($sessionId);
+        $availability = self::loadResultAvailability($sessionId, $session);
         $student = is_array($availability["student"] ?? null) ? $availability["student"] : [];
         $selections = is_array($availability["selections"] ?? null) ? $availability["selections"] : [];
         $currentSemester = (int) ($student["current_semester"] ?? 0);
@@ -918,7 +930,7 @@ class VapiToolService {
             return $value !== "" && $value !== null;
         }));
 
-        $summaryReply = $selected ? self::resultSummaryFromSelection($sessionId, $student, $semester, $selected, $language) : "";
+        $summaryReply = $selected ? self::resultSummaryFromSelection($sessionId, $student, $semester, $selected, $language, $session) : "";
 
         return [
             "reply" => $summaryReply !== "" ? $summaryReply : self::resultNavigationReply($semester, (bool) $selected, $language),
@@ -1035,8 +1047,8 @@ class VapiToolService {
         return $selections[0];
     }
 
-    private static function resultSummaryFromSelection($sessionId, $student, $semester, $selected, $language) {
-        if ($sessionId === "" || !is_array($selected) || empty($selected)) {
+    private static function resultSummaryFromSelection($sessionId, $student, $semester, $selected, $language, $session = []) {
+        if (!is_array($selected) || empty($selected)) {
             return "";
         }
 
@@ -1067,19 +1079,19 @@ class VapiToolService {
         curl_close($ch);
 
         if ($response === false || $status >= 400) {
-            return "";
+            return self::resultSummaryFromDatabase($session, $payload, $language);
         }
 
         $decoded = json_decode((string) $response, true);
         if (!is_array($decoded)) {
-            return "";
+            return self::resultSummaryFromDatabase($session, $payload, $language);
         }
 
         $selection = is_array($decoded["selection"] ?? null) ? $decoded["selection"] : $selected;
         $summary = is_array($decoded["summary"] ?? null) ? $decoded["summary"] : [];
         $sgpa = $summary["sgpa"] ?? null;
         if ($sgpa === null || $sgpa === "") {
-            return "";
+            return self::resultSummaryFromDatabase($session, $payload, $language);
         }
 
         return self::resultSummaryReply(
@@ -1144,9 +1156,9 @@ class VapiToolService {
         return "Loading details for semester " . $semester . " result.";
     }
 
-    private static function loadResultAvailability($sessionId) {
+    private static function loadResultAvailability($sessionId, $session = []) {
         if ($sessionId === "") {
-            return [];
+            return self::loadResultAvailabilityFromDatabase($session);
         }
 
         $url = preg_replace('/api\.php(?:\?.*)?$/', 'getResultAvailability.php', VapiAssistantConfigService::getEnvValue("VOICEBOT_INTERNAL_API_URL", self::defaultApiUrl()));
@@ -1162,10 +1174,61 @@ class VapiToolService {
         curl_close($ch);
 
         if ($response === false || $status >= 400) {
-            return [];
+            return self::loadResultAvailabilityFromDatabase($session);
         }
         $decoded = json_decode((string) $response, true);
-        return is_array($decoded) ? $decoded : [];
+        return is_array($decoded) ? $decoded : self::loadResultAvailabilityFromDatabase($session);
+    }
+
+    private static function loadResultAvailabilityFromDatabase($session) {
+        $studentId = (int) ($session["student_id"] ?? 0);
+        if ($studentId <= 0) return [];
+        require __DIR__ . "/../config/db.php";
+        if (!isset($conn) || !$conn) return [];
+        ResultCatalogService::ensureCatalogReady($conn);
+        $stmt = $conn->prepare("SELECT student_id, full_name, usn, branch, semester FROM students WHERE student_id = ? LIMIT 1");
+        if (!$stmt) return [];
+        $stmt->bind_param("i", $studentId);
+        $stmt->execute();
+        $student = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if (!$student) return [];
+        return [
+            "student" => [
+                "student_id" => (int) $student["student_id"],
+                "full_name" => $student["full_name"],
+                "usn" => $student["usn"],
+                "branch" => $student["branch"],
+                "current_semester" => (int) $student["semester"]
+            ],
+            "selections" => ResultCatalogService::getPublishedSelections($conn, $studentId)
+        ];
+    }
+
+    private static function resultSummaryFromDatabase($session, $payload, $language) {
+        $studentId = (int) ($session["student_id"] ?? 0);
+        if ($studentId <= 0) return "";
+        require __DIR__ . "/../config/db.php";
+        if (!isset($conn) || !$conn) return "";
+        ResultCatalogService::ensureCatalogReady($conn);
+        $selection = ResultCatalogService::findPublishedSelection($conn, $studentId, (int) ($payload["semester"] ?? 0), (string) ($payload["exam"] ?? "SEE"), (string) ($payload["year"] ?? ""), (string) ($payload["season"] ?? ""));
+        if (!$selection) return "";
+        $semester = (int) ($payload["semester"] ?? 0);
+        $stmt = $conn->prepare("SELECT credits, grade_point FROM results WHERE student_id = ? AND semester = ?");
+        if (!$stmt) return "";
+        $stmt->bind_param("ii", $studentId, $semester);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $credits = 0.0;
+        $points = 0.0;
+        while ($row = $result->fetch_assoc()) {
+            $credit = (float) $row["credits"];
+            $credits += $credit;
+            $points += ((float) $row["grade_point"] * $credit);
+        }
+        $stmt->close();
+        if ($credits <= 0) return "";
+        return self::resultSummaryReply((string) $semester, (string) ($selection["exam"] ?? $payload["exam"] ?? "SEE"), round($points / $credits, 2), $language);
     }
     private static function directNavigationResult($query, $language) {
         $text = self::normalizeIntentText($query);
@@ -1258,16 +1321,21 @@ class VapiToolService {
         if ($response === false || $status >= 400) {
             return [
                 "status" => "error",
-                "reply" => $error ?: "Voice backend did not respond correctly.",
+                "reply" => self::voiceBackendTechnicalReply($language),
                 "reply_source" => "vapi_internal_api_error",
                 "http_status" => $status
             ];
         }
 
         $decoded = json_decode((string) $response, true);
-        return is_array($decoded) ? $decoded : ["status" => "error", "reply" => "Voice backend returned an invalid response."];
+        return is_array($decoded) ? $decoded : ["status" => "error", "reply" => self::voiceBackendTechnicalReply($language)];
     }
 
+    private static function voiceBackendTechnicalReply($language) {
+        if ($language === "hi") return "Is request ko process karte waqt technical issue aaya. Kripya thodi der baad dobara try kijiye.";
+        if ($language === "kn") return "Ee request process maduvaga technical issue aayitu. Dayavittu swalpa samayada nantara matte try maadi.";
+        return "I could not process this request right now due to a technical issue. Please try again after some time.";
+    }
     private static function shapeResult($apiResponse, $query, $language) {
         $reply = trim((string) ($apiResponse["reply"] ?? ""));
         if ($reply === "") {

@@ -8,9 +8,21 @@ import { getStoredUiLanguage, setStoredUiLanguage } from "../utils/uiLanguage"
 import "./VoiceAssistant.css"
 
 const VOICE_LANGUAGES = {
-  en: { label: "English", apiLanguage: "en" },
-  hi: { label: "Hindi", apiLanguage: "hi" },
-  kn: { label: "Kannada", apiLanguage: "kn" }
+  en: {
+    label: "English",
+    apiLanguage: "en",
+    confirmation: "English selected. Tap the GMU button and ask your question in English."
+  },
+  hi: {
+    label: "Hindi",
+    apiLanguage: "hi",
+    confirmation: "Hindi selected. GMU button tap karke Hindi ya Hinglish mein apna question poochiye."
+  },
+  kn: {
+    label: "Kannada",
+    apiLanguage: "kn",
+    confirmation: "Kannada selected. GMU button tap maadi Kannada athava Kanglish nalli nimma question keli."
+  }
 }
 
 const normalizeLanguage = (value) => (
@@ -309,6 +321,27 @@ const getVapiErrorMessage = (error) => {
     error?.response?.data?.message
   ]
   const message = candidates.find((candidate) => typeof candidate === "string" && candidate.trim())
+
+  const raw = (() => {
+    try {
+      return [message, JSON.stringify(error)].filter(Boolean).join(" ")
+    } catch {
+      return message || ""
+    }
+  })()
+
+  if (/meeting has ended|daily-error|ejected|no-room|room was deleted/i.test(raw)) {
+    return "Voice session ended. Tap the GMU button to start a new voice session."
+  }
+
+  if (/microphone|permission|notallowed|not allowed|denied/i.test(raw)) {
+    return "Microphone permission is blocked. Please allow microphone access and tap the GMU button again."
+  }
+
+  if (/public.?key|assistant|unauthorized|invalid/i.test(raw)) {
+    return "Vapi configuration is invalid. Please check the public key and assistant settings."
+  }
+
   if (message) return `Vapi voice session failed: ${message}`
 
   try {
@@ -330,6 +363,7 @@ const VoiceAssistant = () => {
   const [replySource, setReplySource] = useState("")
   const [suggestionText, setSuggestionText] = useState("")
   const [quickActions, setQuickActions] = useState([])
+  const [visualPayload, setVisualPayload] = useState(null)
   const [errorMessage, setErrorMessage] = useState("")
   const [voiceLanguage, setVoiceLanguage] = useState(() => normalizeLanguage(getStoredUiLanguage()))
 
@@ -342,7 +376,10 @@ const VoiceAssistant = () => {
   const processedToolCallIdsRef = useRef(new Set())
   const latestProcessedToolCallIdRef = useRef("")
   const voiceLanguageRef = useRef(voiceLanguage)
-
+  const connectTimeoutRef = useRef(null)
+  const startAttemptRef = useRef(0)
+  const currentCallHasUserInputRef = useRef(false)
+  const toggleInProgressRef = useRef(false)
   const languageConfig = useMemo(() => (
     VOICE_LANGUAGES[voiceLanguage] || VOICE_LANGUAGES.en
   ), [voiceLanguage])
@@ -368,13 +405,33 @@ const VoiceAssistant = () => {
     return () => window.removeEventListener("gmu-ui-language-change", handleLanguageChange)
   }, [])
 
-  useEffect(() => () => {
-    if (vapiRef.current) {
-      try {
-        vapiRef.current.stop()
-      } catch {}
-      vapiRef.current = null
+  const clearConnectTimeout = () => {
+    if (connectTimeoutRef.current) {
+      clearTimeout(connectTimeoutRef.current)
+      connectTimeoutRef.current = null
     }
+  }
+
+  const markVapiConnected = () => {
+    clearConnectTimeout()
+    setIsConnecting(false)
+    setIsCallActive(true)
+    setErrorMessage("")
+  }
+
+  const disposeVapi = () => {
+    clearConnectTimeout()
+    const activeVapi = vapiRef.current
+    vapiRef.current = null
+    if (activeVapi) {
+      try {
+        activeVapi.stop()
+      } catch {}
+    }
+  }
+
+  useEffect(() => () => {
+    disposeVapi()
   }, [])
 
   useEffect(() => {
@@ -383,14 +440,34 @@ const VoiceAssistant = () => {
 
   const applyLanguage = (language) => {
     const normalized = normalizeLanguage(language)
+    const changed = normalized !== voiceLanguageRef.current
     console.log("VOICE LANGUAGE UPDATE:", {
       current: voiceLanguageRef.current,
       requested: language,
-      normalized
+      normalized,
+      changed
     })
+    voiceLanguageRef.current = normalized
     setVoiceLanguage(normalized)
     setStoredUiLanguage(normalized)
-    return normalized !== voiceLanguageRef.current
+    return changed
+  }
+
+  const handleLanguageButtonClick = (language) => {
+    const normalized = normalizeLanguage(language)
+    const option = VOICE_LANGUAGES[normalized] || VOICE_LANGUAGES.en
+    const wasRunning = callActiveRef.current || isConnecting
+
+    if (wasRunning) stopVapi()
+    applyLanguage(normalized)
+    setIsOpen(true)
+    setTranscript("")
+    setResponse(option.confirmation)
+    setReplySource("language_button")
+    setSuggestionText(wasRunning ? "Voice session restarted for the selected language. Tap again to speak." : "Tap the GMU button to start speaking in the selected language.")
+    setQuickActions([])
+    setVisualPayload(null)
+    setErrorMessage("")
   }
 
   const loadVapiConfig = async (language = voiceLanguage) => {
@@ -415,6 +492,7 @@ const VoiceAssistant = () => {
     setResponse(reply)
     setSuggestionText(result.suggestion ? String(result.suggestion) : "")
     setQuickActions(Array.isArray(result.quick_actions) ? result.quick_actions : [])
+    setVisualPayload(result.visual || null)
     setErrorMessage("")
 
     setReplySource("tool_result")
@@ -510,6 +588,7 @@ const VoiceAssistant = () => {
     if (result.suggestion) setSuggestionText(String(result.suggestion))
     else setSuggestionText("")
     setQuickActions(Array.isArray(result.quick_actions) ? result.quick_actions : [])
+    setVisualPayload(result.visual || null)
 
     setReplySource("tool_result")
 
@@ -519,6 +598,7 @@ const VoiceAssistant = () => {
   const handleVapiMessage = (message) => {
     if (!message || typeof message !== "object") return
 
+    markVapiConnected()
     console.log("FULL VAPI MESSAGE:", message)
     const role = getVapiRole(message)
     const text = String(getVapiText(message) || "").trim()
@@ -534,6 +614,7 @@ const VoiceAssistant = () => {
     console.log("VOICE MESSAGE RECEIVED:", messageMeta)
 
     if (text && role === "user") {
+      currentCallHasUserInputRef.current = true
       setTranscript(text)
     }
 
@@ -547,6 +628,7 @@ const VoiceAssistant = () => {
 
     const toolResult = selectNewestToolResult(message)
     console.log("VOICE TOOL RESULTS FOUND:", toolResult ? 1 : 0)
+
     if (!toolResult) {
       if (messageMeta.type === "conversation-update") {
         console.log("VOICE MESSAGE IGNORED conversation-update without current tool result:", messageMeta)
@@ -558,26 +640,44 @@ const VoiceAssistant = () => {
   }
 
   const getOrCreateVapi = (publicKey) => {
-    if (vapiRef.current) return vapiRef.current
-
     const vapi = new Vapi(publicKey)
+    const isCurrentVapi = () => vapiRef.current === vapi
+
     vapi.on("call-start", () => {
-      setIsConnecting(false)
-      setIsCallActive(true)
-      setErrorMessage("")
+      if (!isCurrentVapi()) return
+      toggleInProgressRef.current = false
+      markVapiConnected()
     })
     vapi.on("call-end", () => {
+      if (!isCurrentVapi()) return
+      clearConnectTimeout()
+      toggleInProgressRef.current = false
       setIsConnecting(false)
       setIsCallActive(false)
+      setIsSpeaking(false)
+      vapiRef.current = null
+    })
+    vapi.on("speech-start", () => {
+      if (!isCurrentVapi()) return
+      markVapiConnected()
+      setIsSpeaking(true)
+    })
+    vapi.on("speech-end", () => {
+      if (!isCurrentVapi()) return
       setIsSpeaking(false)
     })
-    vapi.on("speech-start", () => setIsSpeaking(true))
-    vapi.on("speech-end", () => setIsSpeaking(false))
-    vapi.on("message", handleVapiMessage)
+    vapi.on("message", (message) => {
+      if (!isCurrentVapi()) return
+      handleVapiMessage(message)
+    })
     vapi.on("error", (error) => {
+      if (!isCurrentVapi()) return
+      clearConnectTimeout()
+      toggleInProgressRef.current = false
       setIsConnecting(false)
       setIsCallActive(false)
       setIsSpeaking(false)
+      vapiRef.current = null
       setErrorMessage(getVapiErrorMessage(error))
     })
 
@@ -586,63 +686,109 @@ const VoiceAssistant = () => {
   }
 
   const startVapi = async () => {
+    disposeVapi()
     setIsOpen(true)
     setIsConnecting(true)
     setErrorMessage("")
     setTranscript("")
     setResponse("")
+    setSuggestionText("")
+    setQuickActions([])
+    currentCallHasUserInputRef.current = false
+    latestToolMessageRef.current = { timestamp: 0, sequence: 0, id: "" }
+    lastAppliedResultRef.current = { key: "", at: 0 }
+    processedToolCallIdsRef.current = new Set()
+    latestProcessedToolCallIdRef.current = ""
     setReplySource("vapi")
 
-    const config = await loadVapiConfig()
+    const config = await loadVapiConfig(voiceLanguageRef.current)
     if (!config?.enabled || !config.public_key) {
       throw new Error(config?.setup_hint || "Vapi is not configured.")
     }
 
     const vapi = getOrCreateVapi(config.public_key)
-    await vapi.start(config.assistant, config.assistant_overrides || {})
-  }
-
-  const stopVapi = () => {
-    if (vapiRef.current) {
-      try {
-        vapiRef.current.stop()
-      } catch {}
-    }
-    setIsConnecting(false)
-    setIsCallActive(false)
-    setIsSpeaking(false)
-  }
-
-  const toggleVapi = async () => {
-    try {
-      if (callActiveRef.current || isConnecting) {
-        stopVapi()
-        return
-      }
-      await startVapi()
-    } catch (error) {
+    const attemptId = startAttemptRef.current + 1
+    startAttemptRef.current = attemptId
+    clearConnectTimeout()
+    connectTimeoutRef.current = setTimeout(() => {
+      if (startAttemptRef.current !== attemptId || callActiveRef.current) return
+      console.log("VAPI CONNECT TIMEOUT:", attemptId)
+      disposeVapi()
       setIsConnecting(false)
       setIsCallActive(false)
       setIsSpeaking(false)
-      setErrorMessage(error?.message || "Unable to start Vapi voice session.")
+      setErrorMessage("Voice connection timed out. Please allow microphone access, check Vapi credits/settings, and tap again.")
+    }, 15000)
+
+    const assistantStartConfig = config.assistant || config.assistant_id
+    if (!assistantStartConfig) {
+      throw new Error("Vapi assistant is not configured.")
+    }
+    console.log("VAPI START ATTEMPT:", {
+      attemptId,
+      usingAssistantId: Boolean(!config.assistant && config.assistant_id),
+      assistantId: config.assistant_id || "inline-assistant"
+    })
+    await vapi.start(assistantStartConfig, config.assistant_overrides || {})
+  }
+
+  const stopVapi = ({ closePanel = false, clearConversation = false } = {}) => {
+    startAttemptRef.current += 1
+    toggleInProgressRef.current = false
+    disposeVapi()
+    setIsConnecting(false)
+    setIsCallActive(false)
+    setIsSpeaking(false)
+    currentCallHasUserInputRef.current = false
+    latestToolMessageRef.current = { timestamp: 0, sequence: 0, id: "" }
+    processedToolCallIdsRef.current = new Set()
+    latestProcessedToolCallIdRef.current = ""
+    lastAppliedResultRef.current = { key: "", at: 0 }
+
+    if (clearConversation) {
+      setTranscript("")
+      setResponse("")
+      setReplySource("")
+      setSuggestionText("")
+      setQuickActions([])
+      setVisualPayload(null)
+      setErrorMessage("")
+    }
+
+    if (closePanel) setIsOpen(false)
+  }
+
+  const toggleVapi = async () => {
+    if (toggleInProgressRef.current) return
+
+    if (callActiveRef.current || isConnecting) {
+      stopVapi({ closePanel: true, clearConversation: true })
+      return
+    }
+
+    toggleInProgressRef.current = true
+    try {
+      await startVapi()
+    } catch (error) {
+      clearConnectTimeout()
+      toggleInProgressRef.current = false
+      setIsConnecting(false)
+      setIsCallActive(false)
+      setIsSpeaking(false)
+      vapiRef.current = null
+      setErrorMessage(getVapiErrorMessage(error))
     }
   }
 
   const closeAssistant = () => {
-    stopVapi()
-    setIsOpen(false)
-    setTranscript("")
-    setResponse("")
-    setReplySource("")
-    setSuggestionText("")
-    setQuickActions([])
-    setErrorMessage("")
+    stopVapi({ closePanel: true, clearConversation: true })
   }
 
   const handleQuickAction = async (action) => {
     const prompt = String(action?.prompt || "").trim()
     if (!prompt || !callActiveRef.current || !vapiRef.current) return
 
+    currentCallHasUserInputRef.current = true
     setTranscript(prompt)
     try {
       await vapiRef.current.send({ type: "add-message", message: { role: "user", content: prompt } })
@@ -651,6 +797,58 @@ const VoiceAssistant = () => {
     }
   }
 
+
+  const renderAttendanceVisual = (visual) => {
+    if (!visual || visual.type !== "attendance_chart") return null
+    const subjects = Array.isArray(visual.subjects) ? visual.subjects : []
+    const summary = visual.summary || {}
+    if (!subjects.length) return null
+    const overall = Number(summary.overall_percentage || 0)
+    const belowCount = Number(summary.below_threshold_count || 0)
+
+    return (
+      <section className="voice-attendance-card">
+        <div className="voice-attendance-topline">
+          <div>
+            <span>Semester {visual.semester}</span>
+            <h4>Subject-wise Attendance</h4>
+          </div>
+          <strong className={overall < 75 ? "low" : "safe"}>{overall}%</strong>
+        </div>
+
+        <div className="voice-attendance-stats">
+          <div><span>Attended</span><b>{summary.attended_classes}/{summary.total_classes}</b></div>
+          <div><span>Subjects</span><b>{summary.subject_count}</b></div>
+          <div className={belowCount > 0 ? "warning" : "safe"}><span>Below 75%</span><b>{belowCount}</b></div>
+        </div>
+
+        <div className="voice-attendance-bars">
+          {subjects.map((subject) => {
+            const percentage = Number(subject.percentage || 0)
+            const width = `${Math.min(100, Math.max(percentage, 5))}%`
+            return (
+              <div key={`${subject.course_code}-${subject.course_title}`} className="voice-attendance-row">
+                <div className="voice-attendance-label">
+                  <b>{subject.course_code}</b>
+                  <span>{subject.course_title}</span>
+                </div>
+                <div className="voice-attendance-track" aria-label={`${subject.course_title} ${percentage}%`}>
+                  <div className={`voice-attendance-fill ${percentage < 75 ? "low" : "safe"}`} style={{ width }}>
+                    <span>{percentage}%</span>
+                  </div>
+                  <i />
+                </div>
+                <div className="voice-attendance-meta">
+                  <span>{subject.attended_classes}/{subject.total_classes} classes</span>
+                  <strong className={percentage < 75 ? "low" : "safe"}>{subject.status}</strong>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </section>
+    )
+  }
   const statusLabel = isConnecting
     ? displayText.connecting
     : isSpeaking
@@ -659,7 +857,9 @@ const VoiceAssistant = () => {
         ? displayText.listening
         : displayText.idle
 
-  const buttonTitle = isCallActive || isConnecting ? "Stop voice session" : displayText.openAssistant
+  const buttonTitle = isCallActive || isConnecting ? "Stop and close voice session" : displayText.openAssistant
+  const buttonStateClass = isConnecting ? " connecting" : isCallActive ? " active" : ""
+  const buttonBadge = isConnecting ? "Connecting" : isCallActive ? "Stop" : displayText.tapToAsk
 
   return (
     <div className="voice-assistant-container">
@@ -674,8 +874,9 @@ const VoiceAssistant = () => {
                 key={key}
                 type="button"
                 className={key === voiceLanguage ? "active" : ""}
-                disabled={isCallActive || isConnecting}
-                onClick={() => applyLanguage(key)}
+                aria-pressed={key === voiceLanguage}
+                disabled={isConnecting && key === voiceLanguage}
+                onClick={() => handleLanguageButtonClick(key)}
               >
                 {option.label}
               </button>
@@ -688,6 +889,7 @@ const VoiceAssistant = () => {
             <p><b>{displayText.you}</b> {transcript}</p>
             <p><b>{displayText.assistant}</b> {response}</p>
             {suggestionText && <p className="voice-suggestion"><b>{displayText.suggestion}</b> {suggestionText}</p>}
+            {renderAttendanceVisual(visualPayload)}
             {!!quickActions.length && (
               <div className="voice-quick-actions">
                 {quickActions.map((action, index) => (
@@ -711,14 +913,14 @@ const VoiceAssistant = () => {
       )}
 
       <button
-        className="voice-assistant-btn"
+        className={`voice-assistant-btn${buttonStateClass}`}
         onClick={toggleVapi}
         title={buttonTitle}
         aria-label={buttonTitle}
       >
         <img src={gmuLogo} alt="GMU VoiceBot" className="voice-logo" />
       </button>
-      {isOpen && !isCallActive && !isConnecting && <div className="voice-action-badge">{displayText.tapToAsk}</div>}
+      {isOpen && <div className={`voice-action-badge${isCallActive || isConnecting ? " active" : ""}`}>{buttonBadge}</div>}
     </div>
   )
 }

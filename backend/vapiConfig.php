@@ -29,4 +29,5 @@ if (!in_array($language, ["en", "hi", "kn", "multi"], true)) {
 }
 
 $tokenPayload = VapiSessionService::createForCurrentSession($_SESSION['user_id'], $language);
-echo json_encode(VapiAssistantConfigService::buildConfig($tokenPayload, $language), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$studentName = trim((string) ($_SESSION['full_name'] ?? ''));
+echo json_encode(VapiAssistantConfigService::buildConfig($tokenPayload, $language, $studentName), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);

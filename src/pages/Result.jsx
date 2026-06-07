@@ -73,17 +73,32 @@ const Result = () => {
 
         const selections = Array.isArray(availabilityData?.selections) ? availabilityData.selections : []
         const defaultSelection = requestedSemester ? pickDefaultSelection(selections, requestedSemester) : null
-
-        setStudent(profileData)
-        setAvailableSelections(selections)
-        setForm({
+        const nextForm = {
           usn: (requestedUsn || profileData.usn || "").toUpperCase(),
           semester: requestedSemester,
           exam: requestedExam || defaultSelection?.exam || "SEE",
           year: requestedYear || defaultSelection?.year || "",
           season: requestedSeason || defaultSelection?.season || ""
-        })
+        }
+        const shouldOpenVoiceResult = Boolean(requestedSemester || requestedExam || requestedYear || requestedSeason || requestedUsn)
+
+        setStudent(profileData)
+        setAvailableSelections(selections)
+        setForm(nextForm)
         setLoading(false)
+
+        if (
+          shouldOpenVoiceResult
+          && !autoSubmitRef.current
+          && nextForm.usn
+          && nextForm.semester
+          && nextForm.exam
+          && nextForm.year
+          && nextForm.season
+        ) {
+          autoSubmitRef.current = true
+          void fetchResult(nextForm)
+        }
       })
       .catch(() => navigate("/"))
   }, [location.search, location.state, navigate])

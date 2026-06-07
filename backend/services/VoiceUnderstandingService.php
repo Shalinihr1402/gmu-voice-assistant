@@ -206,6 +206,7 @@ class VoiceUnderstandingService {
             "GET_SUBJECT_ATTENDANCE" => self::score($text, ["attendance"]) + (!empty($entities["subject"]) ? 35 : 0),
             "GET_COURSE_CODE" => self::score($text, ["course code", "subject code", " code "]) + (!empty($entities["subject"]) ? 25 : 0),
             "GET_ATTENDANCE" => self::score($text, ["attendance", "overall"]),
+            "GET_ACADEMIC_PERFORMANCE_SUMMARY" => self::score($text, ["overall academic performance", "academic performance", "performance summary", "overall performance", "my performance", "academic summary"]),
             "GET_SGPA" => self::score($text, ["sgpa", "result", "marks"]),
             "GET_CGPA" => self::score($text, ["cgpa", "overall gpa"]),
             "GET_PROFILE_SUMMARY" => self::score($text, ["profile", "who am i", "department", "branch"]),
@@ -242,7 +243,7 @@ class VoiceUnderstandingService {
             return ["intent" => "UNKNOWN", "route" => "llm", "confidence" => 0.25, "source" => "voice_understanding_no_match"];
         }
 
-        $route = $intent === "GET_FACULTY_DETAILS" ? "llm" : "database";
+        $route = "database";
 
         return [
             "intent" => $intent,
