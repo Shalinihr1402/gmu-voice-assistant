@@ -4,6 +4,8 @@ require_once __DIR__ . "/MultilingualUnderstandingService.php";
 
 class VoiceUnderstandingService {
     private static $lastResult = [];
+    private static $lastNavigation = "";
+    private static $lastNavigationTime = 0.0;
     private static $lastTranscript = "";
     private static $lastTranscriptTime = 0.0;
 
@@ -14,7 +16,7 @@ class VoiceUnderstandingService {
         "profile" => ["profile", "profail", "profile page", "\xE0\xB2\xAA\xE0\xB3\x8D\xE0\xB2\xB0\xE0\xB3\x8A\xE0\xB2\xAB\xE0\xB3\x88\xE0\xB2\xB2\xE0\xB3\x8D", "\xE0\xA4\xAA\xE0\xA5\x8D\xE0\xA4\xB0\xE0\xA5\x8B\xE0\xA4\xAB\xE0\xA4\xBE\xE0\xA4\x87\xE0\xA4\xB2"],
         "payment" => ["payment", "payment page", "payment portal", "fee payment", "\xE0\xB2\xAA\xE0\xB3\x87\xE0\xB2\xAE\xE0\xB3\x86\xE0\xB2\x82\xE0\xB2\x9F\xE0\xB3\x8D", "\xE0\xA4\xAA\xE0\xA5\x87\xE0\xA4\xAE\xE0\xA5\x87\xE0\xA4\x82\xE0\xA4\x9F"],
         "results" => ["result page", "results", "marks page", "\xE0\xB2\xAB\xE0\xB2\xB2\xE0\xB2\xBF\xE0\xB2\xA4\xE0\xB2\xBE\xE0\xB2\x82\xE0\xB2\xB6", "\xE0\xA4\xB0\xE0\xA4\xBF\xE0\xA4\x9C\xE0\xA4\xB2\xE0\xA5\x8D\xE0\xA4\x9F"],
-        "certificate" => ["competency certificate", "competency certificate page", "digital competency certificate", "digital competency certificate page", "certificate page", "open certificate", "open competency certificate", "competency portal", "certificate kholo", "certificate open", "certificate torisu", "certificate page dikhao", "competency certificate ge open", "competency certificate open", "\xE0\xB2\xB8\xE0\xB2\xB0\xE0\xB3\x8D\xE0\xB2\x9F\xE0\xB2\xBF\xE0\xB2\xAB\xE0\xB2\xBF\xE0\xB2\x95\xE0\xB3\x87\xE0\xB2\x9F\xE0\xB3\x8D", "\xE0\xA4\xB8\xE0\xA4\xB0\xE0\xA5\x8D\xE0\xA4\x9F\xE0\xA4\xBF\xE0\xA4\xAB\xE0\xA4\xBF\xE0\xA4\x95\xE0\xA5\x87\xE0\xA4\x9F"],
+        "certificate" => ["certificate", "certificate page", "competency", "\xE0\xB2\xB8\xE0\xB2\xB0\xE0\xB3\x8D\xE0\xB2\x9F\xE0\xB2\xBF\xE0\xB2\xAB\xE0\xB2\xBF\xE0\xB2\x95\xE0\xB3\x87\xE0\xB2\x9F\xE0\xB3\x8D", "\xE0\xA4\xB8\xE0\xA4\xB0\xE0\xA5\x8D\xE0\xA4\x9F\xE0\xA4\xBF\xE0\xA4\xAB\xE0\xA4\xBF\xE0\xA4\x95\xE0\xA5\x87\xE0\xA4\x9F"],
         "portal" => ["portal", "role portal", "\xE0\xB2\xAA\xE0\xB3\x8B\xE0\xB2\xB0\xE0\xB3\x8D\xE0\xB2\x9F\xE0\xB2\xB2\xE0\xB3\x8D", "\xE0\xA4\xAA\xE0\xA5\x8B\xE0\xA4\xB0\xE0\xA5\x8D\xE0\xA4\x9F\xE0\xA4\xB2"]
     ];
 
@@ -28,48 +30,24 @@ class VoiceUnderstandingService {
         $sourceText = trim((string) ($correctedTranscript !== "" ? $correctedTranscript : $message));
         $language = self::normalizeLanguage($language);
 
-        $spokenNormalized = self::expandCodeMixedTerms(self::normalizeText($sourceText));
         $legacy = MultilingualUnderstandingService::understand($sourceText, $language, $context);
         $normalized = self::normalizeText((string) ($legacy["normalized"] ?? $sourceText));
         $normalized = self::expandCodeMixedTerms($normalized);
-        $navigation = self::detectNavigation($spokenNormalized);
-        if (($navigation["intent"] ?? "") === "" && $spokenNormalized !== $normalized) {
-            $navigation = self::detectNavigation($normalized);
-        }
-
-        if (($navigation["intent"] ?? "") !== "") {
-            $entities = self::mergeEntities($legacy["entities"] ?? [], ["target_page" => $navigation["target_page"]]);
-            self::$lastResult = [
-                "raw_transcript" => $rawTranscript,
-                "normalized_text" => $normalized,
-                "intent" => $navigation["intent"],
-                "entities" => $entities,
-                "confidence" => $navigation["confidence"],
-                "route" => "navigation",
-                "should_clarify" => false,
-                "routing_text" => $normalized,
-                "normalized" => $normalized,
-                "rewritten" => $normalized,
-                "intent_hints" => [$navigation["intent"]],
-                "has_useful_signal" => true,
-                "language" => $language,
-                "action" => $navigation["action"],
-                "legacy" => $legacy,
-                "debug" => [
-                    "intent_source" => "voice_understanding_navigation",
-                    "stt_confidence" => (float) ($sttMeta["transcript_confidence"] ?? 0),
-                    "mean_word_confidence" => (float) ($sttMeta["mean_word_confidence"] ?? 0),
-                    "low_confidence_word_count" => count(is_array($sttMeta["low_confidence_words"] ?? null) ? $sttMeta["low_confidence_words"] : []),
-                    "navigation" => $navigation
-                ]
-            ];
-
-            return self::$lastResult;
-        }
-
         $transcriptState = self::rememberTranscript($normalized);
         $entities = self::mergeEntities($legacy["entities"] ?? [], self::extractEntities($normalized));
         $intentRanking = self::rankIntent($normalized, $entities, $context);
+        $navigation = self::detectNavigation($normalized);
+
+        if ($navigation["target_page"] !== "" && !$transcriptState["duplicate"]) {
+            $intentRanking = [
+                "intent" => "OPEN_PAGE",
+                "route" => "navigation",
+                "confidence" => max($intentRanking["confidence"], $navigation["confidence"]),
+                "source" => "voice_understanding_navigation"
+            ];
+            $entities["target_page"] = $navigation["target_page"];
+        }
+
         $routingText = self::buildRoutingText($normalized, $entities, $intentRanking, (string) ($legacy["rewritten"] ?? ""));
         $voiceConfidence = self::combineConfidence($intentRanking["confidence"], $sttMeta, $legacy);
         $shouldClarify = self::shouldClarify($voiceConfidence, $intentRanking, $sttMeta, $normalized);
@@ -133,9 +111,8 @@ class VoiceUnderstandingService {
             '/\b(helu|heli|helri|tilisi|tilsu|batao|bataye|tell|say)\b/u' => ' tell ',
             '/\b(attendence|atendance|attendanceu|hajari)\b/u' => ' attendance ',
             '/\b(resultu|rijalt|resalt|marks card)\b/u' => ' result ',
-            '/\b(feesu|fee balance|fees balance|baki|bakki|due amount|pending fee|fee pending)\b/u' => ' fee balance ',
+            '/\b(feesu|fee balance|baki|bakki|due amount)\b/u' => ' fee balance ',
             '/\b(rijistreshan|registrashan|registation)\b/u' => ' registration ',
-            '/\b(tuition fees?|hostel fees?|last date|deadline|due date|last working day|grievance|complaint)\b/u' => ' $0 ',
             '/\b(hallticket|haal ticket|all ticket)\b/u' => ' hall ticket ',
             '/\b(d\s*b\s*m\s*s|dbm\s*s)\b/u' => ' dbms ',
             '/\b(o\s*s|oprating|opereting)\b/u' => ' operating systems ',
@@ -205,33 +182,18 @@ class VoiceUnderstandingService {
         $scores = [
             "GET_SUBJECT_ATTENDANCE" => self::score($text, ["attendance"]) + (!empty($entities["subject"]) ? 35 : 0),
             "GET_COURSE_CODE" => self::score($text, ["course code", "subject code", " code "]) + (!empty($entities["subject"]) ? 25 : 0),
-            "GET_TIMETABLE" => self::score($text, ["today timetable", "class timetable", "next class", "tomorrow schedule", "today schedule"]),
-            "GET_EXAM_TIMETABLE" => self::score($text, ["exam timetable", "exam schedule", "exam date", "when is my exam", "show exam schedule"]),
-            "GET_INTERNAL_MARKS" => self::score($text, ["internal marks", "cia marks", "cie marks", "assignment marks", "assessment marks"]),
-            "GET_ASSIGNMENTS" => self::score($text, ["pending assignments", "assignment deadline", "assignments", "assignment due", "submission date"]),
             "GET_ATTENDANCE" => self::score($text, ["attendance", "overall"]),
-            "GET_ACADEMIC_PERFORMANCE_SUMMARY" => self::score($text, ["overall academic performance", "academic performance", "performance summary", "overall performance", "my performance", "academic summary"]),
             "GET_SGPA" => self::score($text, ["sgpa", "result", "marks"]),
             "GET_CGPA" => self::score($text, ["cgpa", "overall gpa"]),
             "GET_PROFILE_SUMMARY" => self::score($text, ["profile", "who am i", "department", "branch"]),
             "GET_FACULTY_DETAILS" => self::score($text, ["faculty", "faculty details", "teacher details", "staff details", "professor"]),
             "GET_USN" => self::score($text, ["usn", "registration number", "university number"]),
-            "GET_FEES_BALANCE" => self::score($text, ["fee balance", "fees", "fee", "due", "pending fee", "amount due"]),
-            "GET_HOSTEL_FEES" => self::score($text, ["hostel fee", "hostel fees", "hostel balance"]),
-            "GET_TUITION_FEES" => self::score($text, ["tuition fee", "tuition fees", "program fee", "academic fee"]),
-            "GET_LAST_DATE_FEES" => self::score($text, ["last date", "deadline", "due date", "fees last date"]),
-            "GET_LAST_WORKING_DAY" => self::score($text, ["last working day", "last class day", "classes end"]),
-            "GET_GRIEVANCE_PROCESS" => self::score($text, ["grievance process", "apply grievance", "raise grievance", "how to apply grievance"]),
-            "GET_PAYMENT_GRIEVANCE" => self::score($text, ["payment grievance", "fee grievance", "payment complaint"]),
+            "GET_FEES_BALANCE" => self::score($text, ["fee balance", "fees", "fee", "due"]),
             "GET_FINAL_REGISTRATION_STATUS" => self::score($text, ["registration status", "final registration", "registration"]),
             "GET_HALL_TICKET_STATUS" => self::score($text, ["hall ticket", "admit card"]),
-            "GET_HALLTICKET_STATUS" => self::score($text, ["hall ticket", "hallticket", "generate hall ticket"]),
-            "GET_RESULT_STATUS" => self::score($text, ["result status", "result published", "result available", "latest result status"]),
             "GET_CERTIFICATE_STATUS" => self::score($text, ["certificate", "competency"]),
             "GET_BACKLOG_STATUS" => self::score($text, ["backlog", "failed", "supplementary"]),
-            "GET_COURSE_DETAILS" => self::score($text, ["course details", "subject list", "subjects", "courses"]),
-            "GET_SUBJECTS" => self::score($text, ["my subjects", "show my subjects", "registered subjects", "subject list", "my courses"]),
-            "GET_SUBJECT_CODES" => self::score($text, ["subject codes", "course codes", "codes of subjects"])
+            "GET_COURSE_DETAILS" => self::score($text, ["course details", "subject list", "subjects", "courses"])
         ];
 
         $lastIntent = (string) ($context["intent"] ?? "");
@@ -247,7 +209,7 @@ class VoiceUnderstandingService {
             return ["intent" => "UNKNOWN", "route" => "llm", "confidence" => 0.25, "source" => "voice_understanding_no_match"];
         }
 
-        $route = "database";
+        $route = $intent === "GET_FACULTY_DETAILS" ? "llm" : "database";
 
         return [
             "intent" => $intent,
@@ -271,25 +233,18 @@ class VoiceUnderstandingService {
     private static function detectNavigation($text) {
         $text = self::normalizeText($text);
         if ($text === "") {
-            return self::emptyNavigation("empty");
+            return ["target_page" => "", "confidence" => 0.0, "reason" => "empty"];
         }
 
-        if (self::isExplicitHomeNavigation($text)) {
-            return self::navigationPayload("home", 0.98, "home_navigation_priority");
+        $explicitHome = self::isExplicitHomeNavigation($text);
+        $hasVerb = $explicitHome || self::hasNavigationVerb($text);
+        if (!$hasVerb) {
+            return ["target_page" => "", "confidence" => 0.0, "reason" => "missing_navigation_verb"];
         }
 
-        if (self::isCertificateNavigation($text)) {
-            error_log("VOICE NAVIGATION: OPEN_CERTIFICATE_PAGE");
-            return self::navigationPayload("certificate", 0.98, "certificate_navigation_priority");
-        }
-
-        if (!self::hasNavigationVerb($text)) {
-            return self::emptyNavigation("missing_navigation_verb");
-        }
-
-        $bestPage = "";
-        $bestScore = 0;
-        $pagePriority = ["certificate", "registration", "profile", "payment", "dashboard", "portal", "results"];
+        $bestPage = $explicitHome ? "home" : "";
+        $bestScore = $explicitHome ? 120 : 0;
+        $pagePriority = ["registration", "certificate", "payment", "results", "profile", "dashboard", "portal"];
 
         foreach ($pagePriority as $page) {
             if ($page === "certificate" && self::isCertificateStatusQuery($text)) {
@@ -304,54 +259,17 @@ class VoiceUnderstandingService {
         }
 
         if ($bestPage === "" || $bestScore < 40) {
-            return self::emptyNavigation("missing_target_page");
+            return ["target_page" => "", "confidence" => 0.0, "reason" => "missing_target_page"];
         }
 
-        return self::navigationPayload($bestPage, min(0.95, 0.62 + ($bestScore / 200)), "strict_navigation_match");
-    }
-
-    private static function emptyNavigation($reason) {
-        return [
-            "intent" => "",
-            "target_page" => "",
-            "confidence" => 0.0,
-            "reason" => $reason,
-            "action" => null
-        ];
-    }
-
-    private static function navigationPayload($page, $confidence, $reason) {
-        $intentMap = [
-            "home" => "OPEN_HOME_PAGE",
-            "profile" => "OPEN_PROFILE_PAGE",
-            "results" => "OPEN_RESULT_PAGE",
-            "payment" => "OPEN_PAYMENT_PAGE",
-            "certificate" => "OPEN_CERTIFICATE_PAGE",
-            "dashboard" => "OPEN_DASHBOARD_PAGE",
-            "registration" => "OPEN_REGISTRATION_PAGE",
-            "portal" => "OPEN_PORTAL_PAGE"
-        ];
-
-        $pathMap = [
-            "home" => "/home",
-            "profile" => "/profile",
-            "results" => "/results",
-            "payment" => "/payment",
-            "certificate" => "/certificate",
-            "dashboard" => "/dashboard",
-            "registration" => "/registration",
-            "portal" => "/portal"
-        ];
+        if (!self::canNavigate($bestPage, $text)) {
+            return ["target_page" => "", "confidence" => 0.0, "reason" => "navigation_cooldown"];
+        }
 
         return [
-            "intent" => $intentMap[$page] ?? "",
-            "target_page" => $page,
-            "confidence" => $confidence,
-            "reason" => $reason,
-            "action" => [
-                "type" => "navigate",
-                "path" => $pathMap[$page] ?? "/home"
-            ]
+            "target_page" => $bestPage,
+            "confidence" => min(0.95, 0.62 + ($bestScore / 200)),
+            "reason" => "strict_navigation_match"
         ];
     }
 
@@ -360,22 +278,9 @@ class VoiceUnderstandingService {
     }
 
     private static function isExplicitHomeNavigation($text) {
-        return (bool) preg_match('/\b(come\s+back|return\s+back|go\s+back|back|return\s+home|return\s+to\s+home|back\s+to\s+home|go\s+home|home|home\s+page|main\s+page|return\s+to\s+main\s+page|back\s+to\s+main\s+page)\b/u', $text);
+        return (bool) preg_match('/\b(come\s+back|go\s+back|return\s+home|go\s+home)\b/u', $text);
     }
 
-    private static function isCertificateNavigation($text) {
-        $hasVerb = self::hasNavigationVerb($text);
-        $isExplicitCertificatePhrase = (bool) preg_match(
-            '/\b(competency\s+certificate(?:\s+page)?|digital\s+competency\s+certificate(?:\s+page)?|certificate\s+page|competency\s+portal)\b/u',
-            $text
-        );
-
-        if (!$hasVerb && !$isExplicitCertificatePhrase) {
-            return false;
-        }
-
-        return (bool) preg_match('/\b(competency\s+certificate(?:\s+page)?|digital\s+competency\s+certificate(?:\s+page)?|certificate\s+page|open\s+certificate|open\s+competency\s+certificate|competency\s+portal|certificate\s+kholo|certificate\s+torisu|competency\s+certificate\s+ge\s+open|certificate\s+page\s+dikhao)\b/u', $text);
-    }
     private static function isCertificateStatusQuery($text) {
         return (bool) preg_match('/\b(certificate\s+(status|issue|problem|details?|information)|certificate\s+(not|missing|pending)|competency\s+(status|issue|problem))\b/u', $text)
             && !preg_match('/\b(open|go\s+to|navigate|show\s+page|certificate\s+page|take\s+me|kholo|torisu|hogu|open\s+madi)\b/u', $text);
@@ -404,6 +309,18 @@ class VoiceUnderstandingService {
 
         return $score;
     }
+
+    private static function canNavigate($page, $text) {
+        $signature = $page . "|" . self::normalizeText($text);
+        $now = microtime(true);
+        if (self::$lastNavigation === $signature && ($now - self::$lastNavigationTime) < 3.0) {
+            return false;
+        }
+        self::$lastNavigation = $signature;
+        self::$lastNavigationTime = $now;
+        return true;
+    }
+
     private static function rememberTranscript($text) {
         $signature = self::normalizeText($text);
         $now = microtime(true);
@@ -416,7 +333,7 @@ class VoiceUnderstandingService {
         $intent = $intentRanking["intent"] ?? "UNKNOWN";
         $subject = trim((string) ($entities["subject"] ?? ""));
 
-        if (strpos($intent, "OPEN_") === 0 && !empty($entities["target_page"])) {
+        if ($intent === "OPEN_PAGE" && !empty($entities["target_page"])) {
             return $text;
         }
         if ($intent === "GET_SUBJECT_ATTENDANCE" && $subject !== "") {

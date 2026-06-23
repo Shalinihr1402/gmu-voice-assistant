@@ -15,7 +15,16 @@ header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type");
 header("Content-Type: application/json");
 
+// Check internal auth from VapiToolService BEFORE session_start (headers are always available)
+$internalUserId = (int) ($_SERVER['HTTP_X_INTERNAL_USERID'] ?? 0);
+$internalSecret = (string) ($_SERVER['HTTP_X_INTERNAL_SECRET'] ?? '');
+$isInternalCall = ($internalUserId > 0 && $internalSecret === md5("gmu_internal_" . date("Ymd") . $internalUserId));
+
 session_start();
+
+if ($isInternalCall && !isset($_SESSION['user_id'])) {
+    $_SESSION['user_id'] = $internalUserId;
+}
 
 require_once __DIR__ . "/intents/studentIntent.php";
 require_once __DIR__ . "/intents/controllers/StudentController.php";
@@ -55,7 +64,7 @@ $student_id = $userContext['student_id'] ?? null;
 // so other frontend requests do not block this API response.
 session_write_close();
 
-// Read input
+// Read input (use pre-parsed body for internal calls, otherwise read stream)
 $raw = file_get_contents("php://input");
 $input = json_decode($raw, true);
 

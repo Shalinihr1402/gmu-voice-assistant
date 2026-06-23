@@ -976,32 +976,6 @@ class LlmService {
         return $finalReply;
     }
 
-    private static function callPythonFallback($message) {
-        $data = json_encode(["message" => $message]);
-
-        $ch = curl_init("http://127.0.0.1:5000/chat");
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ["Content-Type: application/json"]);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-
-        $response = curl_exec($ch);
-        curl_close($ch);
-
-        if (!$response) {
-            return null;
-        }
-
-        $pythonReply = json_decode($response, true);
-        $reply = $pythonReply["reply"] ?? null;
-
-        if (!$reply || strtolower(trim($reply)) === "sorry, i could not understand.") {
-            return null;
-        }
-
-        return trim($reply);
-    }
 
     private static function localTranslateToHindi($reply) {
         $reply = trim((string) $reply);
@@ -1248,15 +1222,6 @@ class LlmService {
                 ConversationContextService::saveTurn($message, $reply, $baseMeta);
                 return $reply;
             }
-        }
-
-        $pythonReply = self::callPythonFallback($message);
-        if ($pythonReply) {
-            self::$lastReplyMeta = [
-                "source" => "python_fallback"
-            ];
-            ConversationContextService::saveTurn($message, $pythonReply, $baseMeta);
-            return $pythonReply;
         }
 
         self::$lastReplyMeta = [

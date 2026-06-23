@@ -7,7 +7,9 @@ $password = "";
 $database = "gmu_voice_assistant";
 
 
-$conn = new mysqli($host, $user, $password, $database);
+$conn = new mysqli();
+$conn->options(MYSQLI_OPT_CONNECT_TIMEOUT, 5);
+$conn->real_connect($host, $user, $password, $database);
 
 if ($conn->connect_error) {
     http_response_code(500);

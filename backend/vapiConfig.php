@@ -1,11 +1,6 @@
 <?php
-ini_set('session.cookie_samesite', 'Lax');
-ini_set('session.cookie_secure', '0');
+require_once __DIR__ . "/cors.php";
 
-header("Access-Control-Allow-Origin: http://localhost:3000");
-header("Access-Control-Allow-Credentials: true");
-header("Access-Control-Allow-Methods: GET, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type");
 header("Content-Type: application/json; charset=UTF-8");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -28,6 +23,24 @@ if (!in_array($language, ["en", "hi", "kn", "multi"], true)) {
     $language = "multi";
 }
 
-$tokenPayload = VapiSessionService::createForCurrentSession($_SESSION['user_id'], $language);
-$studentName = trim((string) ($_SESSION['full_name'] ?? ''));
-echo json_encode(VapiAssistantConfigService::buildConfig($tokenPayload, $language, $studentName), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$tokenPayload = VapiSessionService::createForCurrentSession($_SESSION['user_id']);
+
+// Fetch student first name for personalized greeting
+$studentName = "";
+try {
+    require_once __DIR__ . "/config/db.php";
+    $nameStmt = $conn->prepare("SELECT COALESCE(s.full_name, sm.full_name, u.login_id) AS full_name FROM users u LEFT JOIN students s ON s.student_id = u.student_id LEFT JOIN staff_members sm ON sm.staff_id = u.staff_id WHERE u.user_id = ?");
+    if ($nameStmt) {
+        $nameStmt->bind_param("i", $_SESSION['user_id']);
+        $nameStmt->execute();
+        $nameRow = $nameStmt->get_result()->fetch_assoc();
+        $nameStmt->close();
+        if ($nameRow && !empty($nameRow["full_name"])) {
+            $parts = explode(" ", trim($nameRow["full_name"]));
+            $studentName = $parts[0];
+        }
+    }
+} catch (Exception $e) {}
+
+$tokenPayload["student_name"] = $studentName;
+echo json_encode(VapiAssistantConfigService::buildConfig($tokenPayload, $language), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);

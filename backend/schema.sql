@@ -418,3 +418,74 @@ INSERT INTO attendance (
     (8, 1, 15, 38, 29, 76.32),
     (9, 1, 16, 25, 22, 88.00),
     (10, 1, 17, 30, 27, 90.00);
+
+-- ── Exam Schedule ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS exam_schedule (
+    exam_id        INT AUTO_INCREMENT PRIMARY KEY,
+    program        VARCHAR(50)  NOT NULL DEFAULT 'all',
+    semester       INT          NOT NULL DEFAULT 0,
+    course_code    VARCHAR(30)  NOT NULL,
+    course_title   VARCHAR(150) NOT NULL,
+    exam_type      VARCHAR(30)  NOT NULL DEFAULT 'SEE',
+    exam_date      DATE         NOT NULL,
+    start_time     TIME         NOT NULL DEFAULT '09:00:00',
+    end_time       TIME         NOT NULL DEFAULT '12:00:00',
+    venue          VARCHAR(100) DEFAULT NULL,
+    academic_year  VARCHAR(20)  NOT NULL DEFAULT '2025-26',
+    season         VARCHAR(10)  NOT NULL DEFAULT 'ODD'
+) ENGINE=InnoDB;
+
+INSERT INTO exam_schedule (program, semester, course_code, course_title, exam_type, exam_date, start_time, end_time, venue, academic_year, season) VALUES
+    ('Computer Science', 5, 'CS501', 'Database Management Systems',   'SEE', '2026-07-10', '09:00:00', '12:00:00', 'Block A - Hall 1', '2025-26', 'ODD'),
+    ('Computer Science', 5, 'CS502', 'Operating Systems',             'SEE', '2026-07-12', '09:00:00', '12:00:00', 'Block A - Hall 1', '2025-26', 'ODD'),
+    ('Computer Science', 5, 'CS503', 'Computer Networks',             'SEE', '2026-07-14', '09:00:00', '12:00:00', 'Block A - Hall 2', '2025-26', 'ODD'),
+    ('Computer Science', 5, 'CS5E1', 'Artificial Intelligence',       'SEE', '2026-07-16', '09:00:00', '12:00:00', 'Block A - Hall 2', '2025-26', 'ODD'),
+    ('Computer Science', 5, 'CS5L1', 'DBMS Laboratory',               'SEE', '2026-07-08', '02:00:00', '05:00:00', 'CS Lab 2',         '2025-26', 'ODD');
+
+-- ── Academic Calendar ─────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS academic_calendar (
+    event_id     INT AUTO_INCREMENT PRIMARY KEY,
+    event_name   VARCHAR(200) NOT NULL,
+    event_type   VARCHAR(50)  NOT NULL DEFAULT 'holiday',
+    start_date   DATE         NOT NULL,
+    end_date     DATE         DEFAULT NULL,
+    program      VARCHAR(50)  NOT NULL DEFAULT 'all',
+    academic_year VARCHAR(20) NOT NULL DEFAULT '2025-26'
+) ENGINE=InnoDB;
+
+INSERT INTO academic_calendar (event_name, event_type, start_date, end_date, program, academic_year) VALUES
+    ('ODD Semester Classes Begin',     'semester_start',  '2025-08-01', NULL,         'all', '2025-26'),
+    ('ODD Semester Classes End',       'semester_end',    '2025-11-30', NULL,         'all', '2025-26'),
+    ('SEE Examinations Begin',         'exam_start',      '2025-12-05', '2025-12-20', 'all', '2025-26'),
+    ('EVEN Semester Classes Begin',    'semester_start',  '2026-01-06', NULL,         'all', '2025-26'),
+    ('EVEN Semester Classes End',      'semester_end',    '2026-04-30', NULL,         'all', '2025-26'),
+    ('SEE Examinations Begin (EVEN)',  'exam_start',      '2026-05-10', '2026-05-28', 'all', '2025-26'),
+    ('Gandhi Jayanti',                 'holiday',         '2025-10-02', NULL,         'all', '2025-26'),
+    ('Diwali',                         'holiday',         '2025-10-20', '2025-10-22', 'all', '2025-26'),
+    ('Kannada Rajyotsava',             'holiday',         '2025-11-01', NULL,         'all', '2025-26'),
+    ('Christmas',                      'holiday',         '2025-12-25', NULL,         'all', '2025-26'),
+    ('New Year',                       'holiday',         '2026-01-01', NULL,         'all', '2025-26'),
+    ('Republic Day',                   'holiday',         '2026-01-26', NULL,         'all', '2025-26'),
+    ('Ugadi',                          'holiday',         '2026-03-19', NULL,         'all', '2025-26'),
+    ('Dr. Ambedkar Jayanti',           'holiday',         '2026-04-14', NULL,         'all', '2025-26'),
+    ('Summer Vacation Begins',         'vacation_start',  '2026-06-01', '2026-07-31', 'all', '2025-26');
+
+-- ── Hostel Info ───────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS hostel_info (
+    info_id      INT AUTO_INCREMENT PRIMARY KEY,
+    info_key     VARCHAR(100) NOT NULL UNIQUE,
+    info_value   TEXT         NOT NULL,
+    updated_at   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+INSERT INTO hostel_info (info_key, info_value) VALUES
+    ('warden_name',        'Mr. Rajesh Kumar'),
+    ('warden_contact',     '9900112233'),
+    ('warden_email',       'hostel.warden@gmu.ac.in'),
+    ('hostel_timing',      'Gates close at 9:00 PM. Re-entry allowed up to 10:00 PM with prior permission.'),
+    ('mess_timing',        'Breakfast: 7:30–9:00 AM, Lunch: 12:30–2:00 PM, Dinner: 7:30–9:00 PM'),
+    ('fee_per_year',       '55000'),
+    ('fee_includes',       'Room rent, mess charges, electricity, and Wi-Fi'),
+    ('application_process','Apply through ERP Registration page → Hostel Application. Allotment is based on availability and distance from hometown.'),
+    ('room_types',         'Single occupancy and double occupancy rooms available'),
+    ('facilities',         'Wi-Fi, laundry, reading room, indoor games, 24x7 security, CCTV surveillance');

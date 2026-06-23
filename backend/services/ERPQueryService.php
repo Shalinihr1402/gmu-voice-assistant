@@ -3,41 +3,100 @@
 require_once __DIR__ . "/../config/db.php";
 require_once __DIR__ . "/../intents/controllers/StudentController.php";
 require_once __DIR__ . "/../intents/controllers/FeeController.php";
+require_once __DIR__ . "/LoggerService.php";
 
 class ERPQueryService {
+    private static $activeErpContext = [];
+
     public static function detectIntent($query, $language = "en") {
+        $start = LoggerService::nowMs();
         $text = self::normalizeText($query);
-        if ($text === "") return "";
+        if ($text === "") return self::observedDetectedIntent("", $query, $text, $language, $start);
 
-        if (self::isPaymentGrievanceResultQuery($text)) return "GET_PAYMENT_GRIEVANCE_RESULT";
-        if (self::isPaymentGrievanceQuery($text)) return "GET_PAYMENT_GRIEVANCE";
-        if (self::isGrievanceProcessQuery($text)) return "GET_GRIEVANCE_PROCESS";
-        if (self::isFeeReceiptQuery($text)) return "GET_FEE_RECEIPT";
-        if (self::isFeeDeadlineQuery($text)) return "GET_LAST_DATE_FEES";
-        if (self::isFeePaymentNavigationQuery($text)) return "GET_FEE_PAYMENT_NAVIGATION";
-        if (self::isFeeBalanceQuery($text)) return "GET_FEES_BALANCE";
-        if (self::isFeeInfoQuery($text)) return "GET_FEE_INFO";
-        if (self::hasAny($text, ["last working day", "last class day", "working day last", "last day of class", "classes end", "college last working", "kone working day", "last working dinanka"])) return "GET_LAST_WORKING_DAY";
-        if (self::isInternalMarksQuery($text)) return "GET_INTERNAL_MARKS";
-        if (self::isAssignmentQuery($text)) return "GET_ASSIGNMENTS";
-        if (self::isExamTimetableQuery($text)) return "GET_EXAM_TIMETABLE";
-        if (self::isTimetableQuery($text)) return "GET_TIMETABLE";
-        if (self::hasAny($text, ["subject code", "subject codes", "course code", "course codes", "codes of subjects", "code for subject", "code of subject"])) return "GET_SUBJECT_CODES";
-        if (self::hasAny($text, ["my subjects", "what are my subjects", "show my subjects", "registered subjects", "subject list", "my courses", "registered courses", "course list", "subjects yavuvu", "subjects kya", "subjects torisu"])) return "GET_SUBJECTS";
-        if (self::isAcademicPerformanceQuery($text)) return "GET_ACADEMIC_PERFORMANCE_SUMMARY";
-        if (self::hasAny($text, ["attendance", "attendence", "atendance", "attendance percentage", "overall attendance", "hajari", "hajarati"])) return "GET_ATTENDANCE";
-        if (self::hasAny($text, ["usn", "u s n", "registration number", "university number", "my usn", "usn number"])) return "GET_USN";
-        if (self::hasAny($text, ["result status", "result published", "result available", "result released", "marks status", "sgpa status", "latest result status"])) return "GET_RESULT_STATUS";
-        if (self::hasAny($text, ["hall ticket", "hallticket", "admit card", "generate hall ticket", "hall ticket generated", "download hall ticket", "exam ticket"])) return "GET_HALLTICKET_STATUS";
-        if (self::hasAny($text, ["certificate status", "competency certificate status", "digital competency certificate status", "digital competency status", "certificate issued", "certificate available", "certificate completed", "competency certificate", "digital competency certificate"])) return "GET_CERTIFICATE_STATUS";
-        if (self::hasAny($text, ["final registration", "registration completed", "registration complete", "registration status", "registered or not", "am i registered", "have i registered", "course registration completed"])) return "GET_FINAL_REGISTRATION_STATUS";
-        if (self::hasAny($text, ["faculty", "faculty details", "teacher details", "staff details", "professor", "hod details", "faculty contact", "teacher contact"])) return "GET_FACULTY_DETAILS";
+        if (self::isPaymentGrievanceResultQuery($text)) return self::observedDetectedIntent("GET_PAYMENT_GRIEVANCE_RESULT", $query, $text, $language, $start);
+        if (self::isPaymentGrievanceQuery($text)) return self::observedDetectedIntent("GET_PAYMENT_GRIEVANCE", $query, $text, $language, $start);
+        if (self::isGrievanceProcessQuery($text)) return self::observedDetectedIntent("GET_GRIEVANCE_PROCESS", $query, $text, $language, $start);
+        if (self::isFeeReceiptQuery($text)) return self::observedDetectedIntent("GET_FEE_RECEIPT", $query, $text, $language, $start);
+        if (self::isFeeDeadlineQuery($text)) return self::observedDetectedIntent("GET_LAST_DATE_FEES", $query, $text, $language, $start);
+        if (self::isFeePaymentNavigationQuery($text)) return self::observedDetectedIntent("GET_FEE_PAYMENT_NAVIGATION", $query, $text, $language, $start);
+        if (self::isFeeBalanceQuery($text)) return self::observedDetectedIntent("GET_FEES_BALANCE", $query, $text, $language, $start);
+        if (self::isFeeInfoQuery($text)) return self::observedDetectedIntent("GET_FEE_INFO", $query, $text, $language, $start);
+        if (self::isProfileQuery($text)) return self::observedDetectedIntent("GET_PROFILE_SUMMARY", $query, $text, $language, $start);
+        if (self::isBacklogQuery($text)) return self::observedDetectedIntent("GET_BACKLOG_STATUS", $query, $text, $language, $start);
+        if (self::isResultStatusQuery($text)) return self::observedDetectedIntent("GET_RESULT_STATUS", $query, $text, $language, $start);
+        if (self::isCgpaQuery($text)) return self::observedDetectedIntent("GET_CGPA", $query, $text, $language, $start);
+        if (self::isSgpaQuery($text)) return self::observedDetectedIntent("GET_SGPA", $query, $text, $language, $start);
+        if (self::hasAny($text, ["last working day", "last class day", "working day last", "last day of class", "classes end", "college last working", "kone working day", "last working dinanka"])) return self::observedDetectedIntent("GET_LAST_WORKING_DAY", $query, $text, $language, $start);
+        if (self::isInternalMarksQuery($text)) return self::observedDetectedIntent("GET_INTERNAL_MARKS", $query, $text, $language, $start);
+        if (self::isAssignmentQuery($text)) return self::observedDetectedIntent("GET_ASSIGNMENTS", $query, $text, $language, $start);
+        if (self::isExamTimetableQuery($text)) return self::observedDetectedIntent("GET_EXAM_TIMETABLE", $query, $text, $language, $start);
+        if (self::isTimetableQuery($text)) return self::observedDetectedIntent("GET_TIMETABLE", $query, $text, $language, $start);
+        if (self::hasAny($text, ["subject code", "subject codes", "course code", "course codes", "codes of subjects", "code for subject", "code of subject"])) return self::observedDetectedIntent("GET_SUBJECT_CODES", $query, $text, $language, $start);
+        if (self::isCourseDetailsQuery($text)) return self::observedDetectedIntent("GET_COURSE_DETAILS", $query, $text, $language, $start);
+        if (self::isAcademicPerformanceQuery($text)) return self::observedDetectedIntent("GET_ACADEMIC_PERFORMANCE_SUMMARY", $query, $text, $language, $start);
+        if (self::isSubjectAttendanceQuery($text)) return self::observedDetectedIntent("GET_SUBJECT_ATTENDANCE", $query, $text, $language, $start);
+        if (self::hasAny($text, ["attendance", "attendence", "atendance", "attendance percentage", "overall attendance", "hajari", "hajarati", "hajri", "haazri", "hazri", "nanna attendance", "meri attendance", "attendance torisu", "attendance batao", "attendance bolo", "attendance nodu"])) return self::observedDetectedIntent("GET_ATTENDANCE", $query, $text, $language, $start);
+        if (self::hasAny($text, ["usn", "u s n", "registration number", "university number", "my usn", "usn number"])) return self::observedDetectedIntent("GET_USN", $query, $text, $language, $start);
+        if (self::hasAny($text, ["hall ticket", "hallticket", "admit card", "generate hall ticket", "hall ticket generated", "download hall ticket", "exam ticket",
+            "hall ticket torisu", "hall ticket nodu", "hall ticket bandide", "hall ticket aagide",
+            "hall ticket batao", "hall ticket dikhao", "mera hall ticket"])) return self::observedDetectedIntent("GET_HALLTICKET_STATUS", $query, $text, $language, $start);
+        if (self::hasAny($text, [
+            // status / general
+            "certificate status", "competency certificate status", "digital competency certificate status",
+            "digital competency status", "certificate issued", "certificate available", "certificate completed",
+            "competency certificate", "digital competency certificate",
+            // count / list
+            "how many certificates", "certificate count", "my certificates", "list my certificates",
+            "show my certificates", "all certificates", "certificate list", "certificates i have",
+            "how many competency", "kitne certificate", "certificate kitne",
+            // grade
+            "certificate grade", "grade in certificate", "what grade certificate", "certificate mein grade",
+            // download / access
+            "download certificate", "download my certificate", "certificate download",
+            "how to download certificate", "certificate kaise download", "certificate download maduvage",
+            // semester / year / season filter
+            "semester certificate", "certificate semester", "odd certificate", "even certificate",
+            "2024 certificate", "2025 certificate", "certificate 2024", "certificate 2025",
+            // subject-specific loose phrases
+            "cyber security certificate", "cybersecurity certificate", "co curricular certificate",
+            "co-curricular certificate", "technical skills certificate", "ethical hacking certificate",
+            // Kanglish
+            "nanna certificate", "certificate torisu", "certificate nodu", "certificate eshtu",
+            "certificate sikkide", "certificate bandide", "certificate yavu", "yeshtu certificate",
+            // Hinglish
+            "mera certificate", "meri certificate", "certificate dikhao", "certificate batao",
+            "certificate mil gaya", "certificate mila kya", "certificate aaya kya"
+        ])) return self::observedDetectedIntent("GET_CERTIFICATE_STATUS", $query, $text, $language, $start);
+        if (self::hasAny($text, ["final registration", "registration completed", "registration complete", "registration status", "registered or not", "am i registered", "have i registered", "course registration completed",
+            // Kanglish
+            "registration aagide", "registration agide", "registered aagidira", "registered hu",
+            // Hinglish
+            "registration ho gaya", "registration hua kya", "registered hu kya", "registration complete hua"])) return self::observedDetectedIntent("GET_FINAL_REGISTRATION_STATUS", $query, $text, $language, $start);
+        if (self::isCollegeAddressQuery($text)) return self::observedDetectedIntent("GET_COLLEGE_ADDRESS", $query, $text, $language, $start);
+        if (self::isLibraryQuery($text)) return self::observedDetectedIntent("GET_LIBRARY_INFO", $query, $text, $language, $start);
+        if (self::isBusQuery($text)) return self::observedDetectedIntent("GET_BUS_INFO", $query, $text, $language, $start);
+        if (self::isExamScheduleQuery($text)) return self::observedDetectedIntent("GET_EXAM_SCHEDULE", $query, $text, $language, $start);
+        if (self::isAcademicCalendarQuery($text)) return self::observedDetectedIntent("GET_ACADEMIC_CALENDAR", $query, $text, $language, $start);
+        if (self::isHostelInfoQuery($text)) return self::observedDetectedIntent("GET_HOSTEL_INFO", $query, $text, $language, $start);
+        if (self::hasAny($text, ["faculty", "faculty details", "teacher details", "staff details", "professor", "hod details", "faculty contact", "teacher contact"])) return self::observedDetectedIntent("GET_FACULTY_DETAILS", $query, $text, $language, $start);
 
-        return "";
+        return self::observedDetectedIntent("", $query, $text, $language, $start);
     }
 
     public static function handle($intent, $query, $language, $session) {
+        $handleStart = LoggerService::nowMs();
+        $intent = self::canonicalIntent($intent);
         $studentId = self::studentIdFromSession($session);
+        self::$activeErpContext = [
+            "start_ms" => $handleStart,
+            "intent" => $intent,
+            "query" => $query,
+            "normalized_query" => self::normalizeText($query),
+            "language" => $language,
+            "user_id" => (int) ($session["user_id"] ?? 0),
+            "student_id" => $studentId
+        ];
+        LoggerService::info("erp_query_handle_started", self::$activeErpContext);
         error_log("ERP QUERY INTENT: {$intent}; student_id={$studentId}");
 
         if ($studentId <= 0 && self::requiresStudent($intent)) {
@@ -61,18 +120,28 @@ class ERPQueryService {
                 return self::payload(self::getInternalMarks($studentId, $query, $language), $intent, $language, "internal_marks");
             case "GET_ASSIGNMENTS":
                 return self::payload(self::getAssignments($studentId, $query, $language), $intent, $language, "assignments");
+            case "GET_PROFILE_SUMMARY":
+                return self::payload(StudentController::getProfileSummary($studentId, $query, $language), $intent, $language, "profile_summary");
+            case "GET_SGPA":
+                return self::payload(StudentController::getSGPA($studentId, $query, $language), $intent, $language, "sgpa");
+            case "GET_CGPA":
+                return self::payload(StudentController::getCGPA($studentId, $query, $language), $intent, $language, "cgpa");
+            case "GET_BACKLOG_STATUS":
+                return self::payload(StudentController::getBacklogStatus($studentId, $query, $language), $intent, $language, "backlog_status");
+            case "GET_SUBJECT_ATTENDANCE":
+                return self::payload(StudentController::getSubjectAttendance($studentId, $query, $language), $intent, $language, "subject_attendance");
             case "GET_ATTENDANCE":
                 return self::handleAttendanceQuery($studentId, $query, $language, $intent);
             case "GET_ACADEMIC_PERFORMANCE_SUMMARY":
                 return self::payload(self::getAcademicPerformanceSummary($studentId, $language), $intent, $language, "academic_performance");
-            case "GET_SUBJECTS":
+            case "GET_COURSE_DETAILS":
                 return self::payload(self::getSubjects($studentId, $query, $language), $intent, $language, "subjects");
             case "GET_SUBJECT_CODES":
                 return self::payload(self::getSubjectCodes($studentId, $query, $language), $intent, $language, "subject_codes");
             case "GET_USN":
                 return self::payload(StudentController::getUSN($studentId, $language), $intent, $language, "usn");
             case "GET_RESULT_STATUS":
-                return self::payload(self::getResultStatus($studentId, $language), $intent, $language, "result_status");
+                return self::payload(self::getResultStatus($studentId, $query, $language), $intent, $language, "result_status");
             case "GET_HALLTICKET_STATUS":
             case "GET_HALL_TICKET_STATUS":
                 return self::payload(StudentController::getHallTicketStatus($studentId, $query, $language), "GET_HALLTICKET_STATUS", $language, "hallticket_status");
@@ -80,6 +149,18 @@ class ERPQueryService {
                 return self::payload(StudentController::getCertificateStatus($studentId, $query, $language), $intent, $language, "certificate_status");
             case "GET_FINAL_REGISTRATION_STATUS":
                 return self::payload(FeeController::getFinalRegistrationStatus($studentId, $language), $intent, $language, "final_registration");
+            case "GET_COLLEGE_ADDRESS":
+                return self::payload(self::getCollegeAddress($language), $intent, $language, "college_address");
+            case "GET_LIBRARY_INFO":
+                return self::payload(self::getLibraryInfo($query, $language), $intent, $language, "library_info");
+            case "GET_BUS_INFO":
+                return self::payload(self::getBusInfo($query, $language), $intent, $language, "bus_info");
+            case "GET_EXAM_SCHEDULE":
+                return self::payload(self::getExamSchedule($studentId, $query, $language), $intent, $language, "exam_schedule");
+            case "GET_ACADEMIC_CALENDAR":
+                return self::payload(self::getAcademicCalendar($query, $language), $intent, $language, "academic_calendar");
+            case "GET_HOSTEL_INFO":
+                return self::payload(self::getHostelInfo($query, $language, $studentId), $intent, $language, "hostel_info");
             case "GET_FACULTY_DETAILS":
                 return self::payload(self::getFacultyDetails($query, $language), $intent, $language, "faculty_details");
             case "GET_HOSTEL_FEES":
@@ -101,13 +182,28 @@ class ERPQueryService {
         return null;
     }
 
+    private static function observedDetectedIntent($intent, $query, $normalizedQuery, $language, $startMs) {
+        $latency = LoggerService::durationMs($startMs);
+        LoggerService::info("erp_intent_detected", [
+            "query" => $query,
+            "normalized_query" => $normalizedQuery,
+            "detected_intent" => $intent,
+            "confidence" => $intent !== "" ? "rule_match" : "none",
+            "selected_route" => $intent !== "" ? "database" : "fallback",
+            "language" => $language,
+            "latency_ms" => $latency
+        ]);
+        LoggerService::markPerformance("erp_intent_detection_latency", $latency, ["detected_intent" => $intent]);
+        return $intent;
+    }
+
     public static function getFeesBalance($studentId, $language = "en") {
         return FeeController::getFeeBalance($studentId, $language);
     }
 
     private static function handleAttendanceQuery($studentId, $query, $language, $intent) {
         $text = self::normalizeText($query);
-        $hasSubjectPhrase = (bool) preg_match('/\b(attendance|attendence|atendance)\s+(in|of|for)\b|\b(dbms|database management|operating systems|computer networks|artificial intelligence|software engineering|java|data structures)\b/u', $text);
+        $hasSubjectPhrase = (bool) preg_match('/\b(attendance|attendence|atendance)\s+(in|of|for)\b|\b[a-z]{2,}(?:\s+[a-z]{2,})?\s+(attendance|attendence|atendance)\b/u', $text);
         if ($hasSubjectPhrase) {
             return self::payload(StudentController::getSubjectAttendance($studentId, $query, $language), $intent, $language, "attendance");
         }
@@ -122,7 +218,7 @@ class ERPQueryService {
 
     public static function getAttendance($studentId, $query = "", $language = "en") {
         $text = self::normalizeText($query);
-        $hasSubjectPhrase = (bool) preg_match('/\b(attendance|attendence|atendance)\s+(in|of|for)\b|\b(dbms|database management|operating systems|computer networks|artificial intelligence|software engineering|java|data structures)\b/u', $text);
+        $hasSubjectPhrase = (bool) preg_match('/\b(attendance|attendence|atendance)\s+(in|of|for)\b|\b[a-z]{2,}(?:\s+[a-z]{2,})?\s+(attendance|attendence|atendance)\b/u', $text);
         if ($hasSubjectPhrase) {
             return StudentController::getSubjectAttendance($studentId, $query, $language);
         }
@@ -265,6 +361,9 @@ class ERPQueryService {
         $day = self::requestedDayName($query);
         $program = (string) ($student["branch"] ?? "");
         $semester = (int) ($student["semester"] ?? 0);
+        // Allow explicit semester override ("semester 3 timetable").
+        $requestedSem = StudentController::inferRequestedSemester($query);
+        if ($requestedSem) $semester = $requestedSem;
         $stmt = $conn->prepare("
             SELECT t.start_time, t.end_time, t.room_no, t.faculty_name, c.course_code, c.course_title
             FROM class_timetable t
@@ -589,127 +688,524 @@ class ERPQueryService {
     private static function formatDecimal($value) {
         return rtrim(rtrim(number_format((float) $value, 2, '.', ''), '0'), '.');
     }
-    public static function getFacultyDetails($query = "", $language = "en") {
-        global $conn;
+    // ── Intent detectors ──────────────────────────────────────────────────────
+
+    private static function isCollegeAddressQuery($text) {
+        return self::hasAny($text, [
+            "address", "location", "where is college", "college location", "college address",
+            "how to reach", "how to come", "directions", "route", "campus location",
+            "gmu address", "university address", "college kahan hai", "college kahan",
+            "college location kya hai", "college ka address", "address kya hai",
+            "college elli ide", "college elli", "college yalli ide", "address torisu",
+            "address bolo", "address batao", "college hesaru", "campus elli",
+            "davangere college", "pb road", "poona bangalore", "near dc office",
+            "pincode", "pin code", "577006", "google maps", "maps"
+        ]);
+    }
+
+    public static function getCollegeAddress($language = "en") {
+        if ($language === "hi") {
+            return "GM University P.B. Road yaani Poona-Bangalore Highway par, District Commissioner ke office ke paas, Davangere, Karnataka mein sthit hai. Pin code 577006 hai. "
+                 . "57 acre ka campus city center se lagbhag 4 kilometer door hai. "
+                 . "Directions ke liye college ki official website gmu.ac.in par Contact Us page dekhein.";
+        }
+        if ($language === "kn") {
+            return "GM University P.B. Road alli, Davangere District Commissioner office hattira, Davangere, Karnataka nalli ide. Pin code 577006. "
+                 . "57 acre campus city center inda sagala 4 kilometre doodale ide. "
+                 . "Directions ge college official website gmu.ac.in nalli Contact Us page nodi.";
+        }
+        return "GM University is located on P.B. Road (Poona-Bangalore Highway), adjoining the District Commissioner's Office, Davangere - 577006, Karnataka. "
+             . "The 57-acre campus is about 4 km from the city center. "
+             . "For directions visit gmu.ac.in and check the Contact Us page.";
+    }
+
+    private static function isLibraryQuery($text) {
+        return self::hasAny($text, [
+            "library", "central library", "library card", "library book", "borrow book",
+            "issue book", "return book", "library timing", "library time", "library hours",
+            "library access", "how to use library", "library facility", "pustaka", "pusthaka",
+            "library kaise use", "library card kaise", "book issue", "book return",
+            "library nalli", "library hegide", "library torisu", "library batao",
+            "library yavaga", "library open", "reading room", "library membership"
+        ]);
+    }
+
+    public static function getLibraryInfo($query = "", $language = "en") {
         $text = self::normalizeText($query);
-        $requestedName = self::extractFacultyName($text);
 
-        if ($requestedName !== "") {
-            $like = "%" . $requestedName . "%";
-            $stmt = $conn->prepare("
-                SELECT sm.full_name, sm.designation, sm.email, sm.mobile_no, d.department_name
-                FROM staff_members sm
-                LEFT JOIN departments d ON d.department_id = sm.department_id
-                WHERE LOWER(sm.full_name) LIKE LOWER(?)
-                ORDER BY sm.full_name
-                LIMIT 3
-            ");
-            if (!$stmt) return self::facultyTechnicalReply($language);
-            $stmt->bind_param("s", $like);
-            $stmt->execute();
-            $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-            $stmt->close();
+        $asksCard   = self::hasAny($text, ["card", "membership", "how to use", "access", "kaise use", "hegide"]);
+        $asksBook   = self::hasAny($text, ["book", "borrow", "issue", "return", "pustaka", "pusthaka"]);
 
-            if (empty($rows)) {
-                return self::facultyMissingReply($requestedName, $language);
-            }
-
-            return self::facultyRowsReply($rows, $language, true);
+        if ($asksCard && !$asksBook) {
+            if ($language === "hi") return "Library use karne ke liye aapko library card ki zaroorat hai. Library card college administration se issue hota hai. Card lekar Central Library mein jaayein aur books issue karwa sakte hain.";
+            if ($language === "kn") return "Library upayogisalu nimage library card beku. Library card college administration nalli siguttade. Card tagondu Central Library ge hogi books issue maadikollabahadu.";
+            return "To use the library you need a library card issued by the college administration. Carry your library card to the Central Library to access books and services.";
         }
 
+        if ($asksBook && !$asksCard) {
+            if ($language === "hi") return "Central Library mein jaake apna library card dikhayein aur book issue karwa sakte hain. Book use karne ke baad wapas library mein return karni hoti hai.";
+            if ($language === "kn") return "Central Library ge hogi nimma library card tori books issue maadikollabahadu. Books upayogisida nantara library ge wapas return maadabeku.";
+            return "Visit the Central Library with your library card to issue books. After use, return the books to the library.";
+        }
+
+        if ($language === "hi") {
+            return "GM University mein Central Library ki facility available hai. "
+                 . "Library use karne ke liye college se library card lena hota hai. "
+                 . "Library card lekar Central Library mein jaayein, books issue karwa sakte hain aur use karne ke baad return karni hoti hai. "
+                 . "Zyada jaankari ke liye library counter se sampark karein.";
+        }
+        if ($language === "kn") {
+            return "GM University nalli Central Library facility ide. "
+                 . "Library upayogisalu college ninda library card tagondbeku. "
+                 . "Library card tagondu Central Library ge hogi books issue maadikollabahadu, upayogisida nantara wapas return maadabeku. "
+                 . "Hechchu maahitige library counter nalli sampark maadi.";
+        }
+        return "GM University has a Central Library facility available to all students. "
+             . "You need a library card issued by the college to access it. "
+             . "Visit the Central Library with your library card to issue books and return them after use. "
+             . "Contact the library counter for more details.";
+    }
+
+    private static function isBusQuery($text) {
+        return self::hasAny($text, [
+            "bus", "bus timing", "bus time", "bus schedule", "bus route", "bus facility",
+            "college bus", "shuttle", "transport", "bus kab", "bus yavaga", "bus hegide",
+            "bus batao", "bus torisu", "bus available", "bus service", "harihar bus",
+            "davangere bus", "bus stop", "pickup", "drop", "morning bus", "evening bus",
+            "bus pass", "bus fee", "travel", "commute"
+        ]);
+    }
+
+    public static function getBusInfo($query = "", $language = "en") {
+        $text = self::normalizeText($query);
+
+        $asksEvening = self::hasAny($text, ["evening", "return", "drop", "saanje", "sanje", "shaam", "wapas"]);
+        $asksMorning = self::hasAny($text, ["morning", "pickup", "subah", "beLigge", "beligge"]);
+
+        $morningTimings = "7:30 AM, 8:30 AM, and 9:30 AM";
+        $eveningTimings = "4:00 PM and 5:00 PM";
+        $locations      = "Davangere city and surrounding areas";
+
+        if ($asksEvening && !$asksMorning) {
+            if ($language === "hi") return "College bus evening mein {$eveningTimings} ko chalti hai. Yeh aas paas ke sabhi areas ke liye available hai.";
+            if ($language === "kn") return "College bus saanje {$eveningTimings} ge hogi. Hasige pradeshadalli ella areas ge available ide.";
+            return "College bus runs in the evening at {$eveningTimings} covering all nearby areas.";
+        }
+
+        if ($asksMorning && !$asksEvening) {
+            if ($language === "hi") return "College bus subah {$morningTimings} ko chalti hai. Yeh aas paas ke sabhi areas se pickup karti hai.";
+            if ($language === "kn") return "College bus beLigge {$morningTimings} ge hogi. Hasige pradeshadalli ella areas inda pickup maaduttade.";
+            return "College bus runs in the morning at {$morningTimings} picking up from all nearby areas.";
+        }
+
+        if ($language === "hi") {
+            return "GM University bus facility Davangere aur aas paas ke sabhi areas ke liye available hai. "
+                 . "Morning timings: {$morningTimings}. "
+                 . "Evening timings: {$eveningTimings}. "
+                 . "Zyada jaankari ke liye college transport office se contact karein.";
+        }
+        if ($language === "kn") {
+            return "GM University bus facility Davangere mattu hasige pradesha ella areas ge available ide. "
+                 . "Beligge timings: {$morningTimings}. "
+                 . "Saanje timings: {$eveningTimings}. "
+                 . "Hechchu maahitige college transport office nalli sampark maadi.";
+        }
+        return "GM University provides bus facility for Davangere and all surrounding areas. "
+             . "Morning timings: {$morningTimings}. "
+             . "Evening timings: {$eveningTimings}. "
+             . "For more details contact the college transport office.";
+    }
+
+    private static function isExamScheduleQuery($text) {
+        $hasExam = self::hasAny($text, [
+            "see exam", "semester exam", "end exam", "final exam", "exam date", "exam schedule",
+            "exam time", "exam timetable", "exam hall", "examination date", "examination schedule",
+            "when is exam", "when exam", "exam kab hai", "exam kab", "exam dinanka",
+            "see date", "see timetable", "see exam date", "see schedule",
+            "pariksha", "pariksha date", "pariksha schedule", "pariksha kab",
+            "exam yavaga", "exam yaavaga", "pariksha yaavaga", "exam hegide"
+        ]);
+        // exclude class timetable queries already handled by GET_TIMETABLE
+        $isClassTimetable = self::hasAny($text, ["class timetable", "today class", "tomorrow class", "which class", "class schedule today"]);
+        return $hasExam && !$isClassTimetable;
+    }
+
+    private static function isAcademicCalendarQuery($text) {
+        return self::hasAny($text, [
+            "academic calendar", "holiday list", "holidays", "holiday schedule",
+            "when does semester start", "semester start date", "semester begin",
+            "when does college reopen", "college reopen", "reopen date",
+            "vacation", "summer vacation", "semester end date", "college calendar",
+            "when is diwali holiday", "when is ugadi holiday", "when is holiday",
+            "upcoming holiday", "next holiday", "holiday kab", "holiday list bolo",
+            "semester kab shuru", "college kab khulega", "college bandh kab",
+            "holiday yaavaga", "semester yavaga shuru", "college yavaga reopens",
+            "rajyotsava holiday", "kannada rajyotsava", "republic day holiday",
+            "gandhi jayanti holiday", "christmas holiday", "new year holiday"
+        ]);
+    }
+
+    private static function isHostelInfoQuery($text) {
+        $hasHostel = self::hasAny($text, ["hostel", "hostelu", "hostel room", "pg", "accommodation", "warden"]);
+        $hasInfoSignal = self::hasAny($text, [
+            "warden", "contact", "timing", "time", "gate", "fee", "fees", "charges",
+            "mess", "food", "facilities", "wifi", "room", "allotment", "apply",
+            "application", "how to apply", "available", "kab", "kaise", "info",
+            "details", "torisu", "hegide", "yavaga", "batao", "bolo", "nodu"
+        ]);
+        // exclude hostel fee payment queries (already handled by GET_FEES_BALANCE)
+        $isPayment = self::hasAny($text, ["pay hostel", "hostel fee pay", "hostel payment portal"]);
+        return $hasHostel && ($hasInfoSignal || $hasHostel) && !$isPayment;
+    }
+
+    // ── Exam Schedule ─────────────────────────────────────────────────────────
+
+    public static function getExamSchedule($studentId, $query = "", $language = "en") {
+        global $conn;
+        $text = self::normalizeText($query);
+
+        // Extract semester from query; fall back to student's current semester
+        $semester = self::extractSemesterFromText($text);
+        if ($semester <= 0 && $studentId > 0) {
+            $s = $conn->prepare("SELECT semester FROM students WHERE student_id = ? LIMIT 1");
+            if ($s) {
+                $s->bind_param("i", $studentId);
+                $s->execute();
+                $row = $s->get_result()->fetch_assoc();
+                $s->close();
+                $semester = (int) ($row["semester"] ?? 0);
+            }
+        }
+
+        // Extract specific subject keyword
+        $subjectKeyword = self::extractSubjectKeyword($text);
+
+        $params = [];
+        $types  = "";
+        $where  = [];
+
+        if ($semester > 0) {
+            $where[]  = "es.semester = ?";
+            $types   .= "i";
+            $params[] = $semester;
+        }
+        if ($subjectKeyword !== "") {
+            $where[]  = "(LOWER(es.course_title) LIKE ? OR LOWER(es.course_code) LIKE ?)";
+            $types   .= "ss";
+            $like     = "%" . $subjectKeyword . "%";
+            $params[] = $like;
+            $params[] = $like;
+        }
+
+        $whereClause = empty($where) ? "" : "WHERE " . implode(" AND ", $where);
         $stmt = $conn->prepare("
-            SELECT sm.full_name, sm.designation, sm.email, sm.mobile_no, d.department_name
-            FROM staff_members sm
-            LEFT JOIN departments d ON d.department_id = sm.department_id
-            ORDER BY d.department_name, sm.full_name
-            LIMIT 6
+            SELECT es.course_code, es.course_title, es.exam_type, es.exam_date,
+                   es.start_time, es.end_time, es.venue
+            FROM exam_schedule es
+            {$whereClause}
+            ORDER BY es.exam_date, es.start_time
+            LIMIT 8
         ");
-        if (!$stmt) return self::facultyTechnicalReply($language);
+
+        if (!$stmt) {
+            return self::localize("Could not fetch exam schedule right now. Please check ERP or contact your department.", $language);
+        }
+
+        if (!empty($params)) {
+            $stmt->bind_param($types, ...$params);
+        }
         $stmt->execute();
         $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
 
         if (empty($rows)) {
-            if ($language === "hi") return "ERP records mein abhi faculty details available nahi hain. Kripya department office se confirm kijiye.";
-            if ($language === "kn") return "ERP records nalli ivaga faculty details available illa. Dayavittu department office nalli confirm maadi.";
-            return "Faculty details are not available in the ERP records right now. Please confirm with the department office.";
+            if ($language === "hi") return "SEE exams aamtaur par ODD semester mein December mein aur EVEN semester mein May mein hote hain. Exact dates ke liye ERP ka Hall Ticket page check karein ya college notice board dekhein.";
+            if ($language === "kn") return "SEE exams sadhaaranavaagi ODD semester ge December nalli mattu EVEN semester ge May nalli nadeeyuttave. Exact dates ge ERP Hall Ticket page nodi athava college notice board nodi.";
+            return "SEE exams are usually held in December for ODD semester and May for EVEN semester. Check the ERP Hall Ticket page or college notice board for exact dates.";
         }
 
-        return self::facultyRowsReply($rows, $language, false);
+        $parts = [];
+        foreach ($rows as $r) {
+            $title = $r["course_title"] ?? "";
+            $date  = date("d M Y", strtotime($r["exam_date"]));
+            $time  = date("h:i A", strtotime($r["start_time"])) . " to " . date("h:i A", strtotime($r["end_time"]));
+            $venue = $r["venue"] ? ", " . $r["venue"] : "";
+            $parts[] = "{$title}: {$date}, {$time}{$venue}";
+        }
+        $list = implode("; ", $parts);
+        $semLabel = $semester > 0 ? " for Semester {$semester}" : "";
+
+        if ($language === "hi") return "Aapka SEE exam schedule{$semLabel}: {$list}.";
+        if ($language === "kn") return "Nimma SEE exam schedule{$semLabel}: {$list}.";
+        return "Your SEE exam schedule{$semLabel}: {$list}.";
     }
 
-    private static function extractFacultyName($text) {
-        $text = trim((string) $text);
-        $patterns = [
-            '/\b(?:faculty|teacher|professor|prof|dr|sir|madam)\s+(?:details|contact|email|phone|number)?\s*(?:of|for|about)?\s*([a-z][a-z\s.]{2,})$/u',
-            '/\b(?:details|contact|email|phone|number)\s+(?:of|for|about)\s+([a-z][a-z\s.]{2,})$/u',
-            '/\b(?:who is|tell me about)\s+(?:professor|prof|dr)?\s*([a-z][a-z\s.]{2,})$/u'
-        ];
-        foreach ($patterns as $pattern) {
-            if (preg_match($pattern, $text, $matches)) {
-                $name = trim(preg_replace('/\b(details|contact|email|phone|number|faculty|teacher|professor|prof|dr|sir|madam)\b/u', ' ', $matches[1]));
-                $name = trim(preg_replace('/\s+/u', ' ', $name));
-                if ($name !== "") return $name;
+    private static function extractSemesterFromText($text) {
+        if (preg_match('/\b(\d)\s*(?:st|nd|rd|th)?\s*sem(?:ester)?\b/i', $text, $m)) return (int) $m[1];
+        if (preg_match('/\bsem(?:ester)?\s*(\d)\b/i', $text, $m)) return (int) $m[1];
+        return 0;
+    }
+
+    private static function extractSubjectKeyword($text) {
+        $stopwords = ['exam', 'schedule', 'timetable', 'date', 'time', 'when', 'is', 'my', 'the',
+                      'for', 'of', 'see', 'cie', 'semester', 'sem', 'show', 'tell', 'open'];
+        $words = preg_split('/\s+/', strtolower(trim($text)));
+        $keywords = array_filter($words, fn($w) => strlen($w) > 2 && !in_array($w, $stopwords));
+        return implode(" ", array_slice(array_values($keywords), 0, 3));
+    }
+
+    // ── Academic Calendar ─────────────────────────────────────────────────────
+
+    public static function getAcademicCalendar($query = "", $language = "en") {
+        global $conn;
+        $text = self::normalizeText($query);
+
+        // Detect what the user is asking about
+        $wantsHolidays     = self::hasAny($text, ["holiday", "holidays", "holiday list", "bandh", "छुट्टी", "ರಜೆ"]);
+        $wantsSemesterDates = self::hasAny($text, ["semester start", "semester begin", "reopen", "semester end", "classes begin", "classes start", "classes end"]);
+        $wantsVacation     = self::hasAny($text, ["vacation", "summer vacation", "break"]);
+        $wantsUpcoming     = self::hasAny($text, ["next holiday", "upcoming holiday", "next break"]);
+
+        // Specific festival/event names
+        $eventKeyword = "";
+        $festivals = ["diwali", "ugadi", "rajyotsava", "christmas", "new year", "republic day",
+                      "gandhi jayanti", "ambedkar", "holi", "eid", "pongal"];
+        foreach ($festivals as $f) {
+            if (strpos($text, $f) !== false) { $eventKeyword = $f; break; }
+        }
+
+        if ($eventKeyword !== "") {
+            $stmt = $conn->prepare("SELECT event_name, start_date, end_date FROM academic_calendar WHERE LOWER(event_name) LIKE ? LIMIT 3");
+            if ($stmt) {
+                $like = "%" . $eventKeyword . "%";
+                $stmt->bind_param("s", $like);
+                $stmt->execute();
+                $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+                $stmt->close();
+                if (!empty($rows)) {
+                    $r    = $rows[0];
+                    $name = $r["event_name"];
+                    $date = date("d M Y", strtotime($r["start_date"]));
+                    $end  = $r["end_date"] ? " to " . date("d M Y", strtotime($r["end_date"])) : "";
+                    if ($language === "hi") return "{$name} ki chutti {$date}{$end} hai.";
+                    if ($language === "kn") return "{$name} raje {$date}{$end} ide.";
+                    return "{$name} holiday is on {$date}{$end}.";
+                }
             }
         }
-        return "";
-    }
 
-    private static function facultyRowsReply($rows, $language, $specific) {
-        $parts = [];
-        foreach ($rows as $row) {
-            $name = trim((string) ($row["full_name"] ?? ""));
-            $designation = trim((string) ($row["designation"] ?? ""));
-            $department = trim((string) ($row["department_name"] ?? ""));
-            $email = trim((string) ($row["email"] ?? ""));
-            $phone = trim((string) ($row["mobile_no"] ?? ""));
-            if ($name === "") continue;
-            $line = $name;
-            if ($designation !== "") $line .= ", " . $designation;
-            if ($department !== "") $line .= ", " . $department;
-            if ($email !== "") $line .= ", email " . $email;
-            if ($phone !== "") $line .= ", phone " . $phone;
-            $parts[] = $line;
+        $eventType = "";
+        if ($wantsHolidays)      $eventType = "holiday";
+        elseif ($wantsSemesterDates) $eventType = "semester";
+        elseif ($wantsVacation)  $eventType = "vacation";
+
+        $where = $eventType !== "" ? "WHERE event_type LIKE ?" : "WHERE start_date >= CURDATE()";
+        $stmt  = $conn->prepare("SELECT event_name, event_type, start_date, end_date FROM academic_calendar {$where} ORDER BY start_date LIMIT 8");
+        if (!$stmt) {
+            return self::localize("Could not fetch academic calendar right now.", $language);
         }
 
-        if (empty($parts)) return self::facultyTechnicalReply($language);
-        $details = implode("; ", $parts);
+        if ($eventType !== "") {
+            $like = "%" . $eventType . "%";
+            $stmt->bind_param("s", $like);
+        }
+        $stmt->execute();
+        $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
 
+        if (empty($rows)) {
+            if ($language === "hi") return "Academic calendar mein abhi koi entry available nahi hai.";
+            if ($language === "kn") return "Academic calendar nalli ivaga yaavudu entry illa.";
+            return "No academic calendar entries found right now.";
+        }
+
+        $parts = [];
+        foreach ($rows as $r) {
+            $name = $r["event_name"];
+            $date = date("d M Y", strtotime($r["start_date"]));
+            $end  = $r["end_date"] ? " to " . date("d M Y", strtotime($r["end_date"])) : "";
+            $parts[] = "{$name}: {$date}{$end}";
+        }
+        $list = implode("; ", $parts);
+
+        if ($language === "hi") return "Academic calendar: {$list}.";
+        if ($language === "kn") return "Academic calendar: {$list}.";
+        return "Academic calendar: {$list}.";
+    }
+
+    // ── Hostel Info ───────────────────────────────────────────────────────────
+
+    public static function getHostelInfo($query = "", $language = "en", $studentId = 0) {
+        global $conn;
+        $text = self::normalizeText($query);
+
+        // Check student's hostel application status first if they ask about allotment
+        $asksAllotment = self::hasAny($text, ["allotment", "allotted", "status", "approved", "applied", "application", "room got", "room mila", "room sikkide"]);
+        if ($asksAllotment && $studentId > 0) {
+            $stmt = $conn->prepare("SELECT status, remarks FROM hostel_applications WHERE student_id = ? ORDER BY applied_at DESC LIMIT 1");
+            if ($stmt) {
+                $stmt->bind_param("i", $studentId);
+                $stmt->execute();
+                $row = $stmt->get_result()->fetch_assoc();
+                $stmt->close();
+                if ($row) {
+                    $status  = ucfirst(strtolower($row["status"]));
+                    $remarks = $row["remarks"] ? " — " . $row["remarks"] : "";
+                    if ($language === "hi") return "Aapki hostel application ka status: {$status}{$remarks}.";
+                    if ($language === "kn") return "Nimma hostel application status: {$status}{$remarks}.";
+                    return "Your hostel application status is {$status}{$remarks}.";
+                }
+                if ($language === "hi") return "Aapka koi hostel application nahi mila. ERP mein Registration → Hostel Application se apply kar sakte hain.";
+                if ($language === "kn") return "Nimma hostel application sigalilla. ERP nalli Registration → Hostel Application nalli apply maadi.";
+                return "No hostel application found for your account. You can apply via ERP → Registration → Hostel Application.";
+            }
+        }
+
+        // Fetch the specific info key(s) based on what was asked
+        $keyMap = [
+            ["warden", ["warden_name", "warden_contact", "warden_email"]],
+            ["contact",["warden_contact", "warden_email"]],
+            ["mess",   ["mess_timing"]],
+            ["food",   ["mess_timing"]],
+            ["timing", ["hostel_timing", "mess_timing"]],
+            ["gate",   ["hostel_timing"]],
+            ["fee",    ["fee_per_year", "fee_includes"]],
+            ["fees",   ["fee_per_year", "fee_includes"]],
+            ["charges",["fee_per_year", "fee_includes"]],
+            ["apply",  ["application_process"]],
+            ["application", ["application_process"]],
+            ["room",   ["room_types", "application_process"]],
+            ["facilities", ["facilities"]],
+            ["wifi",   ["facilities"]],
+        ];
+
+        $keys = [];
+        foreach ($keyMap as [$keyword, $infoKeys]) {
+            if (strpos($text, $keyword) !== false) {
+                $keys = array_merge($keys, $infoKeys);
+            }
+        }
+        $keys = !empty($keys) ? array_unique($keys) : null;
+
+        if ($keys !== null) {
+            $placeholders = implode(",", array_fill(0, count($keys), "?"));
+            $stmt = $conn->prepare("SELECT info_key, info_value FROM hostel_info WHERE info_key IN ({$placeholders})");
+            if ($stmt) {
+                $stmt->bind_param(str_repeat("s", count($keys)), ...$keys);
+                $stmt->execute();
+                $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+                $stmt->close();
+                if (!empty($rows)) {
+                    $parts = array_map(fn($r) => $r["info_value"], $rows);
+                    $reply = implode(" ", $parts);
+                    if ($language === "hi") return "Hostel details: {$reply}";
+                    if ($language === "kn") return "Hostel details: {$reply}";
+                    return $reply;
+                }
+            }
+        }
+
+        // Default: give a general hostel overview
+        $stmt = $conn->prepare("SELECT info_key, info_value FROM hostel_info WHERE info_key IN ('warden_name','warden_contact','fee_per_year','hostel_timing') ORDER BY info_key");
+        if (!$stmt) return self::localize("Could not fetch hostel details right now.", $language);
+        $stmt->execute();
+        $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+
+        $map = [];
+        foreach ($rows as $r) $map[$r["info_key"]] = $r["info_value"];
+
+        $warden = ($map["warden_name"] ?? "") . ($map["warden_contact"] ? ", contact: " . $map["warden_contact"] : "");
+        $fee    = $map["fee_per_year"] ? "Rs. " . number_format((int) $map["fee_per_year"]) . " per year" : "";
+        $timing = $map["hostel_timing"] ?? "";
+
+        if ($language === "hi") return "Hostel warden: {$warden}. Annual fee: {$fee}. {$timing} Apply karne ke liye ERP mein Registration → Hostel Application jaayein.";
+        if ($language === "kn") return "Hostel warden: {$warden}. Annual fee: {$fee}. {$timing} Apply madalu ERP nalli Registration → Hostel Application ge hogi.";
+        return "Hostel warden: {$warden}. Annual fee: {$fee}. {$timing} To apply, go to ERP → Registration → Hostel Application.";
+    }
+
+    public static function getFacultyDetails($query = "", $language = "en") {
+        // Faculty details are on the public GMU website (Academics → Faculties),
+        // not in the student ERP module.
         if ($language === "hi") {
-            return $specific ? "ERP record ke hisaab se faculty details: {$details}." : "ERP records mein available faculty details: {$details}.";
+            return "Faculty details student ERP mein available nahi hain. Yeh GMU website par Academics section mein Faculties page par milenge. "
+                 . "GM University ke 6 faculties hain: Faculty of Engineering and Technology, Faculty of Computing and IT, "
+                 . "Faculty of Basic and Applied Sciences, Faculty of Commerce and Management, "
+                 . "GM School of Advanced Studies, aur GM Business School. "
+                 . "Details ke liye gmu.ac.in par jaayein.";
         }
         if ($language === "kn") {
-            return $specific ? "ERP record prakara faculty details: {$details}." : "ERP records nalli available iruva faculty details: {$details}.";
+            return "Faculty details student ERP nalli illa. Avu GMU website nalli Academics vibhagada Faculties page nalli sigguttave. "
+                 . "GM University nalli 6 faculties ive: Faculty of Engineering and Technology, Faculty of Computing and IT, "
+                 . "Faculty of Basic and Applied Sciences, Faculty of Commerce and Management, "
+                 . "GM School of Advanced Studies, mattu GM Business School. "
+                 . "Hechchu maahiti ge gmu.ac.in nodi.";
         }
-        return $specific ? "According to ERP records, the faculty details are: {$details}." : "Available faculty details in ERP records are: {$details}.";
+        return "Faculty details are not available in the student ERP module. You can find them on the GMU website under Academics → Faculties. "
+             . "GM University has 6 faculties: Faculty of Engineering and Technology (FET), Faculty of Computing and IT (FCIT), "
+             . "Faculty of Basic and Applied Sciences (FBAS), Faculty of Commerce and Management (FCM), "
+             . "GM School of Advanced Studies (GMSAS), and GM Business School (GMBS). "
+             . "Visit gmu.ac.in for full details.";
     }
-
-    private static function facultyMissingReply($name, $language) {
-        $name = trim((string) $name);
-        if ($language === "hi") return "ERP records mein " . ($name !== "" ? $name . " ke " : "is faculty ke ") . "faculty details available nahi hain. Kripya spelling check kijiye ya department office se confirm kijiye.";
-        if ($language === "kn") return "ERP records nalli " . ($name !== "" ? $name . " avara " : "ee faculty ya ") . "details available illa. Dayavittu spelling check maadi athava department office nalli confirm maadi.";
-        return "I could not find " . ($name !== "" ? $name . "'s " : "those ") . "faculty details in the ERP records. Please check the spelling or confirm with the department office.";
-    }
-
-    private static function facultyTechnicalReply($language) {
-        if ($language === "hi") return "Faculty details check karte waqt technical issue aaya. Kripya thodi der baad try kijiye.";
-        if ($language === "kn") return "Faculty details check maduvaga technical issue aayitu. Dayavittu swalpa samayada nantara try maadi.";
-        return "I could not check faculty details right now due to a technical issue. Please try again after some time.";
-    }
-    public static function getResultStatus($studentId, $language = "en") {
+    public static function getResultStatus($studentId, $query = "", $language = "en") {
         global $conn;
-        $stmt = $conn->prepare("SELECT semester, exam_type, academic_year, season, publication_status, published_at FROM result_publications WHERE student_id = ? ORDER BY published_at DESC, publication_id DESC LIMIT 1");
+        $text = strtolower(trim((string) $query));
+
+        // Explicit semester number takes priority ("semester 3 result").
+        $specificSemester = StudentController::inferRequestedSemester($query);
+        if ($specificSemester) {
+            $stmt = $conn->prepare("
+                SELECT semester, exam_type, academic_year, season, publication_status
+                FROM result_publications
+                WHERE student_id = ? AND semester = ?
+                ORDER BY published_at DESC
+                LIMIT 1
+            ");
+            if (!$stmt) return self::localize("System error while checking result status.", $language);
+            $stmt->bind_param("ii", $studentId, $specificSemester);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            if (!$row) {
+                return self::localize("I could not find a published result for semester {$specificSemester}.", $language);
+            }
+            $exam = strtoupper((string) ($row["exam_type"] ?? ""));
+            $year = trim((string) ($row["academic_year"] ?? ""));
+            $yearNote = $year !== "" ? " ({$year})" : "";
+            return self::localize("Your semester {$specificSemester} {$exam} result is published{$yearNote}.", $language);
+        }
+
+        // "previous result" / "last result" → 2nd-most-recent. "latest/current" → newest.
+        $wantPrevious = (bool) preg_match('/\b(previous|prev|last|before|prior|older)\b/', $text)
+            && !(bool) preg_match('/\b(latest|most recent|current|this)\b/', $text);
+
+        $stmt = $conn->prepare("
+            SELECT semester, exam_type, academic_year, season, publication_status
+            FROM result_publications
+            WHERE student_id = ?
+            ORDER BY semester DESC, published_at DESC
+        ");
         if (!$stmt) return self::localize("System error while checking result status.", $language);
         $stmt->bind_param("i", $studentId);
         $stmt->execute();
-        $row = $stmt->get_result()->fetch_assoc();
+        $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
-        if (!$row) return self::localize("I could not find any published result for your account right now.", $language);
 
+        if (empty($rows)) {
+            return self::localize("I could not find any published result for your account right now.", $language);
+        }
+
+        $row = ($wantPrevious && count($rows) > 1) ? $rows[1] : $rows[0];
         $semester = (int) ($row["semester"] ?? 0);
-        $exam = strtoupper((string) ($row["exam_type"] ?? "exam"));
-        $status = strtolower((string) ($row["publication_status"] ?? "published"));
-        return self::localize("Your semester {$semester} {$exam} result status is {$status}.", $language);
+        $exam = strtoupper((string) ($row["exam_type"] ?? ""));
+        $year = trim((string) ($row["academic_year"] ?? ""));
+        $yearNote = $year !== "" ? " ({$year})" : "";
+        $label = $wantPrevious ? "previous published" : "latest published";
+
+        return self::localize(
+            "Your {$label} result is semester {$semester} {$exam}{$yearNote}.",
+            $language
+        );
     }
 
     public static function getHostelFees($studentId, $language = "en") {
@@ -773,6 +1269,20 @@ class ERPQueryService {
     }
 
     private static function payload($reply, $intent, $language, $source, $extra = []) {
+        $latency = isset(self::$activeErpContext["start_ms"]) ? LoggerService::durationMs(self::$activeErpContext["start_ms"]) : null;
+        LoggerService::info("erp_query_handle_completed", array_merge(self::$activeErpContext, [
+            "status" => "success",
+            "intent" => $intent,
+            "route" => "database",
+            "reply_source" => $source,
+            "latency_ms" => $latency
+        ]));
+        if ($latency !== null) {
+            LoggerService::markPerformance("erp_query_latency", $latency, [
+                "intent" => $intent,
+                "route" => "database"
+            ]);
+        }
         error_log("ERP QUERY RESPONSE: intent={$intent}; source={$source}");
         $payload = [
             "reply" => trim((string) $reply),
@@ -800,39 +1310,306 @@ class ERPQueryService {
     }
 
     private static function studentIdFromSession($session) {
+        $dbStart = LoggerService::nowMs();
         $studentId = (int) ($session["student_id"] ?? 0);
-        if ($studentId > 0) return $studentId;
+        if ($studentId > 0) {
+            LoggerService::info("db_student_id_from_session_completed", [
+                "status" => "cache_hit",
+                "latency_ms" => LoggerService::durationMs($dbStart)
+            ]);
+            return $studentId;
+        }
         $userId = (int) ($session["user_id"] ?? 0);
         if ($userId <= 0) return 0;
         global $conn;
         $stmt = $conn->prepare("SELECT student_id FROM users WHERE user_id = ? AND is_active = 1 LIMIT 1");
-        if (!$stmt) return 0;
+        if (!$stmt) {
+            LoggerService::error("db_student_id_prepare_failed", [
+                "status" => "error",
+                "latency_ms" => LoggerService::durationMs($dbStart)
+            ]);
+            return 0;
+        }
         $stmt->bind_param("i", $userId);
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc();
         $stmt->close();
+        $latency = LoggerService::durationMs($dbStart);
+        LoggerService::info("db_student_id_lookup_completed", [
+            "status" => "success",
+            "latency_ms" => $latency
+        ]);
+        LoggerService::markPerformance("db_student_id_lookup_latency", $latency);
         return (int) ($row["student_id"] ?? 0);
     }
 
     private static function getStudent($studentId) {
+        $dbStart = LoggerService::nowMs();
         global $conn;
         $stmt = $conn->prepare("SELECT student_id, usn, full_name, branch, semester, quota FROM students WHERE student_id = ? LIMIT 1");
-        if (!$stmt) return null;
+        if (!$stmt) {
+            LoggerService::error("db_student_prepare_failed", [
+                "status" => "error",
+                "latency_ms" => LoggerService::durationMs($dbStart)
+            ]);
+            return null;
+        }
         $stmt->bind_param("i", $studentId);
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc();
         $stmt->close();
+        $latency = LoggerService::durationMs($dbStart);
+        LoggerService::info("db_student_lookup_completed", [
+            "status" => $row ? "success" : "not_found",
+            "latency_ms" => $latency
+        ]);
+        LoggerService::markPerformance("db_student_lookup_latency", $latency);
         return $row ?: null;
     }
 
+
+    private static function canonicalIntent($intent) {
+        $intent = strtoupper(trim((string) $intent));
+        $aliases = [
+            "GET_HALL_TICKET_STATUS" => "GET_HALLTICKET_STATUS",
+            "GET_SUBJECTS" => "GET_COURSE_DETAILS"
+        ];
+        return $aliases[$intent] ?? $intent;
+    }
+
+    private static function isProfileQuery($text) {
+        if (self::hasNavigationVerb($text) && self::hasAny($text, ["profile", "student profile"])) return false;
+        return self::hasAny($text, [
+            "profile summary",
+            "my profile details",
+            "student details",
+            "my details",
+            "personal details",
+            "who am i",
+            "what is my department",
+            "which department",
+            "what is my branch",
+            "which branch",
+            "which semester am i",
+            "my semester",
+            "profile batao",
+            "profile torisu",
+            "details batao",
+            "details torisu",
+            // Kanglish
+            "nanna profile",
+            "nanna details",
+            "nanna info",
+            "nanna branch",
+            "nanna department",
+            "nanna semester eshtu",
+            // Hinglish
+            "mera profile",
+            "meri details",
+            "mera branch",
+            "apna profile"
+        ]);
+    }
+
+    private static function isBacklogQuery($text) {
+        return self::hasAny($text, [
+            "backlog",
+            "backlogs",
+            "active backlog",
+            "failed subject",
+            "failed subjects",
+            "arrear",
+            "arrears",
+            "supplementary",
+            "supply",
+            "pass or fail",
+            "fail subject",
+            "backlog batao",
+            "backlog torisu",
+            // Kanglish
+            "nanna backlog",
+            "fail aagide",
+            "fail agide",
+            "fail aaitu",
+            "backlog eshtu",
+            "backlog nodu",
+            // Hinglish
+            "mera backlog",
+            "fail hua",
+            "backlog hai kya",
+            "kitne backlog"
+        ]);
+    }
+
+    private static function isResultStatusQuery($text) {
+        return self::hasAny($text, [
+            "result status",
+            "result published",
+            "result available",
+            "result released",
+            "marks status",
+            "sgpa status",
+            "latest result status"
+        ]);
+    }
+
+    private static function isCgpaQuery($text) {
+        return self::hasAny($text, [
+            "cgpa",
+            "c g p a",
+            "overall gpa",
+            "cumulative gpa",
+            "overall grade point",
+            "overall grade",
+            "total gpa",
+            "cgpa batao",
+            "cgpa torisu",
+            // Kanglish
+            "nanna cgpa",
+            "cgpa nodu",
+            "cgpa eshtu",
+            // Hinglish
+            "cgpa bolo",
+            "mera cgpa",
+            "overall cgpa"
+        ]);
+    }
+
+    private static function isSgpaQuery($text) {
+        if (self::hasNavigationVerb($text) && self::hasAny($text, ["result", "results"])) return false;
+        return self::hasAny($text, [
+            "sgpa",
+            "s g p a",
+            "semester gpa",
+            "sem gpa",
+            "semester result",
+            "sem result",
+            "latest result",
+            "grade sheet",
+            "grades",
+            "my marks",
+            "marks card",
+            "sgpa batao",
+            "sgpa torisu",
+            // Kanglish
+            "sheet torisu",
+            "sheet nodu",
+            "marks torisu",
+            "marks nodu",
+            "result torisu",
+            "result nodu",
+            "grade torisu",
+            "nanna marks",
+            "nanna result",
+            "nanna sgpa",
+            "marksheet torisu",
+            "semester sheet",
+            // Hinglish
+            "result bolo",
+            "result batao",
+            "result dikhao",
+            "result dekho",
+            "mera result",
+            "marks bolo",
+            "marks batao",
+            "marks dikhao",
+            "meri marks",
+            "sgpa batao",
+            "sgpa bolo",
+            "grade batao"
+        ]);
+    }
+
+    private static function isCourseDetailsQuery($text) {
+        return self::hasAny($text, [
+            "my subjects",
+            "what are my subjects",
+            "show my subjects",
+            "registered subjects",
+            "subject list",
+            "my courses",
+            "registered courses",
+            "course list",
+            "course details",
+            "subjects yavuvu",
+            "subjects kya",
+            "subjects torisu",
+            "course torisu"
+        ]);
+    }
+
+    private static function isSubjectAttendanceQuery($text) {
+        $hasAttendance = self::hasAny($text, ["attendance", "attendence", "atendance", "hajari", "hajarati", "hajri", "haazri", "hazri"]);
+        if ((bool) preg_match('/\b(attendance|attendence|atendance|hajari|hajarati)\s+(in|of|for)\b/u', $text)) return true;
+        return self::hasAny($text, [
+            "dbms",
+            "d b m s",
+            "database management",
+            "operating system",
+            "operating systems",
+            "computer network",
+            "computer networks",
+            "artificial intelligence",
+            "software engineering",
+            "data structures",
+            "java",
+            "python",
+            "maths",
+            "mathematics",
+            "english"
+        ]);
+    }
+
+    private static function hasNavigationVerb($text) {
+        return self::hasAny($text, [
+            "open",
+            "go to",
+            "goto",
+            "navigate",
+            "take me",
+            "show page",
+            "open page",
+            "page kholo",
+            "page open",
+            "page torisu",
+            // Kanglish navigation
+            "ge hogu",
+            "page ge hogu",
+            "hogu",
+            "hogbeku",
+            "open maadu",
+            "open madu",
+            "page open madu",
+            "thumba click maadu",
+            // Hinglish navigation
+            "page khol",
+            "page dikhao",
+            "wahan jao",
+            "le jao"
+        ]);
+    }
 
     private static function isFeeReceiptQuery($text) {
         return self::hasAny($text, ["receipt", "invoice", "download receipt", "payment receipt", "fee receipt"]);
     }
 
     private static function isFeePaymentNavigationQuery($text) {
-        return self::hasAny($text, ["where can i pay", "how to pay", "pay my fees", "pay fees", "payment portal", "fee payment", "erp fee payment", "where is tuition fee payment", "how to pay hostel fees", "how to pay balance fees", "pay skill assessment", "late registration payment", "certificate fee payment", "other fee payment"])
-            || (self::hasAny($text, ["where", "how", "pay", "payment"]) && self::hasAny($text, ["fee", "fees", "tuition", "hostel", "skill", "balance", "late registration", "certificate", "bonafide", "study certificate", "bank estimate", "photo copy", "photocopy", "breakage", "byoc", "malpractice", "pg application", "phd application", "admission"]));
+        // English triggers
+        if (self::hasAny($text, ["where can i pay", "how to pay", "pay my fees", "pay fees", "payment portal", "fee payment", "erp fee payment", "where is tuition fee payment", "how to pay hostel fees", "how to pay balance fees", "pay skill assessment", "late registration payment", "certificate fee payment", "other fee payment"]))
+            return true;
+        if (self::hasAny($text, ["where", "how", "pay", "payment"]) && self::hasAny($text, ["fee", "fees", "tuition", "hostel", "skill", "balance", "late registration", "certificate", "bonafide", "study certificate", "bank estimate", "photo copy", "photocopy", "breakage", "byoc", "malpractice", "pg application", "phd application", "admission"]))
+            return true;
+        // Hindi triggers
+        if (self::hasAny($text, ["fee kaise pay kare", "fee kaise bharu", "fee kaha pay kare", "tuition fee pay karna", "hostel fee pay karna", "skill fee pay karna", "late registration fee", "certificate fee pay", "fee pay karna hai", "fees pay karna", "fee payment kaise kare", "fee kaise jama kare", "fee kahan bhari jati hai", "shulk kaise jama kare"]))
+            return true;
+        if (self::hasAny($text, ["kaise pay", "kaha pay", "pay karna", "payment kaise"]) && self::hasAny($text, ["fee", "fees", "tuition", "hostel", "skill", "certificate", "shulk"]))
+            return true;
+        // Kannada triggers
+        if (self::hasAny($text, ["fee hege pay madu", "fee pay maduvage", "fee pay madbekagide", "tuition fee pay", "hostel fee pay", "skill fee pay", "late registration fee", "certificate fee pay", "fee elli pay madu", "fee payment hege madu", "feesu hege pay madu", "feesu pay madalu", "fee pay madodu hege"]))
+            return true;
+        if (self::hasAny($text, ["hege pay", "elli pay", "pay madalu", "pay maduvage", "pay madbekagide"]) && self::hasAny($text, ["fee", "feesu", "tuition", "hostel", "skill", "certificate"]))
+            return true;
+        return false;
     }
 
     private static function isFeeBalanceQuery($text) {
@@ -975,11 +1752,46 @@ class ERPQueryService {
     }
 
     private static function localize($reply, $language) {
-        if ($language === "hi") {
-            return $reply;
-        }
-        if ($language === "kn") {
-            return $reply;
+        // Translate common ERP status phrases so reply language matches student's language.
+        static $translations = [
+            "hi" => [
+                "I could not find any published result for your account right now."
+                    => "Abhi aapke account mein koi published result nahi mila.",
+                "System error while checking result status."
+                    => "Result status check karte waqt system error aaya.",
+                "Your latest published result is semester"
+                    => "Aapka latest published result semester",
+                "Your previous published result is semester"
+                    => "Aapka previous published result semester",
+                "Your semester"                => "Aapka semester",
+                "result is published"          => "result published hai",
+                "I could not find a published result for semester"
+                    => "Semester ke liye koi published result nahi mila",
+                "This ERP detail is available only after student login."
+                    => "Yeh ERP detail student login ke baad hi milegi.",
+            ],
+            "kn" => [
+                "I could not find any published result for your account right now."
+                    => "Ivaga nimma account nalli published result sikalilla.",
+                "System error while checking result status."
+                    => "Result status check maduvaga system error aayitu.",
+                "Your latest published result is semester"
+                    => "Nimma latest published result semester",
+                "Your previous published result is semester"
+                    => "Nimma previous published result semester",
+                "Your semester"                => "Nimma semester",
+                "result is published"          => "result published aagide",
+                "I could not find a published result for semester"
+                    => "Semester ge published result sikalilla",
+                "This ERP detail is available only after student login."
+                    => "ERP detail student login aada nantara mattey sikutte.",
+            ],
+        ];
+
+        if (isset($translations[$language])) {
+            foreach ($translations[$language] as $en => $local) {
+                $reply = str_replace($en, $local, (string) $reply);
+            }
         }
         return $reply;
     }

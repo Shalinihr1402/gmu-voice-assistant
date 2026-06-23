@@ -156,154 +156,6 @@ class FeeController {
         }
         return $reply . "You have cleared all your fees. Pending balance is Rs. 0.00.";
     }
-    public static function answerFeeQuery($student_id, $query = "", $language = "en", $mode = "auto") {
-        $text = self::normalizeFeeText($query);
-        $feeType = self::detectFeeType($text);
-        $intent = $mode === "auto" ? self::detectFeeIntent($text) : $mode;
-
-        if ($intent === "payment_navigation") return self::paymentNavigationReply($feeType, $language);
-        if ($intent === "receipt") return self::receiptReply($language);
-        if ($intent === "grievance") return self::grievanceReply($text, $language);
-        if ($intent === "fee_info" && $feeType === "general" && self::isUnclearFeeInfoQuery($text)) return self::feeTypeClarification($language);
-
-        $feeData = self::getFeeRows($student_id);
-        if (isset($feeData["error"])) {
-            if (self::isKannada($language)) return "Fee details taruvaga system problem aayitu. Dayavittu swalpa time aadmele try maadi.";
-            if (self::isHindi($language)) return "Fee details laate waqt system problem hua. Kripya thodi der baad try kijiye.";
-            return $feeData["error"];
-        }
-
-        $rows = self::bucketFeeRows($feeData["rows"] ?? []);
-        if ($intent === "fee_info") return self::feeInfoReply($rows, $feeType, $language);
-        return self::feeBalanceReply($rows, $feeType, $language);
-    }
-
-    private static function normalizeFeeText($query) {
-        $text = strtolower(trim((string) $query));
-        $text = preg_replace('/[^a-z0-9\s]+/u', ' ', $text);
-        $text = preg_replace('/\s+/u', ' ', (string) $text);
-        return trim((string) $text);
-    }
-
-    private static function detectFeeIntent($text) {
-        if (preg_match('/\b(receipt|invoice|download receipt|payment receipt|fee receipt)\b/u', $text)) return "receipt";
-        if (preg_match('/\b(grievance|complaint|failed|deducted|not updated|transaction issue|grievance result|complaint status)\b/u', $text)) return "grievance";
-        if (preg_match('/\b(where|how|pay|payment portal|payment location|where can i pay|how to pay)\b/u', $text) && preg_match('/\b(fee|fees|tuition|hostel|skill|balance|amount)\b/u', $text)) return "payment_navigation";
-        if (preg_match('/\b(balance|pending|remaining|due|unpaid|left|baki|bakki)\b/u', $text)) return "balance";
-        if (preg_match('/\b(amount|structure|details|detail|total|what is|what are|fees)\b/u', $text)) return "fee_info";
-        return "balance";
-    }
-
-    private static function detectFeeType($text) {
-        if (preg_match('/\b(hostel|hostel fee|hostel fees)\b/u', $text)) return "hostel";
-        if (preg_match('/\b(skill assessment|skill assessment fee|assessment fee)\b/u', $text)) return "skill_assessment";
-        if (preg_match('/\b(late registration|late registration fee|late fee)\b/u', $text)) return "late_registration";
-        if (preg_match('/\b(bonafide|bonafide certificate|study certificate|bank estimate|bank estimate certificate|certificate fee|certificate fees|certificate)\b/u', $text)) return "certificate";
-        if (preg_match('/\b(photo copy|photocopy|breakage|breakage fine|byoc|byoc exam|malpractice|malpractice fee|pg application|ph d application|phd application|admission fee|miscellaneous|other fee|other fees)\b/u', $text)) return "misc";
-        if (preg_match('/\b(skill|skill fee|skill fees)\b/u', $text)) return "skill";
-        if (preg_match('/\b(tuition|college fee|college fees|academic fee|program fee|course fee)\b/u', $text)) return "tuition";
-        return "general";
-    }
-
-    private static function isUnclearFeeInfoQuery($text) {
-        return (bool) preg_match('/^(what are my fees|what is my fees|what are my fee|my fees|fees|fee details|what fee)$/u', $text);
-    }
-
-    private static function bucketFeeRows($rows) {
-        $buckets = [
-            "tuition" => ["total" => 0.0, "paid" => 0.0, "label" => "Tuition Fee", "exists" => false],
-            "skill" => ["total" => 0.0, "paid" => 0.0, "label" => "Skill Fee", "exists" => false],
-            "hostel" => ["total" => 0.0, "paid" => 0.0, "label" => "Hostel Fee", "exists" => false],
-            "other" => ["total" => 0.0, "paid" => 0.0, "label" => "Other Fee", "exists" => false]
-        ];
-
-        foreach ($rows as $row) {
-            $name = strtolower((string) ($row["fee_type"] ?? ""));
-            $key = "other";
-            if (strpos($name, "hostel") !== false) $key = "hostel";
-            elseif (strpos($name, "skill") !== false || strpos($name, "late") !== false || strpos($name, "other") !== false) $key = "skill";
-            elseif (strpos($name, "program") !== false || strpos($name, "tuition") !== false || strpos($name, "college") !== false || strpos($name, "academic") !== false) $key = "tuition";
-
-            $buckets[$key]["total"] += (float) ($row["total_fee"] ?? 0);
-            $buckets[$key]["paid"] += (float) ($row["paid"] ?? 0);
-            $buckets[$key]["exists"] = true;
-        }
-
-        foreach ($buckets as $key => $bucket) {
-            $buckets[$key]["balance"] = max(0, $bucket["total"] - $bucket["paid"]);
-        }
-        return $buckets;
-    }
-
-    private static function feeBalanceReply($rows, $feeType, $language) {
-        if ($feeType !== "general") {
-            if (empty($rows[$feeType]["exists"])) return self::notApplicableFeeReply($feeType, $language);
-            return "Your " . strtolower($rows[$feeType]["label"]) . " balance is Rs. " . self::money($rows[$feeType]["balance"]) . ".";
-        }
-
-        $parts = [];
-        $totalPaid = 0.0;
-        $totalBalance = 0.0;
-        foreach (["tuition", "skill", "hostel", "other"] as $key) {
-            if (empty($rows[$key]["exists"])) continue;
-            if ($key === "hostel" && $rows[$key]["total"] <= 0) continue;
-            $parts[] = $rows[$key]["label"] . ": Rs. " . self::money($rows[$key]["total"]) . ", Balance: Rs. " . self::money($rows[$key]["balance"]);
-            $totalPaid += $rows[$key]["paid"];
-            $totalBalance += $rows[$key]["balance"];
-        }
-
-        if (empty($parts)) return "I could not find fee details for your account right now.";
-        return "Here is your fee balance summary. " . implode(". ", $parts) . ". Paid Amount: Rs. " . self::money($totalPaid) . ". Remaining Balance: Rs. " . self::money($totalBalance) . ".";
-    }
-
-    private static function feeInfoReply($rows, $feeType, $language) {
-        if ($feeType !== "general") {
-            if (empty($rows[$feeType]["exists"])) return self::notApplicableFeeReply($feeType, $language);
-            return "Your " . strtolower($rows[$feeType]["label"]) . " amount is Rs. " . self::money($rows[$feeType]["total"]) . ".";
-        }
-
-        $parts = [];
-        foreach (["tuition", "skill", "hostel", "other"] as $key) {
-            if (empty($rows[$key]["exists"])) continue;
-            if ($key === "hostel" && $rows[$key]["total"] <= 0) continue;
-            $parts[] = $rows[$key]["label"] . ": Rs. " . self::money($rows[$key]["total"]);
-        }
-        if (empty($parts)) return "I could not find fee details for your account right now.";
-        return "Here is your fee structure. " . implode(". ", $parts) . ".";
-    }
-
-    private static function paymentNavigationReply($feeType, $language) {
-        $responses = [
-            "tuition" => "To pay the Tuition fee, go to Registration -> Payment -> College/Tuition Fee and proceed to payment.",
-            "hostel" => "To pay the Hostel fee, go to Registration -> Payment -> Hostel Fee, enter your USN or Aadhaar number, and proceed to payment.",
-            "skill_assessment" => "To pay the Skill Assessment fee, go to Registration -> Payment -> Skill/Late-Registration/Other Fee -> select Skill-Assessment and proceed to payment.",
-            "late_registration" => "To pay the Late Registration fee, go to Registration -> Payment -> Skill/Late-Registration/Other Fee -> select Late-Registration and proceed to payment.",
-            "certificate" => "To pay certificate-related fees, go to Registration -> Payment -> Skill/Late-Registration/Other Fee, select the required certificate option, and proceed to payment.",
-            "misc" => "To pay other miscellaneous fees, go to Registration -> Payment -> Skill/Late-Registration/Other Fee, select the required fee option, and proceed to payment.",
-            "skill" => "To pay the Skill Assessment fee, go to Registration -> Payment -> Skill/Late-Registration/Other Fee -> select Skill-Assessment and proceed to payment.",
-            "general" => "To pay fees, go to Registration -> Payment, select the required fee option, and proceed to payment."
-        ];
-        return $responses[$feeType] ?? $responses["general"];
-    }
-
-    private static function receiptReply($language) {
-        return "To download your fee receipt, go to: Registration -> Payment -> Download Receipt.";
-    }
-
-    private static function grievanceReply($text, $language) {
-        if (preg_match('/\b(status|result|track|check|history)\b/u', $text)) return "To check grievance result, go to: Registration -> Payment -> Grievance Result.";
-        return "To raise a payment grievance, go to: Registration -> Payment -> Payment Grievance.";
-    }
-
-    private static function feeTypeClarification($language) {
-        return "Do you mean tuition fee, hostel fee, or skill fee?";
-    }
-
-    private static function notApplicableFeeReply($feeType, $language) {
-        if ($feeType === "hostel") return "Hostel fee is not applicable or not updated for your account.";
-        if ($feeType === "skill") return "Skill fee is not applicable or not updated for your account.";
-        return "This fee category is not updated for your account.";
-    }
     public static function getFinalRegistrationStatus($student_id, $language = "en") {
         $feeData = self::getFeeRows($student_id);
         if (isset($feeData["error"])) {
@@ -351,6 +203,97 @@ class FeeController {
         }
 
         return "Your course registration is complete, but your final registration is still pending because you have an outstanding balance of Rs. " . number_format($totalBalance, 2) . ". Pending items include " . $pendingSummary . ". Please clear the balance to complete final registration.";
+    }
+
+    private static function detectPaymentFeeType($query) {
+        $q = strtolower((string) $query);
+
+        // Hostel
+        if (preg_match('/\b(hostel|hostal|hostl)\b/', $q)) return "hostel";
+
+        // Skill assessment
+        if (preg_match('/\b(skill\s*assessment|skill\s*fee|skill\s*development)\b/', $q)) return "skill_assessment";
+
+        // Late registration
+        if (preg_match('/\b(late\s*reg(istration)?|late\s*fee)\b/', $q)) return "late_registration";
+
+        // Bonafide / study / bank estimate certificate
+        if (preg_match('/\b(bonafide|study\s*cert(ificate)?|bank\s*estimate|certificate)\b/', $q)) return "certificate";
+
+        // Misc: photocopy, breakage, byoc, malpractice, pg application, phd, admission
+        if (preg_match('/\b(photocopy|photo\s*copy|breakage|byoc|malpractice|pg\s*application|phd\s*application|ph\.d|admission\s*fee)\b/', $q)) return "misc";
+
+        // Tuition (default when "tuition", "college fee", "academic fee", or generic "how to pay")
+        if (preg_match('/\b(tuition|college\s*fee|academic\s*fee)\b/', $q)) return "tuition";
+
+        return "generic";
+    }
+
+    public static function getFeePaymentNavigation($query, $language = "en") {
+        $type = self::detectPaymentFeeType($query);
+        $hi = self::isHindi($language);
+        $kn = self::isKannada($language);
+
+        switch ($type) {
+            case "hostel":
+                if ($hi) return "Hostel fee pay karne ke liye Registration → Payment → Hostel Fee pe jaiye, apna USN ya Aadhaar number enter kariye, aur payment proceed kijiye.";
+                if ($kn) return "Hostel fee pay madalu Registration → Payment → Hostel Fee ge hogi, nimma USN athava Aadhaar number enter madi, payment proceed madi.";
+                return "To pay the Hostel fee, go to Registration → Payment → Hostel Fee, enter your USN or Aadhaar number, and proceed to payment.";
+
+            case "skill_assessment":
+                if ($hi) return "Skill Assessment fee ke liye Registration → Payment → Skill/Late-Registration/Other Fee mein jaiye, Skill-Assessment select kijiye aur payment proceed kijiye.";
+                if ($kn) return "Skill Assessment fee pay madalu Registration → Payment → Skill/Late-Registration/Other Fee ge hogi, Skill-Assessment select madi aur payment proceed madi.";
+                return "To pay the Skill Assessment fee, go to Registration → Payment → Skill/Late-Registration/Other Fee, select Skill-Assessment and proceed to payment.";
+
+            case "late_registration":
+                if ($hi) return "Late Registration fee ke liye Registration → Payment → Skill/Late-Registration/Other Fee mein jaiye, Late-Registration select kijiye aur payment proceed kijiye.";
+                if ($kn) return "Late Registration fee pay madalu Registration → Payment → Skill/Late-Registration/Other Fee ge hogi, Late-Registration select madi aur payment proceed madi.";
+                return "To pay the Late Registration fee, go to Registration → Payment → Skill/Late-Registration/Other Fee, select Late-Registration and proceed to payment.";
+
+            case "certificate":
+                if ($hi) return "Certificate fee ke liye Registration → Payment → Skill/Late-Registration/Other Fee mein jaiye, required certificate option select kijiye aur payment proceed kijiye.";
+                if ($kn) return "Certificate fee pay madalu Registration → Payment → Skill/Late-Registration/Other Fee ge hogi, bekaadda certificate option select madi aur payment proceed madi.";
+                return "To pay certificate-related fees, go to Registration → Payment → Skill/Late-Registration/Other Fee, select the required certificate option, and proceed to payment.";
+
+            case "misc":
+                if ($hi) return "Miscellaneous fee ke liye Registration → Payment → Skill/Late-Registration/Other Fee mein jaiye, required fee option select kijiye aur payment proceed kijiye.";
+                if ($kn) return "Miscellaneous fee pay madalu Registration → Payment → Skill/Late-Registration/Other Fee ge hogi, bekaadda fee option select madi aur payment proceed madi.";
+                return "To pay miscellaneous fees, go to Registration → Payment → Skill/Late-Registration/Other Fee, select the required fee option, and proceed to payment.";
+
+            case "tuition":
+            default:
+                if ($hi) return "Tuition fee pay karne ke liye Registration → Payment → College/Tuition Fee mein jaiye aur payment proceed kijiye.";
+                if ($kn) return "Tuition fee pay madalu Registration → Payment → College/Tuition Fee ge hogi aur payment proceed madi.";
+                return "To pay the Tuition fee, go to Registration → Payment → College/Tuition Fee and proceed to payment.";
+        }
+    }
+
+    public static function answerFeeQuery($student_id, $query, $language = "en", $mode = "balance") {
+        switch ($mode) {
+            case "fee_info":
+            case "balance":
+                return self::getFeeBalance($student_id, $language);
+            case "payment_navigation":
+                return self::getFeePaymentNavigation($query, $language);
+            case "receipt":
+                if (self::isHindi($language)) {
+                    return "Fee receipt ke liye Payment Portal open kijiye aur Download Receipt option choose kijiye.";
+                }
+                if (self::isKannada($language)) {
+                    return "Fee receipt ge Payment Portal open madi mattu Download Receipt option choose madi.";
+                }
+                return "To download your fee receipt, open Payment Portal and choose Download Receipt.";
+            case "grievance":
+                if (self::isHindi($language)) {
+                    return "Payment grievance ke liye Registration page open kijiye, Payment par click kijiye, phir Payment Grievance choose karke details submit kijiye.";
+                }
+                if (self::isKannada($language)) {
+                    return "Payment grievance ge Registration page open madi, Payment click madi, Payment Grievance choose madi details submit madi.";
+                }
+                return "To raise a payment grievance, go to Registration, click Payment, choose Payment Grievance, and submit the details.";
+            default:
+                return self::getFeeBalance($student_id, $language);
+        }
     }
 }
 

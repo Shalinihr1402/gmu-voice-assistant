@@ -734,6 +734,21 @@ class StudentController {
             return "SUPPLEMENTARY";
         }
 
+        // RE-REGISTRATION hall ticket — matches real ERP exam type
+        if (preg_match('/\bre[\s\-]?registration\b|\breregistration\b/i', $message)) {
+            return "RE-REGISTRATION";
+        }
+
+        // RESIT hall ticket
+        if (preg_match('/\bresit\b|\bre[\s\-]?sit\b/i', $message)) {
+            return "RESIT";
+        }
+
+        // Revaluation — real ERP 4th exam type
+        if (preg_match('/\b(revaluation|reval|re\s*valu)\b/i', $message)) {
+            return "Revaluation";
+        }
+
         if (strpos($message, "see") !== false || preg_match('/\bs\s*e\s*e\b|\bc\b/i', $message)) {
             return "SEE";
         }
@@ -770,6 +785,46 @@ class StudentController {
         $semStmt->close();
 
         return $semResult["semester"] ?? null;
+    }
+
+    /**
+     * Resolves relative time phrases to an actual semester number.
+     * Explicit ordinals always take priority ("semester 3", "5th sem").
+     * Falls back to student's enrolled semester for relative phrases.
+     */
+    public static function inferRelativeSemester($message, $student_id) {
+        return self::resolveRelativeSemester($message, $student_id);
+    }
+
+    private static function resolveRelativeSemester($message, $student_id) {
+        $explicit = self::extractRequestedSemester($message);
+        if ($explicit !== null) return $explicit;
+
+        $lower = strtolower((string) $message);
+
+        // "this semester" / "current semester" / "current sem"
+        if (preg_match('/\b(this|current)\s*(semester|sem)\b/i', $lower)) {
+            $student = self::getStudentAcademicContext($student_id);
+            $sem = (int) ($student["semester"] ?? 0);
+            return $sem > 0 ? $sem : self::getLatestSemester($student_id);
+        }
+
+        // "last semester" / "previous semester" / "past semester" / "preceding semester"
+        if (preg_match('/\b(last|previous|prev|past|preceding)\s*(semester|sem)\b/i', $lower)) {
+            $student = self::getStudentAcademicContext($student_id);
+            $current = (int) ($student["semester"] ?? 0);
+            if ($current < 1) {
+                $current = (int) (self::getLatestSemester($student_id) ?? 1);
+            }
+            return max(1, $current - 1);
+        }
+
+        // "latest" / "most recent" → highest semester available in results
+        if (preg_match('/\b(latest|most recent)\b/i', $lower)) {
+            return self::getLatestSemester($student_id);
+        }
+
+        return null;
     }
 
     private static function getSemesterRows($student_id, $semester) {
@@ -1031,7 +1086,7 @@ class StudentController {
     /* ================= CALCULATE SGPA ================= */
 
     public static function getSGPA($student_id, $message = "", $language = "en") {
-        $requestedSemester = self::extractRequestedSemester($message);
+        $requestedSemester = self::resolveRelativeSemester($message, $student_id);
         $student = self::getStudentAcademicContext($student_id);
         $currentSemester = (int) ($student["semester"] ?? 0);
         $semester = $requestedSemester ?: ($currentSemester ?: self::getLatestSemester($student_id));
@@ -1050,58 +1105,99 @@ class StudentController {
         $backlogs = $performance["backlogs"];
 
         if (!empty($backlogs)) {
-            if (self::isKannada($language)) {
-                return "ನಿಮ್ಮ {$semester}ನೇ ಸೆಮಿಸ್ಟರ್ SGPA {$sgpa}. ನೀವು {$totalCredits} ಕ್ರೆಡಿಟ್ ಗಳಿಸಿದ್ದೀರಿ. ನಿಮ್ಮ ಫಲಿತಾಂಶ ಫೇಲ್ ಆಗಿದೆ, ಏಕೆಂದರೆ ಇನ್ನೂ " . count($backlogs) . " ಬ್ಯಾಕ್‌ಲಾಗ್ ಇದೆ. ಒಳಗೊಂಡ ವಿಷಯಗಳು: " . implode(", ", array_slice($backlogs, 0, 3)) . ".";
+            $backlogCount = count($backlogs);
+            $backlogList = implode(", ", array_slice($backlogs, 0, 3));
+            if (self::isHindi($language)) {
+                return "Semester {$semester} mein aapka SGPA {$sgpa} hai. Aapke paas {$backlogCount} backlog" . ($backlogCount > 1 ? "s hain" : " hai") . ", jisme " . $backlogList . " shamil hain. Himmat mat haaro — har topper ne kisi na kisi baar takleef uthaya hai. Smart tarike se padho, backlogs clear karo aur wapas aao aur bhi mazboot hokar!";
             }
-
-            return "In semester {$semester}, your SGPA is {$sgpa}. You have earned {$totalCredits} credits. Your result status is fail because you still have " . count($backlogs) . " backlog" . (count($backlogs) > 1 ? "s" : "") . ", including " . implode(", ", array_slice($backlogs, 0, 3)) . ".";
+            if (self::isKannada($language)) {
+                return "Nimma semester {$semester} SGPA {$sgpa}. Nimge {$backlogCount} backlog" . ($backlogCount > 1 ? "galu ive" : " ide") . ": " . $backlogList . ". Dhairya bidalabedi — pratiyobba topper challenge face madiddarey. Smart aagi odi, backlogs clear madi, innashu strong aagi hogle!";
+            }
+            return "In semester {$semester}, your SGPA is {$sgpa}. You have {$backlogCount} backlog" . ($backlogCount > 1 ? "s" : "") . " in " . $backlogList . ". Don't lose heart — every topper has faced challenges. Study smart, clear your backlogs, and you will come back even stronger!";
         }
 
-        if ($sgpa >= 9) {
-            $performanceLine = "You passed with outstanding performance.";
-        } elseif ($sgpa >= 8) {
-            $performanceLine = "You passed with excellent performance.";
-        } elseif ($sgpa >= 7) {
-            $performanceLine = "You passed with good performance.";
-        } elseif ($sgpa >= 6) {
-            $performanceLine = "You passed with satisfactory performance.";
-        } else {
-            $performanceLine = "You passed, but you should improve next semester.";
+        // Performance commentary based on SGPA bands
+        if (self::isHindi($language)) {
+            if ($sgpa >= 9.5) {
+                $performanceLine = "Waah! Yeh toh kamaal ka performance hai — aap apni class ke top mein hain. Aise hi jabardast kaam karte raho!";
+            } elseif ($sgpa >= 9) {
+                $performanceLine = "Excellent! Aap distinction level par hain. Itna accha kaam karte raho aur aap aur bhi upar jaoge!";
+            } elseif ($sgpa >= 8) {
+                $performanceLine = "First class result! Aapko apne aap par garv hona chahiye. Thoda aur push karo aur distinction aa jayega!";
+            } elseif ($sgpa >= 7) {
+                $performanceLine = "Achha kiya! Thoda aur focus karoge toh first class asaani se aa jayega.";
+            } elseif ($sgpa >= 6) {
+                $performanceLine = "Aap pass hain. Apne weak subjects par zyada dhyan do — improvement zaroor hoga.";
+            } else {
+                $performanceLine = "Aap pass hain, lekin is baar serious improvement chahiye. Mentor se milkar ek clear plan banao.";
+            }
+            return "Semester {$semester} mein aapka SGPA {$sgpa} hai. Aapne {$totalCredits} credits haasil kiye hain. {$performanceLine}";
         }
 
         if (self::isKannada($language)) {
-            $kannadaPerformanceLine = "ನೀವು  ಪಾಸ್ ಆಗಿದ್ದೀರಿ.";
-            if ($sgpa >= 9 || $sgpa >= 8) {
-                $kannadaPerformanceLine = "ನೀವು ಅತ್ಯುತ್ತಮ ಪ್ರದರ್ಶನದೊಂದಿಗೆ ಪಾಸ್ ಆಗಿದ್ದೀರಿ.";
+            if ($sgpa >= 9.5) {
+                $performanceLine = "Wah! Ee performance absolutely brilliant — neevu nimma class topalli iddira. Ee excellent work munduvarisi!";
+            } elseif ($sgpa >= 9) {
+                $performanceLine = "Excellent! Neevu distinction level nalli iddira. Ee pace maintain madi — neevu innu heechchu saadhisabahudu!";
+            } elseif ($sgpa >= 8) {
+                $performanceLine = "First class result! Neevu nimma bagge garva padabeku. Innu swalpa push madi — distinction kaigochutte!";
             } elseif ($sgpa >= 7) {
-                $kannadaPerformanceLine = "ನೀವು ಉತ್ತಮ ಪ್ರದರ್ಶನದೊಂದಿಗೆ ಪಾಸ್ ಆಗಿದ್ದೀರಿ.";
+                $performanceLine = "Channagi madiddira! Innu focus madidare first class asanavaguttide.";
             } elseif ($sgpa >= 6) {
-                $kannadaPerformanceLine = "ನೀವು ತೃಪ್ತಿಕರ ಪ್ರದರ್ಶನದೊಂದಿಗೆ ಪಾಸ್ ಆಗಿದ್ದೀರಿ.";
+                $performanceLine = "Neevu pass agiddira. Weak subjects mele hechchu gaman kodi — improvement aaguttade.";
             } else {
-                $kannadaPerformanceLine = "ನೀವು ಪಾಸ್ ಆಗಿದ್ದೀರಿ, ಆದರೆ ಮುಂದಿನ ಸೆಮಿಸ್ಟರ್‌ನಲ್ಲಿ ಇನ್ನಷ್ಟು ಉತ್ತಮಪಡಿಸಬೇಕು.";
+                $performanceLine = "Neevu pass agiddira, aadare serious improvement beku. Mentor jothe matadi clear plan madi.";
             }
-
-            return "ನಿಮ್ಮ {$semester}ನೇ ಸೆಮಿಸ್ಟರ್ SGPA {$sgpa}. ನೀವು {$totalCredits} ಕ್ರೆಡಿಟ್ ಗಳಿಸಿದ್ದೀರಿ. {$kannadaPerformanceLine}";
+            return "Nimma semester {$semester} SGPA {$sgpa}. Neevu {$totalCredits} credits galisiddira. {$performanceLine}";
         }
 
-        return "In semester {$semester}, your SGPA is {$sgpa}. You have earned {$totalCredits} credits. {$performanceLine} You do not have any backlog in this semester.";
+        if ($sgpa >= 9.5) {
+            $performanceLine = "Absolutely brilliant! You are in the top of your class — keep up this outstanding work!";
+        } elseif ($sgpa >= 9) {
+            $performanceLine = "Excellent work! You are performing at distinction level. Keep this pace going — you can go even higher!";
+        } elseif ($sgpa >= 8) {
+            $performanceLine = "First class result! You should be proud of yourself. Push just a little more and distinction is within reach!";
+        } elseif ($sgpa >= 7) {
+            $performanceLine = "Good job! A bit more focus and first class is easily achievable.";
+        } elseif ($sgpa >= 6) {
+            $performanceLine = "You have passed. Focus more on your weaker subjects and you will see real improvement.";
+        } else {
+            $performanceLine = "You have passed, but this semester needs serious attention. Connect with your mentor and build a clear improvement plan.";
+        }
+
+        return "In semester {$semester}, your SGPA is {$sgpa}. You have earned {$totalCredits} credits. {$performanceLine}";
     }
 
-    public static function getCGPA($student_id, $language = "en") {
+    public static function getCGPA($student_id, $query = "", $language = "en") {
         global $conn;
 
-        $stmt = $conn->prepare("
-            SELECT semester, grade_point, credits
-            FROM results
-            WHERE student_id = ?
-            ORDER BY semester ASC
-        ");
+        // If a specific semester is requested, compute cumulative GPA up through that semester.
+        $upToSemester = self::resolveRelativeSemester($query, $student_id);
 
-        if (!$stmt) {
-            return self::isKannada($language) ? "CGPA ಮಾಹಿತಿ ತರುತ್ತಿರುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while fetching CGPA.";
+        if ($upToSemester !== null) {
+            $stmt = $conn->prepare("
+                SELECT semester, grade_point, credits
+                FROM results
+                WHERE student_id = ? AND semester <= ?
+                ORDER BY semester ASC
+            ");
+            if (!$stmt) {
+                return self::isKannada($language) ? "CGPA ಮಾಹಿತಿ ತರುತ್ತಿರುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while fetching CGPA.";
+            }
+            $stmt->bind_param("ii", $student_id, $upToSemester);
+        } else {
+            $stmt = $conn->prepare("
+                SELECT semester, grade_point, credits
+                FROM results
+                WHERE student_id = ?
+                ORDER BY semester ASC
+            ");
+            if (!$stmt) {
+                return self::isKannada($language) ? "CGPA ಮಾಹಿತಿ ತರುತ್ತಿರುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while fetching CGPA.";
+            }
+            $stmt->bind_param("i", $student_id);
         }
 
-        $stmt->bind_param("i", $student_id);
         $stmt->execute();
         $result = $stmt->get_result();
 
@@ -1133,7 +1229,8 @@ class StudentController {
         $semesterCount = count($semesterSet);
 
         if (self::isKannada($language)) {
-            $reply = "ನಿಮ್ಮ current CGPA {$cgpa}. ಇದು {$semesterCount} ಸೆಮಿಸ್ಟರ್ ಆಧಾರದಲ್ಲಿ ಲೆಕ್ಕಿಸಲಾಗಿದೆ.";
+            $semNote = $upToSemester !== null ? " (semester {$upToSemester} ವರೆಗೆ)" : "";
+            $reply = "ನಿಮ್ಮ CGPA{$semNote} {$cgpa}. ಇದು {$semesterCount} ಸೆಮಿಸ್ಟರ್ ಆಧಾರದಲ್ಲಿ ಲೆಕ್ಕಿಸಲಾಗಿದೆ.";
             if ($backlogCount > 0) {
                 $reply .= " ಈಗ ನಿಮಗೆ {$backlogCount} uncleared backlog" . ($backlogCount > 1 ? "ಗಳು ಇವೆ." : " ಇದೆ.");
             } else {
@@ -1142,7 +1239,10 @@ class StudentController {
             return $reply;
         }
 
-        $reply = "Your current CGPA is {$cgpa}, calculated across {$semesterCount} semester" . ($semesterCount > 1 ? "s" : "") . ".";
+        $throughNote = $upToSemester !== null
+            ? " through semester {$upToSemester}"
+            : "";
+        $reply = "Your CGPA{$throughNote} is {$cgpa}, calculated across {$semesterCount} semester" . ($semesterCount > 1 ? "s" : "") . ".";
 
         if ($backlogCount > 0) {
             $reply .= " You currently have {$backlogCount} uncleared backlog" . ($backlogCount > 1 ? "s" : "") . ".";
@@ -1154,7 +1254,7 @@ class StudentController {
     }
 
     public static function getBacklogStatus($student_id, $message = "", $language = "en") {
-        $requestedSemester = self::extractRequestedSemester($message);
+        $requestedSemester = self::resolveRelativeSemester($message, $student_id);
 
         if ($requestedSemester) {
             $performance = self::buildSemesterPerformance($student_id, $requestedSemester);
@@ -1226,35 +1326,43 @@ class StudentController {
         global $conn;
 
         $requestedExamType = self::extractExamType($message);
+        $requestedSemester = self::resolveRelativeSemester($message, $student_id);
 
-        if ($requestedExamType) {
+        if ($requestedExamType && $requestedSemester) {
             $stmt = $conn->prepare("
                 SELECT exam_type, semester, academic_year, status, status_message
                 FROM hall_tickets
-                WHERE student_id = ?
-                AND exam_type = ?
-                ORDER BY hall_ticket_id DESC
-                LIMIT 1
+                WHERE student_id = ? AND exam_type = ? AND semester = ?
+                ORDER BY hall_ticket_id DESC LIMIT 1
             ");
-
-            if (!$stmt) {
-                return self::isKannada($language) ? "Hall ticket ಮಾಹಿತಿ ಪರಿಶೀಲಿಸುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while checking hall ticket status.";
-            }
-
+            if (!$stmt) return self::isKannada($language) ? "Hall ticket ಮಾಹಿತಿ ಪರಿಶೀಲಿಸುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while checking hall ticket status.";
+            $stmt->bind_param("isi", $student_id, $requestedExamType, $requestedSemester);
+        } elseif ($requestedExamType) {
+            $stmt = $conn->prepare("
+                SELECT exam_type, semester, academic_year, status, status_message
+                FROM hall_tickets
+                WHERE student_id = ? AND exam_type = ?
+                ORDER BY hall_ticket_id DESC LIMIT 1
+            ");
+            if (!$stmt) return self::isKannada($language) ? "Hall ticket ಮಾಹಿತಿ ಪರಿಶೀಲಿಸುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while checking hall ticket status.";
             $stmt->bind_param("is", $student_id, $requestedExamType);
+        } elseif ($requestedSemester) {
+            $stmt = $conn->prepare("
+                SELECT exam_type, semester, academic_year, status, status_message
+                FROM hall_tickets
+                WHERE student_id = ? AND semester = ?
+                ORDER BY hall_ticket_id DESC LIMIT 1
+            ");
+            if (!$stmt) return self::isKannada($language) ? "Hall ticket ಮಾಹಿತಿ ಪರಿಶೀಲಿಸುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while checking hall ticket status.";
+            $stmt->bind_param("ii", $student_id, $requestedSemester);
         } else {
             $stmt = $conn->prepare("
                 SELECT exam_type, semester, academic_year, status, status_message
                 FROM hall_tickets
                 WHERE student_id = ?
-                ORDER BY hall_ticket_id DESC
-                LIMIT 1
+                ORDER BY hall_ticket_id DESC LIMIT 1
             ");
-
-            if (!$stmt) {
-                return self::isKannada($language) ? "Hall ticket ಮಾಹಿತಿ ಪರಿಶೀಲಿಸುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while checking hall ticket status.";
-            }
-
+            if (!$stmt) return self::isKannada($language) ? "Hall ticket ಮಾಹಿತಿ ಪರಿಶೀಲಿಸುವಾಗ ಸಿಸ್ಟಮ್ ದೋಷ ಉಂಟಾಯಿತು." : "System error while checking hall ticket status.";
             $stmt->bind_param("i", $student_id);
         }
 
@@ -1495,7 +1603,7 @@ class StudentController {
         global $conn;
 
         $normalizedMessage = self::normalizeLookupText($message);
-        $requestedSemester = self::extractRequestedSemester($message);
+        $requestedSemester = self::resolveRelativeSemester($message, $student_id);
         $genericAttendancePhrases = [
             "individual subject",
             "subject wise",
@@ -1575,6 +1683,35 @@ class StudentController {
                 : "Attendance data for semester {$semester} is not available.";
         }
 
+        // Past-semester fallback: if the current semester has attendance rows but the
+        // specific course was not found there (bestScore < 60), search all semesters so
+        // a student in sem 5 can still ask about sem 4 courses like "Java attendance".
+        if ((!$bestMatch || $bestScore < 60) && $requestedSemester === null) {
+            $pastStmt = $conn->prepare("
+                SELECT c.course_title, c.course_code, c.semester,
+                       a.total_classes, a.attended_classes, a.percentage
+                FROM attendance a
+                JOIN courses c ON a.course_id = c.course_id
+                WHERE a.student_id = ?
+            ");
+            if ($pastStmt) {
+                $pastStmt->bind_param("i", $student_id);
+                $pastStmt->execute();
+                $pastResult = $pastStmt->get_result();
+                while ($pastRow = $pastResult->fetch_assoc()) {
+                    if (in_array($pastRow["course_title"], $availableSubjects, true)) {
+                        continue; // already scored in current-semester pass
+                    }
+                    $score = self::scoreCourseMatch($message, $pastRow["course_title"], $pastRow["course_code"] ?? "");
+                    if ($score > $bestScore) {
+                        $bestScore = $score;
+                        $bestMatch = $pastRow;
+                    }
+                }
+                $pastStmt->close();
+            }
+        }
+
         $cleanSubjectHint = self::applyCourseAliases(self::stripCourseQueryNoise($message));
         $askedGenerically = false;
 
@@ -1597,15 +1734,21 @@ class StudentController {
 
         if ($bestMatch && $bestScore >= 60) {
             $percentage = round($bestMatch['percentage'], 2);
+            $matchSem = (int) ($bestMatch['semester'] ?? $semester);
+            $semNote = ($matchSem > 0 && $matchSem !== $semester)
+                ? (self::isHindi($language)
+                    ? " (सेमेस्टर {$matchSem})"
+                    : " (semester {$matchSem})")
+                : "";
 
             if (self::isHindi($language)) {
-                $response = $bestMatch['course_title'] . " में आपकी उपस्थिति $percentage प्रतिशत है। आपने "
+                $response = $bestMatch['course_title'] . "{$semNote} में आपकी उपस्थिति $percentage प्रतिशत है। आपने "
                     . $bestMatch['total_classes'] . " कक्षाओं में से " . $bestMatch['attended_classes'] . " कक्षाओं में उपस्थिति दी है।";
             } else {
                 $response = self::isKannada($language)
-                            ? $bestMatch['course_title'] . " ವಿಷಯದಲ್ಲಿ ನಿಮ್ಮ attendance $percentage ಪ್ರತಿಶತ. ನೀವು " .
+                            ? $bestMatch['course_title'] . "{$semNote} ವಿಷಯದಲ್ಲಿ ನಿಮ್ಮ attendance $percentage ಪ್ರತಿಶತ. ನೀವು " .
                               $bestMatch['total_classes'] . " classesಗಳಲ್ಲಿ " . $bestMatch['attended_classes'] . " classes attend ಮಾಡಿದ್ದೀರಿ."
-                            : "Your attendance in " . $bestMatch['course_title'] .
+                            : "Your attendance in " . $bestMatch['course_title'] . "{$semNote}" .
                               " is $percentage percent. You attended " .
                               $bestMatch['attended_classes'] . " out of " .
                               $bestMatch['total_classes'] . " classes.";
@@ -1633,6 +1776,61 @@ class StudentController {
             : "I could not find attendance for that subject in semester {$semester}. Available subjects include {$preview}.";
     }
 
+    // Returns all courses from $rows whose match score >= $threshold, sorted best-first.
+    private static function collectTopCourseMatches($message, $rows, $threshold = 80) {
+        $scored = [];
+        foreach ($rows as $row) {
+            $score = self::scoreCourseMatch($message, $row["course_title"] ?? "", $row["course_code"] ?? "");
+            if ($score >= $threshold) {
+                $scored[] = ["row" => $row, "score" => $score];
+            }
+        }
+        usort($scored, fn($a, $b) => $b["score"] <=> $a["score"]);
+        return $scored;
+    }
+
+    // Builds a "Did you mean X or Y?" reply when 2+ courses match with high confidence.
+    // Includes pending_intent and pending_titles so VapiToolService can resolve the
+    // next user reply through conversation memory.
+    private static function buildMultiDisambiguationReply($pendingIntent, $topMatches, $language = "en") {
+        $labels = array_map(
+            fn($m) => self::getCoursePromptLabel($m["row"]["course_title"] ?? ""),
+            array_slice($topMatches, 0, 3)
+        );
+        $titles = array_map(
+            fn($m) => $m["row"]["course_title"] ?? "",
+            array_slice($topMatches, 0, 3)
+        );
+
+        if (count($labels) === 2) {
+            $optionStr = $labels[0] . " or " . $labels[1];
+        } else {
+            $last = array_pop($labels);
+            $optionStr = implode(", ", $labels) . ", or " . $last;
+        }
+
+        if (self::isHindi($language)) {
+            $reply = "क्या आपका मतलब {$optionStr} था? कृपया बताइए।";
+        } elseif (self::isKannada($language)) {
+            $reply = "Nimma artha {$optionStr} aa? Dayavittu yavudu beku antha heli.";
+        } else {
+            $reply = "Did you mean {$optionStr}? Please say which one.";
+        }
+
+        return [
+            "reply"          => $reply,
+            "intent"         => "COURSE_DISAMBIGUATION",
+            "pending_intent" => $pendingIntent,
+            "pending_titles" => array_values($titles),
+            "route"          => "clarification",
+            "language"       => $language,
+            "client_action"  => null,
+            "suggestion"     => null,
+            "quick_actions"  => [],
+            "debug"          => ["source" => "student_controller", "reply_source" => "multi_disambiguation"]
+        ];
+    }
+
     public static function getSubjectAttendanceClarification($student_id, $message, $language = "en") {
         global $conn;
 
@@ -1641,7 +1839,7 @@ class StudentController {
             return null;
         }
 
-        $requestedSemester = self::extractRequestedSemester($message);
+        $requestedSemester = self::resolveRelativeSemester($message, $student_id);
         $semester = (int) ($requestedSemester ?: ($student["semester"] ?? 0));
 
         $stmt = $conn->prepare("
@@ -1679,6 +1877,13 @@ class StudentController {
         }
 
         $stmt->close();
+
+        // Multi-match: if 2+ courses score >= 80, existing maybeBuildClarificationFromScores
+        // will never fire (it bails for scores >= 90). Catch the tie here explicitly.
+        $topMatches = self::collectTopCourseMatches($message, $rows, 80);
+        if (count($topMatches) >= 2) {
+            return self::buildMultiDisambiguationReply("GET_SUBJECT_ATTENDANCE", $topMatches, $language);
+        }
 
         $shortQueryCandidate = self::findShortQueryClarificationCandidate("GET_SUBJECT_ATTENDANCE", $message, $rows, $language);
         if (is_array($shortQueryCandidate)) {
@@ -1756,6 +1961,82 @@ class StudentController {
         return $status;
     }
 
+    // ── certificate helpers ───────────────────────────────────────────────────
+
+    private static function certIsDownloadQuery(string $text): bool {
+        return (bool) preg_match('/\b(download|how to get|get certificate|certificate kaise|certificate download|torisu|download maduvage)\b/i', $text);
+    }
+
+    private static function certIsCountQuery(string $text): bool {
+        return (bool) preg_match('/\b(how many|count|kitne|eshtu|yeshtu|total certificate)\b/i', $text);
+    }
+
+    private static function certIsGradeQuery(string $text): bool {
+        return (bool) preg_match('/\b(grade|marks?|score|what grade|certificate grade|grade bolo|grade torisu|grade hegide)\b/i', $text);
+    }
+
+    private static function certExtractSemFilter(string $text): ?int {
+        if (preg_match('/\b(?:sem(?:ester)?\.?\s*|semester\s*)(\d)\b/i', $text, $m)) return (int) $m[1];
+        if (preg_match('/\b(\d)(?:st|nd|rd|th)\s+sem(?:ester)?\b/i', $text, $m)) return (int) $m[1];
+        return null;
+    }
+
+    private static function certExtractYearFilter(string $text): ?string {
+        if (preg_match('/\b(20\d{2}[-–]\d{2})\b/', $text, $m)) return $m[1];
+        if (preg_match('/\b(20\d{2})\b/', $text, $m)) {
+            $y = (int) $m[1]; return "{$y}-" . substr($y + 1, 2);
+        }
+        return null;
+    }
+
+    private static function certExtractSeasonFilter(string $text): ?string {
+        if (preg_match('/\b(odd|jan(?:uary)?)\b/i', $text)) return "ODD";
+        if (preg_match('/\b(even|june?|july)\b/i', $text)) return "EVEN";
+        return null;
+    }
+
+    private static function certApplyFilters(array $records, ?int $sem, ?string $year, ?string $season): array {
+        return array_values(array_filter($records, function ($r) use ($sem, $year, $season) {
+            if ($sem !== null && (int)($r["sem"] ?? 0) !== $sem) return false;
+            if ($year !== null && ($r["academic_year"] ?? "") !== $year) return false;
+            if ($season !== null && strtoupper($r["season"] ?? "") !== $season) return false;
+            return true;
+        }));
+    }
+
+    private static function certBuildListReply(array $records, string $language, string $context = ""): string {
+        $count = count($records);
+        if ($count === 0) {
+            return self::isKannada($language)
+                ? "ಆ filter ಗೆ ಯಾವುದೇ certificate ಸಿಗಲಿಲ್ಲ."
+                : (self::isHindi($language) ? "उस filter के लिए कोई certificate नहीं मिला।" : "No certificates found for that filter.");
+        }
+        $lines = [];
+        foreach ($records as $r) {
+            $subj = $r["subject"] ?? "Unknown";
+            $grade = $r["grade"] ?? "";
+            $yr = $r["academic_year"] ?? "";
+            $sn = $r["season"] ?? "";
+            $sem = $r["sem"] ?? "";
+            $date = $r["date"] ?? "";
+            $line = $subj;
+            if ($grade) $line .= " — Grade: {$grade}";
+            if ($yr || $sn || $sem) $line .= " ({$yr} {$sn} Sem{$sem})";
+            if ($date) $line .= " issued {$date}";
+            $lines[] = $line;
+        }
+        $list = implode("; ", $lines);
+        if (self::isKannada($language)) {
+            return ($context ? "{$context}: " : "") . "ಒಟ್ಟು {$count} certificate: {$list}.";
+        }
+        if (self::isHindi($language)) {
+            return ($context ? "{$context}: " : "") . "कुल {$count} certificate: {$list}.";
+        }
+        return ($context ? "{$context}: " : "") . "{$count} certificate" . ($count > 1 ? "s" : "") . ": {$list}.";
+    }
+
+    // ── main method ───────────────────────────────────────────────────────────
+
     public static function getCertificateStatus($student_id, $message = "", $language = "en") {
         $result = CertificateService::fetchCertificates();
         $records = [];
@@ -1763,7 +2044,6 @@ class StudentController {
         if (($result["status"] ?? "error") !== "success") {
             $errorMessage = $result["message"] ?? "Unable to fetch certificate information right now.";
             $normalizedError = strtolower(trim((string) $errorMessage));
-            $requestedSubject = CertificateService::extractRequestedSubject($message);
             $hasLiveSessionIssue =
                 strpos($normalizedError, "cookie") !== false ||
                 strpos($normalizedError, "session") !== false ||
@@ -1772,34 +2052,15 @@ class StudentController {
 
             if ($hasLiveSessionIssue) {
                 $records = CertificateService::getFallbackCertificates();
-
                 if (empty($records)) {
-                    if (self::isKannada($language)) {
-                        if ($requestedSubject !== "") {
-                            return "{$requestedSubject} competency certificate ನ live status ಈಗ ಪರಿಶೀಲಿಸಲು ಆಗುತ್ತಿಲ್ಲ. ERP ನಲ್ಲಿ Competency Certificate page ತೆರೆದು login session ಸಕ್ರಿಯವಾಗಿರುವಾಗ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.";
-                        }
-
-                        return "Competency certificate ವಿವರಗಳು ERP page ನಲ್ಲಿ student login ನಂತರ ಲಭ್ಯವಾಗುತ್ತವೆ. ನಿಮ್ಮ live certificate list ಈಗ ಸಂಪರ್ಕದಲ್ಲಿಲ್ಲ, ಆದ್ದರಿಂದ ದಯವಿಟ್ಟು ERP ನಲ್ಲಿ Competency Certificate page ತೆರೆದು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.";
-                    }
-
-                    if (self::isHindi($language)) {
-                        if ($requestedSubject !== "") {
-                            return "मैं अभी {$requestedSubject} competency certificate की live स्थिति verify नहीं कर पा रहा हूं। कृपया ERP में Competency Certificate page खोलकर login session active होने के बाद फिर से पूछिए।";
-                        }
-
-                        return "Competency certificate की जानकारी student login के बाद ERP page पर उपलब्ध होती है। मैं अभी आपकी live certificate list तक नहीं पहुंच पा रहा हूं, इसलिए कृपया ERP में Competency Certificate page एक बार खोलकर फिर से पूछिए।";
-                    }
-
-                    if ($requestedSubject !== "") {
-                        return "I can't verify the live competency certificate status for {$requestedSubject} right now. Please open the ERP Competency Certificate page and try again after your ERP session is active.";
-                    }
-
-                    return "Competency certificate details are available from the ERP Competency Certificate page after student login. I can't access your live certificate list right now, so please open that ERP page once and try again.";
+                    if (self::isKannada($language)) return "ERP session active ಇಲ್ಲ, ಆದ್ದರಿಂದ live certificate list ತೋರಿಸಲು ಸಾಧ್ಯವಿಲ್ಲ. ERP ನಲ್ಲಿ Competency Certificate page ತೆರೆದು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.";
+                    if (self::isHindi($language)) return "ERP session active नहीं है इसलिए live certificate list नहीं दिखा सकता। कृपया ERP में Competency Certificate page खोलकर फिर से पूछिए।";
+                    return "Your ERP session isn't active, so I can't fetch the live certificate list. Please open the Competency Certificate page in ERP and try again.";
                 }
             } else {
                 return self::isKannada($language)
-                    ? "Certificate ಮಾಹಿತಿ ಈಗ ಸಿಗುತ್ತಿಲ್ಲ. {$errorMessage}"
-                    : "I could not fetch certificate information right now.";
+                    ? "Certificate ಮಾಹಿತಿ ಈಗ ಸಿಗುತ್ತಿಲ್ಲ."
+                    : (self::isHindi($language) ? "अभी certificate जानकारी नहीं मिल रही।" : "I could not fetch certificate information right now.");
             }
         } else {
             $records = $result["records"] ?? [];
@@ -1808,100 +2069,106 @@ class StudentController {
         if (empty($records)) {
             return self::isKannada($language)
                 ? "ಈಗ ಯಾವುದೇ competency certificate ಸಿಗಲಿಲ್ಲ."
-                : (
-                    self::isHindi($language)
-                        ? "मुझे अभी कोई competency certificate नहीं मिला।"
-                        : "I could not find any competency certificates right now."
-                );
+                : (self::isHindi($language) ? "अभी कोई competency certificate नहीं मिला।" : "I could not find any competency certificates right now.");
         }
 
-        $subjectMatches = CertificateService::matchCertificatesBySubject($records, $message);
-        if (!empty($subjectMatches)) {
-            $record = $subjectMatches[0];
-            $subject = $record["subject"] ?? "this subject";
-            $code = $record["code"] ?? "";
-            $status = self::localizeCertificateStatus($record["status"] ?? "available", $language);
-            $date = $record["date"] ?? "";
+        $text = strtolower($message);
 
+        // ── Download guidance ─────────────────────────────────────────────────
+        if (self::certIsDownloadQuery($text)) {
+            if (self::isKannada($language)) return "ERP ತೆರೆದು Competency Certificate page ಗೆ ಹೋಗಿ. ನಿಮ್ಮ certificates ಪಟ್ಟಿಯಲ್ಲಿ CERTIFICATE button ಕ್ಲಿಕ್ ಮಾಡಿದರೆ PDF ಡೌನ್‌ಲೋಡ್ ಆಗುತ್ತದೆ.";
+            if (self::isHindi($language)) return "ERP में Competency Certificate page खोलिए। अपनी certificate list में CERTIFICATE button click करने पर PDF download हो जाएगा।";
+            return "Open the ERP Competency Certificate page. In your certificate list, click the CERTIFICATE button next to the subject to download the PDF.";
+        }
+
+        // ── Extract filters from the query ────────────────────────────────────
+        $semFilter    = self::certExtractSemFilter($text);
+        $yearFilter   = self::certExtractYearFilter($text);
+        $seasonFilter = self::certExtractSeasonFilter($text);
+        $filtered     = self::certApplyFilters($records, $semFilter, $yearFilter, $seasonFilter);
+        $pool         = (empty($filtered) && $semFilter === null && $yearFilter === null && $seasonFilter === null) ? $records : $filtered;
+
+        // ── Subject-specific grade query ──────────────────────────────────────
+        $subjectMatches = CertificateService::matchCertificatesBySubject($pool, $message);
+        if (!empty($subjectMatches)) {
+            $record  = $subjectMatches[0];
+            $subject = $record["subject"] ?? "this subject";
+            $code    = $record["code"] ?? "";
+            $grade   = $record["grade"] ?? "N/A";
+            $date    = $record["date"] ?? "";
+            $yr      = $record["academic_year"] ?? "";
+            $sn      = $record["season"] ?? "";
+            $sem     = $record["sem"] ?? "";
+
+            if (self::certIsGradeQuery($text)) {
+                if (self::isKannada($language)) return "{$subject} certificate ನ grade {$grade}. ({$yr} {$sn} Sem{$sem}, {$date})";
+                if (self::isHindi($language)) return "{$subject} certificate में grade {$grade} है। ({$yr} {$sn} Sem{$sem}, {$date})";
+                return "Your grade in {$subject} is {$grade} ({$yr} {$sn} Sem{$sem}, issued {$date}).";
+            }
+
+            // General subject info
+            $codeStr = $code ? " ({$code})" : "";
             if (self::isKannada($language)) {
-                $reply = "{$subject}";
-                if ($code !== "") {
-                    $reply .= " ({$code})";
-                }
-                $reply .= " certificate status {$status}.";
-                if ($date !== "") {
-                    $reply .= " Date {$date}.";
-                }
-                if (!empty($record["download_url"])) {
-                    $reply .= " Download link ERP page ನಲ್ಲಿ ಲಭ್ಯವಿದೆ.";
-                }
+                $reply = "{$subject}{$codeStr} certificate — Grade: {$grade}, {$yr} {$sn} Sem{$sem}.";
+                if ($date) $reply .= " Date: {$date}.";
+                $reply .= " Download ಮಾಡಲು ERP Competency Certificate page ನಲ್ಲಿ CERTIFICATE button ಕ್ಲಿಕ್ ಮಾಡಿ.";
                 return $reply;
             }
-
-            $reply = self::isHindi($language)
-                ? "{$subject} certificate की स्थिति {$status} है।"
-                : "The certificate for {$subject}";
-            if ($code !== "") {
-                $reply = self::isHindi($language)
-                    ? "{$subject} ({$code}) certificate की स्थिति {$status} है।"
-                    : $reply . " ({$code})";
+            if (self::isHindi($language)) {
+                $reply = "{$subject}{$codeStr} certificate — Grade: {$grade}, {$yr} {$sn} Sem{$sem}.";
+                if ($date) $reply .= " Date: {$date}.";
+                $reply .= " Download के लिए ERP Competency Certificate page में CERTIFICATE button click करें।";
+                return $reply;
             }
-            if ($date !== "") {
-                $reply .= self::isHindi($language) ? " तारीख {$date} है।" : " Date: {$date}.";
-            }
-            if (!empty($record["download_url"])) {
-                $reply .= self::isHindi($language)
-                    ? " डाउनलोड लिंक ERP page पर उपलब्ध है।"
-                    : " The download link is available on the ERP page.";
-            }
+            $reply = "{$subject}{$codeStr} — Grade: {$grade}, {$yr} {$sn} Sem{$sem}";
+            if ($date) $reply .= ", issued {$date}";
+            $reply .= ". To download, click the CERTIFICATE button on the ERP Competency Certificate page.";
             return $reply;
         }
 
-        $totalCount = count($records);
-        $availableRecords = array_values(array_filter($records, function ($record) {
-            return ($record["status"] ?? "") === "available";
-        }));
-        $previewRecords = !empty($availableRecords) ? $availableRecords : $records;
-        $previewSubjects = array_map(function ($record) {
-            return $record["subject"] ?? "";
-        }, array_slice($previewRecords, 0, 4));
-        $previewSubjects = array_values(array_filter($previewSubjects, function ($value) {
-            return trim((string) $value) !== "";
-        }));
-        $preview = implode(", ", $previewSubjects);
-
-        if (self::isKannada($language)) {
-            $reply = "ನಿಮಗೆ ಒಟ್ಟು {$totalCount} competency certificate ದಾಖಲೆಗಳು ಸಿಕ್ಕಿವೆ.";
-            if (!empty($availableRecords)) {
-                $reply .= " Download ಮಾಡಲು ಲಭ್ಯವಿರುವವು: " . count($availableRecords) . ".";
+        // ── Grade query without specific subject ──────────────────────────────
+        if (self::certIsGradeQuery($text)) {
+            $lines = [];
+            foreach ($pool as $r) {
+                $subj  = $r["subject"] ?? "Unknown";
+                $grade = $r["grade"] ?? "N/A";
+                $sem   = $r["sem"] ?? "";
+                $lines[] = "{$subj}: {$grade} (Sem{$sem})";
             }
-            if ($preview !== "") {
-                $reply .= " ಉದಾಹರಣೆಗೆ {$preview}.";
-            }
-            return $reply;
+            $list = implode("; ", $lines);
+            if (self::isKannada($language)) return "ನಿಮ್ಮ certificate grades: {$list}.";
+            if (self::isHindi($language)) return "आपके certificate grades: {$list}.";
+            return "Your certificate grades: {$list}.";
         }
 
-        if (self::isHindi($language)) {
-            $reply = "मुझे {$totalCount} competency certificate record मिले हैं।";
-            if (!empty($availableRecords)) {
-                $reply .= " इनमें से " . count($availableRecords) . " डाउनलोड के लिए उपलब्ध हैं।";
+        // ── Count query ───────────────────────────────────────────────────────
+        if (self::certIsCountQuery($text)) {
+            $total = count($records);
+            $filteredCount = count($pool);
+            $hasFilter = $semFilter !== null || $yearFilter !== null || $seasonFilter !== null;
+            if ($hasFilter) {
+                if (self::isKannada($language)) return "ಆ filter ಗೆ {$filteredCount} certificate ಸಿಕ್ಕಿದೆ (ಒಟ್ಟು {$total} ಇದೆ).";
+                if (self::isHindi($language)) return "उस filter के लिए {$filteredCount} certificate मिले (कुल {$total} हैं)।";
+                return "You have {$filteredCount} certificate" . ($filteredCount !== 1 ? "s" : "") . " matching that filter (total: {$total}).";
             }
-            if ($preview !== "") {
-                $reply .= " उपलब्ध certificate subjects हैं: {$preview}।";
-            }
-            return $reply;
+            if (self::isKannada($language)) return "ನಿಮಗೆ ಒಟ್ಟು {$total} competency certificate ಇದೆ.";
+            if (self::isHindi($language)) return "आपके पास कुल {$total} competency certificate हैं।";
+            return "You have {$total} competency certificate" . ($total !== 1 ? "s" : "") . " in total.";
         }
 
-        $reply = "I found {$totalCount} competency certificate record";
-        $reply .= $totalCount === 1 ? "" : "s";
-        if (!empty($availableRecords)) {
-            $reply .= ", with " . count($availableRecords) . " available to download";
+        // ── Filtered list (semester / year / season) ──────────────────────────
+        $hasFilter = $semFilter !== null || $yearFilter !== null || $seasonFilter !== null;
+        if ($hasFilter) {
+            $ctxParts = [];
+            if ($semFilter) $ctxParts[] = "Sem{$semFilter}";
+            if ($yearFilter) $ctxParts[] = $yearFilter;
+            if ($seasonFilter) $ctxParts[] = $seasonFilter;
+            $ctx = implode(" ", $ctxParts);
+            return self::certBuildListReply($pool, $language, $ctx);
         }
-        $reply .= ".";
-        if ($preview !== "") {
-            $reply .= " Available certificate subjects: {$preview}.";
-        }
-        return $reply;
+
+        // ── Full list / default ───────────────────────────────────────────────
+        return self::certBuildListReply($records, $language);
     }
 }
 

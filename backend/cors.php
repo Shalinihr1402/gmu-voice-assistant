@@ -6,6 +6,12 @@
  * which breaks the app when served from http://localhost, another port, or XAMPP.
  */
 if (!function_exists("gmu_apply_cors_headers")) {
+    function gmu_is_secure_request() {
+        $https = strtolower((string) ($_SERVER["HTTPS"] ?? ""));
+        $forwardedProto = strtolower((string) ($_SERVER["HTTP_X_FORWARDED_PROTO"] ?? ""));
+        return ($https !== "" && $https !== "off") || $forwardedProto === "https";
+    }
+
     function gmu_apply_cors_headers() {
         static $applied = false;
         if ($applied) {
@@ -38,7 +44,12 @@ if (!function_exists("gmu_apply_cors_headers")) {
         header("Access-Control-Allow-Origin: {$allowOrigin}");
         header("Access-Control-Allow-Credentials: true");
         header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-        header("Access-Control-Allow-Headers: Content-Type");
+        header("Access-Control-Allow-Headers: Content-Type, Ngrok-Skip-Browser-Warning");
+
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            ini_set("session.cookie_samesite", gmu_is_secure_request() ? "None" : "Lax");
+            ini_set("session.cookie_secure", gmu_is_secure_request() ? "1" : "0");
+        }
     }
 
     function gmu_cors_handle_preflight() {
