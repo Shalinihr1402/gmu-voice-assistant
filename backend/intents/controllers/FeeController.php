@@ -204,5 +204,96 @@ class FeeController {
 
         return "Your course registration is complete, but your final registration is still pending because you have an outstanding balance of Rs. " . number_format($totalBalance, 2) . ". Pending items include " . $pendingSummary . ". Please clear the balance to complete final registration.";
     }
+
+    private static function detectPaymentFeeType($query) {
+        $q = strtolower((string) $query);
+
+        // Hostel
+        if (preg_match('/\b(hostel|hostal|hostl)\b/', $q)) return "hostel";
+
+        // Skill assessment
+        if (preg_match('/\b(skill\s*assessment|skill\s*fee|skill\s*development)\b/', $q)) return "skill_assessment";
+
+        // Late registration
+        if (preg_match('/\b(late\s*reg(istration)?|late\s*fee)\b/', $q)) return "late_registration";
+
+        // Bonafide / study / bank estimate certificate
+        if (preg_match('/\b(bonafide|study\s*cert(ificate)?|bank\s*estimate|certificate)\b/', $q)) return "certificate";
+
+        // Misc: photocopy, breakage, byoc, malpractice, pg application, phd, admission
+        if (preg_match('/\b(photocopy|photo\s*copy|breakage|byoc|malpractice|pg\s*application|phd\s*application|ph\.d|admission\s*fee)\b/', $q)) return "misc";
+
+        // Tuition (default when "tuition", "college fee", "academic fee", or generic "how to pay")
+        if (preg_match('/\b(tuition|college\s*fee|academic\s*fee)\b/', $q)) return "tuition";
+
+        return "generic";
+    }
+
+    public static function getFeePaymentNavigation($query, $language = "en") {
+        $type = self::detectPaymentFeeType($query);
+        $hi = self::isHindi($language);
+        $kn = self::isKannada($language);
+
+        switch ($type) {
+            case "hostel":
+                if ($hi) return "Hostel fee pay karne ke liye Registration → Payment → Hostel Fee pe jaiye, apna USN ya Aadhaar number enter kariye, aur payment proceed kijiye.";
+                if ($kn) return "Hostel fee pay madalu Registration → Payment → Hostel Fee ge hogi, nimma USN athava Aadhaar number enter madi, payment proceed madi.";
+                return "To pay the Hostel fee, go to Registration → Payment → Hostel Fee, enter your USN or Aadhaar number, and proceed to payment.";
+
+            case "skill_assessment":
+                if ($hi) return "Skill Assessment fee ke liye Registration → Payment → Skill/Late-Registration/Other Fee mein jaiye, Skill-Assessment select kijiye aur payment proceed kijiye.";
+                if ($kn) return "Skill Assessment fee pay madalu Registration → Payment → Skill/Late-Registration/Other Fee ge hogi, Skill-Assessment select madi aur payment proceed madi.";
+                return "To pay the Skill Assessment fee, go to Registration → Payment → Skill/Late-Registration/Other Fee, select Skill-Assessment and proceed to payment.";
+
+            case "late_registration":
+                if ($hi) return "Late Registration fee ke liye Registration → Payment → Skill/Late-Registration/Other Fee mein jaiye, Late-Registration select kijiye aur payment proceed kijiye.";
+                if ($kn) return "Late Registration fee pay madalu Registration → Payment → Skill/Late-Registration/Other Fee ge hogi, Late-Registration select madi aur payment proceed madi.";
+                return "To pay the Late Registration fee, go to Registration → Payment → Skill/Late-Registration/Other Fee, select Late-Registration and proceed to payment.";
+
+            case "certificate":
+                if ($hi) return "Certificate fee ke liye Registration → Payment → Skill/Late-Registration/Other Fee mein jaiye, required certificate option select kijiye aur payment proceed kijiye.";
+                if ($kn) return "Certificate fee pay madalu Registration → Payment → Skill/Late-Registration/Other Fee ge hogi, bekaadda certificate option select madi aur payment proceed madi.";
+                return "To pay certificate-related fees, go to Registration → Payment → Skill/Late-Registration/Other Fee, select the required certificate option, and proceed to payment.";
+
+            case "misc":
+                if ($hi) return "Miscellaneous fee ke liye Registration → Payment → Skill/Late-Registration/Other Fee mein jaiye, required fee option select kijiye aur payment proceed kijiye.";
+                if ($kn) return "Miscellaneous fee pay madalu Registration → Payment → Skill/Late-Registration/Other Fee ge hogi, bekaadda fee option select madi aur payment proceed madi.";
+                return "To pay miscellaneous fees, go to Registration → Payment → Skill/Late-Registration/Other Fee, select the required fee option, and proceed to payment.";
+
+            case "tuition":
+            default:
+                if ($hi) return "Tuition fee pay karne ke liye Registration → Payment → College/Tuition Fee mein jaiye aur payment proceed kijiye.";
+                if ($kn) return "Tuition fee pay madalu Registration → Payment → College/Tuition Fee ge hogi aur payment proceed madi.";
+                return "To pay the Tuition fee, go to Registration → Payment → College/Tuition Fee and proceed to payment.";
+        }
+    }
+
+    public static function answerFeeQuery($student_id, $query, $language = "en", $mode = "balance") {
+        switch ($mode) {
+            case "fee_info":
+            case "balance":
+                return self::getFeeBalance($student_id, $language);
+            case "payment_navigation":
+                return self::getFeePaymentNavigation($query, $language);
+            case "receipt":
+                if (self::isHindi($language)) {
+                    return "Fee receipt ke liye Payment Portal open kijiye aur Download Receipt option choose kijiye.";
+                }
+                if (self::isKannada($language)) {
+                    return "Fee receipt ge Payment Portal open madi mattu Download Receipt option choose madi.";
+                }
+                return "To download your fee receipt, open Payment Portal and choose Download Receipt.";
+            case "grievance":
+                if (self::isHindi($language)) {
+                    return "Payment grievance ke liye Registration page open kijiye, Payment par click kijiye, phir Payment Grievance choose karke details submit kijiye.";
+                }
+                if (self::isKannada($language)) {
+                    return "Payment grievance ge Registration page open madi, Payment click madi, Payment Grievance choose madi details submit madi.";
+                }
+                return "To raise a payment grievance, go to Registration, click Payment, choose Payment Grievance, and submit the details.";
+            default:
+                return self::getFeeBalance($student_id, $language);
+        }
+    }
 }
 

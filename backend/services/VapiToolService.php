@@ -1,10 +1,16 @@
-<?php
+﻿<?php
 
 require_once __DIR__ . "/VapiSessionService.php";
 require_once __DIR__ . "/VapiAssistantConfigService.php";
 require_once __DIR__ . "/LlmService.php";
+require_once __DIR__ . "/ERPQueryService.php";
+require_once __DIR__ . "/VapiSecurityService.php";
+require_once __DIR__ . "/LoggerService.php";
+require_once __DIR__ . "/TraceContextService.php";
 
 class VapiToolService {
+    private static $activeToolContext = [];
+
     public static function extractToolCalls($payload) {
         $message = $payload["message"] ?? $payload;
         if (!is_array($message)) {
@@ -26,17 +32,52 @@ class VapiToolService {
         return [];
     }
 
+    private static function payloadScalar($payload, $paths) {
+        foreach ($paths as $path) {
+            $current = $payload;
+            foreach (explode(".", $path) as $part) {
+                if (is_array($current) && array_key_exists($part, $current)) {
+                    $current = $current[$part];
+                } else {
+                    $current = null;
+                    break;
+                }
+            }
+            if (is_scalar($current)) {
+                $value = trim((string) $current);
+                if ($value !== "") return $value;
+            }
+        }
+        return "";
+    }
+
     public static function buildToolResults($payload) {
+        $batchStart = LoggerService::nowMs();
+        $toolCalls = self::extractToolCalls($payload);
+        LoggerService::voice("vapi_tool_batch_started", [
+            "tool_call_count" => count($toolCalls)
+        ]);
+
         $results = [];
-        foreach (self::extractToolCalls($payload) as $toolCall) {
+        foreach ($toolCalls as $toolCall) {
             $results[] = self::handleToolCall($toolCall, $payload);
         }
+
+        $latency = LoggerService::durationMs($batchStart);
+        LoggerService::voice("vapi_tool_batch_completed", [
+            "status" => "success",
+            "tool_call_count" => count($results),
+            "latency_ms" => $latency
+        ]);
+        LoggerService::markPerformance("vapi_tool_batch_latency", $latency);
         return ["results" => $results];
     }
 
     private static function handleToolCall($toolCall, $payload = []) {
+        $toolStart = LoggerService::nowMs();
         $id = $toolCall["id"] ?? $toolCall["toolCallId"] ?? "";
         $function = $toolCall["function"] ?? [];
+        $toolName = (string) ($toolCall["name"] ?? $function["name"] ?? "gmu_voice_assistant");
         $args = $function["arguments"] ?? $toolCall["arguments"] ?? [];
 
         if (is_string($args)) {
@@ -47,12 +88,54 @@ class VapiToolService {
         $query = trim((string) ($args["query"] ?? $args["message"] ?? ""));
         $language = self::normalizeLanguage($args["language"] ?? "multi", $query);
         $sessionToken = self::extractSessionToken($args, $payload);
+        $toolExecutionId = $id !== "" ? (string) $id : TraceContextService::id("tool");
+        $requestId = self::payloadScalar($payload, ["request_id", "message.request_id", "message.call.assistantOverrides.variableValues.request_id"]);
+        $callId = self::payloadScalar($payload, ["call_id", "message.call.id", "message.callId", "message.call.assistantOverrides.variableValues.call_id"]);
+
+        TraceContextService::set([
+            "tool_execution_id" => $toolExecutionId,
+            "request_id" => $requestId,
+            "call_id" => $callId,
+            "session_token_hash" => LoggerService::tokenHash($sessionToken)
+        ]);
+        self::$activeToolContext = [
+            "start_ms" => $toolStart,
+            "tool_name" => $toolName,
+            "tool_execution_id" => $toolExecutionId,
+            "request_id" => $requestId,
+            "call_id" => $callId,
+            "query" => $query,
+            "normalized_query" => self::normalizeIntentText($query),
+            "language" => $language,
+            "session_token" => $sessionToken
+        ];
+
+        LoggerService::voice("vapi_tool_execution_started", [
+            "tool_name" => $toolName,
+            "tool_arguments" => $args,
+            "query" => $query,
+            "normalized_query" => self::normalizeIntentText($query),
+            "language" => $language
+        ]);
 
         if ($query === "") {
             return self::toolResult($id, [
-                "reply" => "Please repeat your question.",
+                "reply" => "Sorry, I didn't catch that. Could you please repeat your question?",
                 "intent" => "EMPTY_QUERY",
                 "route" => "clarification"
+            ]);
+        }
+
+        $queryValidation = VapiSecurityService::validateQuery($query);
+        if (!$queryValidation["ok"]) {
+            LoggerService::warning("vapi_tool_query_validation_failed", [
+                "status" => "validation_failed",
+                "error_message" => $queryValidation["message"] ?? "Invalid query"
+            ]);
+            return self::toolResult($id, [
+                "reply" => $queryValidation["message"] ?? "Please repeat your question.",
+                "intent" => "INVALID_QUERY",
+                "route" => "validation"
             ]);
         }
 
@@ -63,15 +146,44 @@ class VapiToolService {
 
         $session = VapiSessionService::resolve($sessionToken);
         if (!$session) {
-            $session = VapiSessionService::latestValidSession();
-        }
-
-        if (!$session) {
+            LoggerService::security("vapi_tool_session_validation_failed", [
+                "status" => "session_expired",
+                "error_message" => "Session token could not be resolved"
+            ]);
             return self::toolResult($id, [
                 "reply" => self::sessionExpiredReply($language),
                 "intent" => "SESSION_EXPIRED",
                 "route" => "auth"
             ]);
+        }
+        TraceContextService::set([
+            "user_id" => (int) ($session["user_id"] ?? 0)
+        ]);
+
+        $securityValidation = VapiSecurityService::validateToolExecution($sessionToken, $id);
+        if (!$securityValidation["ok"]) {
+            LoggerService::security("vapi_tool_security_validation_failed", [
+                "status" => "security_rejected",
+                "error_message" => $securityValidation["message"] ?? "Tool execution rejected"
+            ]);
+            return self::toolResult($id, [
+                "reply" => $securityValidation["message"] ?? "Your secure voice request could not be verified.",
+                "intent" => "SECURITY_REJECTED",
+                "route" => "security"
+            ]);
+        }
+
+        // Conversation memory: load prior context and enrich short follow-up queries.
+        // Uses file-based storage (same dir as VapiSessionService) so it persists
+        // across separate VAPI webhook invocations without requiring PHP session cookies.
+        $convCtx = self::loadConvContext($sessionToken);
+        if (!empty($convCtx)) {
+            $enrichedQuery = self::enrichQueryWithContext($query, $convCtx);
+            if ($enrichedQuery !== $query) {
+                $query = $enrichedQuery;
+                self::$activeToolContext["query"] = $query;
+                self::$activeToolContext["normalized_query"] = self::normalizeIntentText($query);
+            }
         }
 
         $directSupportTicket = self::directSupportTicketResult($query, $language, $session);
@@ -79,17 +191,17 @@ class VapiToolService {
             return self::toolResult($id, $directSupportTicket);
         }
 
+        $directRegistrationAction = self::directRegistrationActionResult($query, $language);
+        if ($directRegistrationAction) {
+            return self::toolResult($id, $directRegistrationAction);
+        }
+
         $directErpInfo = self::directErpInfoResult($query, $language, $session);
         if ($directErpInfo) {
             return self::toolResult($id, $directErpInfo);
         }
 
-        $directPaymentHelp = self::directPaymentHelpResult($query, $language);
-        if ($directPaymentHelp) {
-            return self::toolResult($id, $directPaymentHelp);
-        }
-
-        $directResultNavigation = self::directResultNavigationResult($query, $language, $session["session_id"] ?? "");
+        $directResultNavigation = self::directResultNavigationResult($query, $language, $session);
         if ($directResultNavigation) {
             return self::toolResult($id, $directResultNavigation);
         }
@@ -97,6 +209,35 @@ class VapiToolService {
         $directNavigation = self::directNavigationResult($query, $language);
         if ($directNavigation) {
             return self::toolResult($id, $directNavigation);
+        }
+
+        $intentStart = LoggerService::nowMs();
+        $erpIntent = class_exists("ERPQueryService") ? ERPQueryService::detectIntent($query, $language) : "";
+        $intentLatency = LoggerService::durationMs($intentStart);
+        LoggerService::info("vapi_intent_detection_completed", [
+            "query" => $query,
+            "normalized_query" => self::normalizeIntentText($query),
+            "detected_intent" => $erpIntent,
+            "confidence" => $erpIntent !== "" ? "rule_match" : "none",
+            "selected_route" => $erpIntent !== "" ? "erp_query_service" : "fallback",
+            "latency_ms" => $intentLatency
+        ]);
+        LoggerService::markPerformance("vapi_intent_detection_latency", $intentLatency, ["detected_intent" => $erpIntent]);
+        if ($erpIntent !== "") {
+            $erpResult = ERPQueryService::handle($erpIntent, $query, $language, $session);
+            if (is_array($erpResult)) {
+                $erpResult["debug"]["intent_router"] = [
+                    "handler" => "erp_query",
+                    "intent" => $erpIntent,
+                    "reason" => "erp_query_service"
+                ];
+                return self::toolResult($id, $erpResult);
+            }
+        }
+
+        $directPaymentHelp = self::directPaymentHelpResult($query, $language);
+        if ($directPaymentHelp) {
+            return self::toolResult($id, $directPaymentHelp);
         }
 
         $directCourseCode = self::directCourseCodeResult($query, $language, $session["session_id"] ?? "");
@@ -110,9 +251,9 @@ class VapiToolService {
 
 
     private static function sessionExpiredReply($language) {
-        if ($language === "hi") return "Aapka secure voice session expire ho gaya. Page refresh karke phir try kijiye.";
-        if ($language === "kn") return "Nimma secure voice session expire agide. Page refresh madi matte try madi.";
-        return "Your secure voice session expired. Please refresh the page and try again.";
+        if ($language === "hi") return "Aapka voice session expire ho gaya hai. Page ek baar refresh karein — bas ek second lagega aur phir hum continue kar sakte hain.";
+        if ($language === "kn") return "Nimma voice session expire agide. Page ondu sari refresh madi — takshaṇa ready aaguttide.";
+        return "Your voice session has expired. Please refresh the page to continue — it only takes a moment.";
     }
     private static function extractSessionToken($args, $payload) {
         $candidates = [
@@ -294,9 +435,9 @@ class VapiToolService {
         $stmt->close();
 
         if (!$row) {
-            if ($language === "hi") return "Mujhe aapki hostel application ka record nahi mila.";
-            if ($language === "kn") return "Nimma hostel application record sigalilla.";
-            return "I could not find a hostel application record for your account.";
+            if ($language === "hi") return "Aapki hostel application ka abhi koi record nahi mila. Agar aapne recently apply kiya hai, toh abhi bhi processing ho sakti hai.";
+            if ($language === "kn") return "Nimma hostel application record sigalilla. Neevu ilidaagale apply madiddarey, adu inka processing aaguttiraborudu.";
+            return "No hostel application found for your account. If you applied recently, it may still be processing.";
         }
 
         $status = strtolower(trim((string) ($row["status"] ?? "pending")));
@@ -323,9 +464,9 @@ class VapiToolService {
         $stmt->close();
 
         if (!$row) {
-            if ($language === "hi") return "Aaj classes cancel hone ka koi notice nahi mila.";
-            if ($language === "kn") return "Ivattu classes cancel agive anta notice sigalilla.";
-            return "I could not find any class cancellation notice for today.";
+            if ($language === "hi") return "Aaj classes cancel hone ka koi notice nahi hai — classes regular schedule par chal rahi hain.";
+            if ($language === "kn") return "Ivattu classes cancel agive anta notice illa — classes regular schedule nalli naḍeyuttide.";
+            return "No cancellation notice for today — classes are running on schedule.";
         }
 
         $scope = trim((string) ($row["class_scope"] ?? "all"));
@@ -343,9 +484,9 @@ class VapiToolService {
     }
 
     private static function erpInfoUnavailableReply($topic, $language) {
-        if ($language === "hi") return "Mujhe abhi " . $topic . " ki information nahi mili.";
-        if ($language === "kn") return "Iga " . $topic . " information sigalilla.";
-        return "I could not find " . $topic . " information right now.";
+        if ($language === "hi") return "Abhi " . $topic . " ki information nahi aa rahi. Thodi der mein dobara try karein ya page ek baar refresh karein.";
+        if ($language === "kn") return "Iga " . $topic . " mahiti sigalilla. Dayavittu swalpa hogondu matte try madi athava page refresh madi.";
+        return "I couldn't retrieve " . $topic . " information right now. Please try again in a moment or refresh the page.";
     }
 
     private static function spokenDate($date) {
@@ -357,6 +498,24 @@ class VapiToolService {
     }
     private static function directSupportTicketResult($query, $language, $session) {
         $text = self::normalizeIntentText($query);
+
+        // ── Ticket status check ───────────────────────────────────────────────
+        $isStatusCheck = (bool) preg_match('/\b(ticket\s*status|status\s*of\s*(my\s*)?ticket|my\s*ticket|ticket\s*update|ticket\s*resolve|ticket\s*open|ticket\s*closed|ticket\s*kya\s*hua|ticket\s*ka\s*status|ticket\s*check|mera\s*ticket|nanna\s*ticket|ticket\s*hegide|ticket\s*aayitu)\b/ui', $text);
+        $hasTicketCode = (bool) preg_match('/\bGMU-\d{4}\b/i', $query);
+
+        if ($isStatusCheck || $hasTicketCode) {
+            $studentId = self::studentIdFromSession($session);
+            if ($studentId <= 0) return null;
+
+            // Extract specific ticket code if mentioned
+            $ticketCode = null;
+            if (preg_match('/\b(GMU-\d{4})\b/i', $query, $m)) {
+                $ticketCode = strtoupper($m[1]);
+            }
+
+            return self::supportTicketStatusResult($studentId, $ticketCode, $language);
+        }
+
         if (!self::isSupportTicketIssue($text)) {
             return null;
         }
@@ -556,8 +715,99 @@ class VapiToolService {
     private static function supportTicketErrorReply($language) {
         if ($language === "hi") return "Support ticket create karte waqt problem aayi. Kripya thodi der baad try kijiye.";
         if ($language === "kn") return "Support ticket create maduvaga problem ayitu. Dayavittu swalpa samayada nantara try madi.";
-        return "I could not raise the support ticket right now. Please try again after some time.";
+        return "I wasn't able to raise the support ticket right now. Please try again in a few moments, or visit the ERP portal directly to submit your request.";
     }
+    private static function supportTicketStatusResult($studentId, $ticketCode, $language) {
+        require __DIR__ . "/../config/db.php";
+        if (!isset($conn) || !$conn) {
+            return [
+                "reply" => self::supportTicketErrorReply($language),
+                "intent" => "GET_TICKET_STATUS_ERROR",
+                "route" => "support_ticket",
+                "language" => $language,
+                "client_action" => null,
+                "suggestion" => null,
+                "quick_actions" => [],
+                "debug" => ["source" => "vapi_tool_service", "reply_source" => "ticket_status_db_error"]
+            ];
+        }
+
+        if ($ticketCode !== null) {
+            // Specific ticket by code
+            $stmt = $conn->prepare("SELECT ticket_code, issue_type, status, priority, created_at FROM support_tickets WHERE ticket_code = ? AND student_id = ? LIMIT 1");
+            if (!$stmt) return null;
+            $stmt->bind_param("si", $ticketCode, $studentId);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+
+            if (!$row) {
+                if ($language === "hi") $reply = "Ticket {$ticketCode} aapke account mein nahi mila. Ticket ID check karke dobara try karein.";
+                elseif ($language === "kn") $reply = "Ticket {$ticketCode} nimma account nalli sigalilla. Ticket ID check maadi mattomme try maadi.";
+                else $reply = "Ticket {$ticketCode} was not found in your account. Please check the ticket ID and try again.";
+            } else {
+                $reply = self::buildTicketStatusReply([$row], $language, true);
+            }
+        } else {
+            // All tickets for this student — show latest 3
+            $stmt = $conn->prepare("SELECT ticket_code, issue_type, status, priority, created_at FROM support_tickets WHERE student_id = ? ORDER BY created_at DESC LIMIT 3");
+            if (!$stmt) return null;
+            $stmt->bind_param("i", $studentId);
+            $stmt->execute();
+            $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $stmt->close();
+
+            if (empty($rows)) {
+                if ($language === "hi") $reply = "Aapka koi support ticket abhi tak raise nahi hua hai.";
+                elseif ($language === "kn") $reply = "Nimma yaavudu support ticket ivaga raise aagilla.";
+                else $reply = "You have not raised any support tickets yet.";
+            } else {
+                $reply = self::buildTicketStatusReply($rows, $language, false);
+            }
+        }
+
+        return [
+            "reply" => $reply,
+            "intent" => "GET_TICKET_STATUS",
+            "route" => "support_ticket",
+            "language" => $language,
+            "client_action" => null,
+            "suggestion" => null,
+            "quick_actions" => [],
+            "debug" => ["source" => "vapi_tool_service", "reply_source" => "ticket_status_fetched"]
+        ];
+    }
+
+    private static function buildTicketStatusReply($rows, $language, $specific) {
+        $statusLabels = [
+            "open"        => ["en" => "Open (pending)",        "hi" => "Open (pending)",      "kn" => "Open (pending)"],
+            "in_progress" => ["en" => "In Progress",           "hi" => "In progress",          "kn" => "In progress"],
+            "resolved"    => ["en" => "Resolved",              "hi" => "Resolve ho gaya",      "kn" => "Resolve aagide"],
+            "closed"      => ["en" => "Closed",                "hi" => "Closed",               "kn" => "Closed"],
+        ];
+
+        $parts = [];
+        foreach ($rows as $row) {
+            $code     = $row["ticket_code"] ?? "";
+            $type     = ucfirst(str_replace("_", " ", $row["issue_type"] ?? "general"));
+            $status   = strtolower($row["status"] ?? "open");
+            $label    = $statusLabels[$status][$language] ?? ucfirst($status);
+            $date     = isset($row["created_at"]) ? date("d M Y", strtotime($row["created_at"])) : "";
+
+            if ($language === "hi") $parts[] = "Ticket {$code} ({$type}): Status — {$label}, raised on {$date}.";
+            elseif ($language === "kn") $parts[] = "Ticket {$code} ({$type}): Status — {$label}, {$date} raise aagide.";
+            else $parts[] = "Ticket {$code} ({$type}): {$label}, raised on {$date}.";
+        }
+
+        $list = implode(" ", $parts);
+
+        if ($specific) return $list;
+
+        if ($language === "hi") return "Aapke recent support tickets: {$list}";
+        if ($language === "kn") return "Nimma recent support tickets: {$list}";
+        return "Your recent support tickets: {$list}";
+    }
+
     private static function directCourseCodeResult($query, $language, $sessionId) {
         $text = strtolower((string) $query);
         if (!preg_match('/\b(course|cource|subject)\s*code\b|\bcode\s*(of|for)\b/u', $text)) {
@@ -704,7 +954,8 @@ class VapiToolService {
         if ($language === "kn") return "Neevu helabahudu: open payment portal, apply payment grievance, athava check grievance result.";
         return $suggestion;
     }
-    private static function directResultNavigationResult($query, $language, $sessionId) {
+    private static function directResultNavigationResult($query, $language, $session) {
+        $sessionId = is_array($session) ? (string) ($session["session_id"] ?? "") : (string) $session;
         $text = self::normalizeResultQueryText((string) $query);
         $resultPattern = '/\b(result|results|marks|marksheet|grade\s*sheet|score|sgpa|cgpa|internal\s*marks)\b/u';
         if (!preg_match($resultPattern, $text)) {
@@ -726,13 +977,14 @@ class VapiToolService {
         $currentSemester = (int) ($student["current_semester"] ?? 0);
 
         if (preg_match('/\b(all|overall|every)\s+(semester|sem)?\s*(result|results|marks)\b|\b(result|results|marks)\s+(for\s+)?(all|every)\s+(semester|sem)s?\b/u', $text)) {
+            $wantsOpen = self::hasNavigationVerb($text);
             return [
                 "reply" => self::allResultsNavigationReply($language),
-                "intent" => "OPEN_ALL_RESULTS",
-                "route" => "navigation",
+                "intent" => $wantsOpen ? "OPEN_ALL_RESULTS" : "GET_ALL_RESULTS_INFO",
+                "route" => $wantsOpen ? "navigation" : "erp_query",
                 "language" => $language,
-                "client_action" => ["type" => "navigate", "path" => "/results", "page" => "results"],
-                "suggestion" => null,
+                "client_action" => $wantsOpen ? ["type" => "navigate", "path" => "/results", "page" => "results"] : null,
+                "suggestion" => $wantsOpen ? null : self::localizeSuggestion("Say 'open results' to view the grade sheet.", $language),
                 "quick_actions" => [],
                 "debug" => ["source" => "vapi_tool_service", "reply_source" => "direct_result_navigation"]
             ];
@@ -773,24 +1025,43 @@ class VapiToolService {
             return $value !== "" && $value !== null;
         }));
 
+        // Fetch actual SGPA + performance commentary from DB so the voice bot speaks real data
+        $examLabel = $selected ? strtoupper((string) ($selected["exam"] ?? "SEE")) : "SEE";
+        $voiceReply = self::resultNavigationReply($semester, (bool) $selected, $language, $examLabel);
+        if (is_array($session)) {
+            $studentId = self::studentIdFromSession($session);
+            if ($studentId > 0) {
+                if (!class_exists("StudentController")) {
+                    require_once __DIR__ . "/../intents/controllers/StudentController.php";
+                }
+                $sgpaReply = StudentController::getSGPA($studentId, $query, $language);
+                if (is_string($sgpaReply) && trim($sgpaReply) !== "") {
+                    $voiceReply = $sgpaReply;
+                }
+            }
+        }
+
+        $wantsToOpen = self::hasNavigationVerb($text);
+        $clientAction = $wantsToOpen ? [
+            "type" => "navigate",
+            "path" => $path,
+            "page" => "results",
+            "result_request" => [
+                "semester" => (string) $semester,
+                "examType" => (string) ($selected["exam"] ?? "SEE"),
+                "year" => (string) ($selected["year"] ?? ""),
+                "season" => (string) ($selected["season"] ?? ""),
+                "usn" => (string) ($student["usn"] ?? "")
+            ]
+        ] : null;
+
         return [
-            "reply" => self::resultNavigationReply($semester, (bool) $selected, $language),
-            "intent" => "OPEN_FILTERED_RESULT",
-            "route" => "navigation",
+            "reply" => $voiceReply,
+            "intent" => $wantsToOpen ? "OPEN_FILTERED_RESULT" : "GET_RESULT_INFO",
+            "route" => $wantsToOpen ? "navigation" : "erp_query",
             "language" => $language,
-            "client_action" => [
-                "type" => "navigate",
-                "path" => $path,
-                "page" => "results",
-                "result_request" => [
-                    "semester" => (string) $semester,
-                    "examType" => (string) ($selected["exam"] ?? "SEE"),
-                    "year" => (string) ($selected["year"] ?? ""),
-                    "season" => (string) ($selected["season"] ?? ""),
-                    "usn" => (string) ($student["usn"] ?? "")
-                ]
-            ],
-            "suggestion" => null,
+            "client_action" => $clientAction,
+            "suggestion" => $wantsToOpen ? null : self::localizeSuggestion("Say 'open result' to view the grade sheet.", $language),
             "quick_actions" => [],
             "debug" => ["source" => "vapi_tool_service", "reply_source" => "direct_result_navigation"]
         ];
@@ -807,7 +1078,7 @@ class VapiToolService {
             '/\bs\s*e\s*e\b|\bc\s*e\s*e\b|\bcee\b|\bc\s+(?=result|results|marks|sgpa|cgpa|grade)/u' => ' see ',
             '/\bsea\s+(?=result|results|marks|sgpa|cgpa|grade)/u' => ' see ',
             '/\bre\s+sit\b/u' => ' resit ',
-            '/\bre\s+valuation\b/u' => ' revaluation ',
+            '/\bre\s+valuation\b|\breevaluation\b|\brivaluation\b|\brevalu\b/u' => ' revaluation ',
             '/\bre\s*[- ]?\s*registration\b|\breregistration\b/u' => ' re-registration ',
             '/\x{0930}\x{093F}\x{091C}\x{0932}\x{094D}\x{091F}|\x{092A}\x{0930}\x{093F}\x{0923}\x{093E}\x{092E}|\x{0928}\x{0924}\x{0940}\x{091C}\x{093E}|\x{092E}\x{093E}\x{0930}\x{094D}\x{0915}\x{094D}\x{0938}|\x{0905}\x{0902}\x{0915}|\x{0917}\x{094D}\x{0930}\x{0947}\x{0921}/u' => ' result ',
             '/\x{0CB0}\x{0CBF}\x{0CB8}\x{0CB2}\x{0CCD}\x{0C9F}\x{0CCD}|\x{0CB0}\x{0CBF}\x{0C9C}\x{0CB2}\x{0CCD}\x{0C9F}\x{0CCD}|\x{0CAB}\x{0CB2}\x{0CBF}\x{0CA4}\x{0CBE}\x{0C82}\x{0CB6}|\x{0CAE}\x{0CBE}\x{0CB0}\x{0CCD}\x{0C95}\x{0CCD}\x{0CB8}\x{0CCD}|\x{0C85}\x{0C82}\x{0C95}|\x{0C97}\x{0CCD}\x{0CB0}\x{0CC7}\x{0CA1}\x{0CCD}/u' => ' result ',
@@ -850,17 +1121,41 @@ class VapiToolService {
             return null;
         }
 
+        // Exam type — matches all 4 real ERP options: SEE, RESIT, RE-Registration, Revaluation
         $exam = "";
-        if (preg_match('/\b(see|resit|re-registration|reregistration)\b/u', $text, $matches)) {
-            $exam = strtoupper($matches[1] === "reregistration" ? "RE-REGISTRATION" : $matches[1]);
+        if (preg_match('/\b(revaluation|reval|re[\s\-]?valu)\b/u', $text)) {
+            $exam = "Revaluation";
+        } elseif (preg_match('/\b(re[\s\-]?registration|reregistration|re[\s\-]?reg)\b/u', $text)) {
+            $exam = "RE-Registration";
+        } elseif (preg_match('/\b(resit|re[\s\-]?sit)\b/u', $text)) {
+            $exam = "RESIT";
+        } elseif (preg_match('/\b(see|s\.e\.e)\b/u', $text)) {
+            $exam = "SEE";
         }
+
+        // Season — ODD = Jan exams (sem 1,3,5,7), EVEN = June exams (sem 2,4,6,8)
         $season = "";
-        if (preg_match('/\b(odd|even)\b/u', $text, $matches)) {
-            $season = strtoupper($matches[1]);
+        if (preg_match('/\b(odd|jan|january|first[\s\-]?half)\b/u', $text)) {
+            $season = "ODD";
+        } elseif (preg_match('/\b(even|june|july|second[\s\-]?half)\b/u', $text)) {
+            $season = "EVEN";
         }
+
+        // Academic year — exact format "2024-25" or loose "2024", "last year", "this year"
         $year = "";
-        if (preg_match('/\b(20\d{2})\s*-?\s*(?:20)?(\d{2})\b/u', $text, $matches)) {
+        if (preg_match('/\b(20\d{2})\s*-\s*(\d{2})\b/u', $text, $matches)) {
             $year = $matches[1] . "-" . $matches[2];
+        } elseif (preg_match('/\b(20\d{2})\b/u', $text, $matches)) {
+            $y = (int) $matches[1];
+            $year = $y . "-" . substr((string)($y + 1), 2);
+        } elseif (preg_match('/\b(last\s+year|previous\s+year|pichle\s+saal|hindina\s+varsha)\b/u', $text)) {
+            $cy = (int) date("Y"); $pm = (int) date("n");
+            $sy = $pm >= 7 ? $cy - 1 : $cy - 2;
+            $year = $sy . "-" . substr((string)($sy + 1), 2);
+        } elseif (preg_match('/\b(this\s+year|current\s+year|ee\s+varsha|is\s+saal)\b/u', $text)) {
+            $cy = (int) date("Y"); $pm = (int) date("n");
+            $sy = $pm >= 7 ? $cy : $cy - 1;
+            $year = $sy . "-" . substr((string)($sy + 1), 2);
         }
 
         $filtered = array_values(array_filter($selections, static function ($selection) use ($exam, $season, $year) {
@@ -959,42 +1254,47 @@ class VapiToolService {
 
     private static function sgpaFeedback($sgpa, $language) {
         if ($language === "hi") {
-            if ($sgpa >= 9.5) return "Outstanding performance. Aise hi excellent work continue kijiye.";
-            if ($sgpa >= 9) return "Excellent performance. Aap bahut achha kar rahe hain.";
-            if ($sgpa >= 8) return "Very good performance. Is consistency ko maintain kijiye.";
-            if ($sgpa >= 7) return "Good performance. Thoda aur focus karenge to aur improve hoga.";
-            if ($sgpa >= 6) return "Average performance. Weak areas par zyada focus kijiye.";
-            if ($sgpa >= 5) return "Aap pass hain, lekin improvement zaroori hai. Regular revision kijiye.";
-            return "Performance ko serious attention chahiye. Mentor se baat karke improvement plan banaiye.";
+            if ($sgpa >= 9.5) return "Kamaal! Aap apni class ke top mein hain — aise hi jabardast kaam karte raho!";
+            if ($sgpa >= 9) return "Excellent! Aap distinction level par hain. Itna accha pace maintain karo!";
+            if ($sgpa >= 8) return "First class! Aapko apne aap par garv hona chahiye — thoda aur push karo!";
+            if ($sgpa >= 7) return "Achha kiya! Thoda aur focus karoge toh first class aa jayega.";
+            if ($sgpa >= 6) return "Aap pass hain. Weak subjects par zyada dhyan do — improvement zaroor hoga.";
+            return "Aap pass hain, lekin serious improvement chahiye. Mentor se milkar plan banao.";
         }
-
         if ($language === "kn") {
-            if ($sgpa >= 9.5) return "Outstanding performance. Ee excellent work munduvarisi.";
-            if ($sgpa >= 9) return "Excellent performance. Neevu tumba chennagi maduttiddira.";
-            if ($sgpa >= 8) return "Very good performance. Ee consistency maintain madi.";
-            if ($sgpa >= 7) return "Good performance. Innu swalpa focus madidare improve agutte.";
-            if ($sgpa >= 6) return "Average performance. Weak areas mele hecchu focus madi.";
-            if ($sgpa >= 5) return "Neevu pass agiddira, aadre improvement beku. Regular revision madi.";
-            return "Performance ge serious attention beku. Mentor jothe matadi improvement plan madi.";
+            if ($sgpa >= 9.5) return "Brilliant! Neevu nimma class topalli iddira — ee outstanding work munduvarisi!";
+            if ($sgpa >= 9) return "Excellent! Neevu distinction level nalli iddira. Ee pace maintain madi!";
+            if ($sgpa >= 8) return "First class! Neevu nimma bagge garva padabeku — innu push madi, distinction kaigochutte!";
+            if ($sgpa >= 7) return "Channagi madiddira! Innu focus madidare first class asanavaguttide.";
+            if ($sgpa >= 6) return "Neevu pass agiddira. Weak subjects mele hechchu gaman kodi.";
+            return "Neevu pass agiddira, aadare serious improvement beku. Mentor jothe matadi plan madi.";
         }
-
-        if ($sgpa >= 9.5) return "Outstanding performance. Keep up the excellent work.";
-        if ($sgpa >= 9) return "Excellent performance. You are doing very well.";
-        if ($sgpa >= 8) return "Very good performance. Keep maintaining this consistency.";
-        if ($sgpa >= 7) return "Good performance. With a little more focus, you can improve further.";
-        if ($sgpa >= 6) return "Average performance. Please focus more on weaker areas.";
-        if ($sgpa >= 5) return "You have passed, but improvement is needed. Please revise regularly.";
-        return "Your performance needs serious attention. Please contact your mentor and work on improvement.";
+        if ($sgpa >= 9.5) return "Absolutely brilliant! You are at the top of your class — keep up this outstanding work!";
+        if ($sgpa >= 9) return "Excellent! You are performing at distinction level. Keep this pace going!";
+        if ($sgpa >= 8) return "First class result! You should be proud of yourself — push a bit more and distinction is within reach!";
+        if ($sgpa >= 7) return "Good job! A bit more focus and first class is easily achievable.";
+        if ($sgpa >= 6) return "You have passed. Focus on weaker subjects and you will see real improvement.";
+        return "You have passed, but serious improvement is needed. Connect with your mentor and build a clear plan.";
     }
-    private static function resultNavigationReply($semester, $hasFullSelection, $language) {
+    private static function resultNavigationReply($semester, $hasFullSelection, $language, $examType = "SEE") {
+        $exam = strtoupper((string) $examType);
+        // Human-readable exam label
+        $examLabels = [
+            "SEE"             => ["en" => "SEE",          "hi" => "SEE",              "kn" => "SEE"],
+            "RESIT"           => ["en" => "Resit",        "hi" => "Resit",            "kn" => "Resit"],
+            "RE-REGISTRATION" => ["en" => "Re-registration", "hi" => "Re-registration", "kn" => "Re-registration"],
+            "REVALUATION"     => ["en" => "Revaluation",  "hi" => "Revaluation",      "kn" => "Revaluation"],
+        ];
+        $lbl = $examLabels[$exam][$language] ?? $examLabels[$exam]["en"] ?? $exam;
+
         if ($hasFullSelection) {
-            if ($language === "hi") return "Semester " . $semester . " result check kar raha hoon.";
-            if ($language === "kn") return "Semester " . $semester . " result check maduttiddene.";
-            return "Checking semester " . $semester . " result.";
+            if ($language === "hi") return "Semester {$semester} {$lbl} result check kar raha hoon.";
+            if ($language === "kn") return "Semester {$semester} {$lbl} result check maduttiddene.";
+            return "Checking your semester {$semester} {$lbl} result.";
         }
-        if ($language === "hi") return "Semester " . $semester . " result ke liye details load kar raha hoon.";
-        if ($language === "kn") return "Semester " . $semester . " result details load maduttiddene.";
-        return "Loading details for semester " . $semester . " result.";
+        if ($language === "hi") return "Semester {$semester} result ke liye details load kar raha hoon.";
+        if ($language === "kn") return "Semester {$semester} result details load maduttiddene.";
+        return "Loading your semester {$semester} result.";
     }
 
     private static function loadResultAvailability($sessionId) {
@@ -1020,6 +1320,82 @@ class VapiToolService {
         $decoded = json_decode((string) $response, true);
         return is_array($decoded) ? $decoded : [];
     }
+    private static function directRegistrationActionResult($query, $language) {
+        $text = self::normalizeIntentText($query);
+        if ($text === "") return null;
+
+        // ── Re-Registration ───────────────────────────────────────────────────
+        $isReReg = (bool) preg_match(
+            '/\b(re[\s\-]?registration|re[\s\-]?register|re[\s\-]?reg|re\s+registration|reregistration)\b/u', $text
+        ) || (bool) preg_match('/\b(re|ree)\s*(reg|regi|reji|rejis)\b/u', $text);
+
+        if ($isReReg) {
+            $replies = [
+                "en" => "Opening Registration page. To apply for re-registration, click the 'Apply Re-Registration' tile on your dashboard or find it in the Registration section.",
+                "hi" => "Registration page open ho raha hai. Re-registration ke liye, apne dashboard mein 'Apply Re-Registration' tile par click karein ya Registration section mein dekhein.",
+                "kn" => "Registration page open agide. Re-registration apply madalu, nimma dashboard nalli 'Apply Re-Registration' tile click madi athava Registration section nalli nodri.",
+            ];
+            $reply = $replies[$language] ?? $replies["en"];
+            return [
+                "reply" => $reply,
+                "intent" => "RE_REGISTRATION",
+                "route" => "registration_action",
+                "language" => $language,
+                "client_action" => ["type" => "navigate", "path" => "/registration", "page" => "re_registration"],
+                "quick_actions" => [],
+                "debug" => ["source" => "vapi_tool_service", "reply_source" => "re_registration_nav"]
+            ];
+        }
+
+        // ── Apply Resit ───────────────────────────────────────────────────────
+        $isResit = (bool) preg_match(
+            '/\b(apply\s+resit|resit\s+apply|resit\s+exam|resit\s+registration|resit|re\s*sit)\b/u', $text
+        );
+
+        if ($isResit) {
+            $replies = [
+                "en" => "Opening Registration page. To apply for a resit exam, go to the 'Apply Resit' tile on your dashboard. Make sure your eligibility is cleared before applying.",
+                "hi" => "Registration page open ho raha hai. Resit exam ke liye apply karne ke liye, apne dashboard mein 'Apply Resit' tile par jaayein. Apply karne se pehle eligibility check kar lein.",
+                "kn" => "Registration page open agide. Resit exam apply madalu, nimma dashboard nalli 'Apply Resit' tile ge hogi. Apply maduvudakke munche eligibility check madi.",
+            ];
+            $reply = $replies[$language] ?? $replies["en"];
+            return [
+                "reply" => $reply,
+                "intent" => "APPLY_RESIT",
+                "route" => "registration_action",
+                "language" => $language,
+                "client_action" => ["type" => "navigate", "path" => "/registration", "page" => "resit"],
+                "quick_actions" => [],
+                "debug" => ["source" => "vapi_tool_service", "reply_source" => "resit_nav"]
+            ];
+        }
+
+        // ── Apply Exam / SEE ──────────────────────────────────────────────────
+        $isApplyExam = (bool) preg_match(
+            '/\b(apply\s+(for\s+)?(exam|see|s\s*e\s*e)|see\s+apply|(exam|see)\s+apply|see\s+exam|see\s+registration|apply\s+see)\b/u', $text
+        ) && !(bool) preg_match('/\b(result|marks|sgpa|cgpa|grade)\b/u', $text);
+
+        if ($isApplyExam) {
+            $replies = [
+                "en" => "Opening Registration page. To apply for the SEE exam, click 'Apply Exam' in the top navigation or find the option in the Registration section.",
+                "hi" => "Registration page open ho raha hai. SEE exam apply karne ke liye, top navigation mein 'Apply Exam' click karein ya Registration section mein option dhundhein.",
+                "kn" => "Registration page open agide. SEE exam apply madalu, top navigation nalli 'Apply Exam' click madi athava Registration section nalli option nodri.",
+            ];
+            $reply = $replies[$language] ?? $replies["en"];
+            return [
+                "reply" => $reply,
+                "intent" => "APPLY_EXAM",
+                "route" => "registration_action",
+                "language" => $language,
+                "client_action" => ["type" => "navigate", "path" => "/registration", "page" => "apply_exam"],
+                "quick_actions" => [],
+                "debug" => ["source" => "vapi_tool_service", "reply_source" => "apply_exam_nav"]
+            ];
+        }
+
+        return null;
+    }
+
     private static function directNavigationResult($query, $language) {
         $text = self::normalizeIntentText($query);
         if ($text === "") {
@@ -1046,6 +1422,12 @@ class VapiToolService {
             return null;
         }
 
+        // Attendance is shown as an inline chart in the VoiceBot panel unless the user
+        // explicitly says "attendance page" — in that case fall through to ERPQueryService.
+        if ($page === "attendance" && !preg_match('/\b(page|section)\b/u', $text)) {
+            return null;
+        }
+
         $path = self::pagePath($page);
         if ($path === "") {
             return null;
@@ -1064,14 +1446,19 @@ class VapiToolService {
     }
     private static function navigationReply($page, $language) {
         $labels = [
-            "registration" => "registration page",
-            "payment" => "payment portal",
-            "results" => "result page",
-            "certificate" => "digital competency certificate page",
-            "profile" => "profile page",
-            "dashboard" => "dashboard",
-            "portal" => "portal",
-            "home" => "home page"
+            "registration"    => "registration page",
+            "re_registration" => "re-registration section",
+            "resit"           => "resit application section",
+            "apply_exam"      => "exam application section",
+            "payment"         => "payment portal",
+            "results"         => "result page",
+            "certificate"     => "competency certificate page",
+            "profile"         => "profile page",
+            "dashboard"       => "dashboard",
+            "attendance"      => "attendance page",
+            "hall_ticket"     => "hall ticket page",
+            "portal"          => "portal",
+            "home"            => "home page"
         ];
         $label = $labels[$page] ?? "page";
         if ($language === "hi") {
@@ -1080,10 +1467,16 @@ class VapiToolService {
         if ($language === "kn") {
             return ucfirst($label) . " open agide.";
         }
-        return ucfirst($label) . " is open.";
+        return ucfirst($label) . " opened.";
     }
     private static function callExistingApi($query, $language, $sessionId) {
+        $apiStart = LoggerService::nowMs();
         $url = VapiAssistantConfigService::getEnvValue("VOICEBOT_INTERNAL_API_URL", self::defaultApiUrl());
+        $userId = (int) (self::$activeToolContext["session"] ?? 0);
+        if ($userId === 0 && !empty(self::$activeToolContext["session_token"])) {
+            $sess = VapiSessionService::resolve(self::$activeToolContext["session_token"]);
+            $userId = (int) ($sess["user_id"] ?? 0);
+        }
         $body = json_encode([
             "message" => $query,
             "language" => $language,
@@ -1095,18 +1488,35 @@ class VapiToolService {
             "low_confidence_words" => []
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-        $ch = curl_init($url);
+        // Use 127.0.0.1 to avoid DNS lookup delay; pass auth via headers
+        $internalUrl = str_replace("localhost", "127.0.0.1", $url);
+        $ch = curl_init($internalUrl);
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $body,
-            CURLOPT_HTTPHEADER => ["Content-Type: application/json", "Cookie: PHPSESSID=" . $sessionId],
+            CURLOPT_HTTPHEADER => [
+                "Content-Type: application/json",
+                "Connection: close",
+                "X-Internal-UserId: " . $userId,
+                "X-Internal-Secret: " . md5("gmu_internal_" . date("Ymd") . $userId),
+                "Cookie: PHPSESSID=" . $sessionId
+            ],
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 25
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 20
         ]);
         $response = curl_exec($ch);
         $error = curl_error($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
+        $latency = LoggerService::durationMs($apiStart);
+        LoggerService::info("vapi_internal_api_completed", [
+            "status" => $status >= 400 || $response === false ? "error" : "success",
+            "http_status" => $status,
+            "latency_ms" => $latency,
+            "error_message" => $error ?: ""
+        ]);
+        LoggerService::markPerformance("vapi_internal_api_latency", $latency, ["http_status" => $status]);
 
         if ($response === false || $status >= 400) {
             return [
@@ -1121,17 +1531,39 @@ class VapiToolService {
         return is_array($decoded) ? $decoded : ["status" => "error", "reply" => "Voice backend returned an invalid response."];
     }
 
+    private static function unknownQueryReply($query, $language) {
+        // Detect small talk that somehow bypassed the LLM's direct handling.
+        static $smallTalkPatterns = [
+            '/\b(hi|hello|hey|good morning|good afternoon|good evening|namaste|namaskara)\b/i',
+            '/\b(thank(s| you)|thanks a lot|thank u|shukriya|dhanyavad|dhanyavaadagalu)\b/i',
+            '/\b(bye|goodbye|see you|see ya|take care|alvida|hogi banni)\b/i',
+            '/\b(how are you|how r u|are you okay|are you fine|kaise ho|hegidira|howdy)\b/i',
+            '/\b(have you (eaten|had|taken)|did you (eat|have|take)|lunch|dinner|breakfast|sleep|tired|bored)\b/i',
+        ];
+        foreach ($smallTalkPatterns as $pattern) {
+            if (preg_match($pattern, (string) $query)) {
+                if ($language === "hi") return "Main ek AI hoon, lekin aapki madad ke liye hamesha taiyar hoon! Kya aap attendance, fees, ya results check karna chahte hain?";
+                if ($language === "kn") return "Nanu AI agiddini, aadare nimage sahaya madalu sadaa siddha! Attendance, fees, athava results check madabekay?";
+                return "I'm an AI, but I'm always here to help! Want to check attendance, fees, results, or anything else?";
+            }
+        }
+        // Generic unknown query — list capabilities rather than a dead end.
+        if ($language === "hi") return "Mujhe woh samajh nahi aaya. Aap attendance, SGPA, fee balance, exam results, timetable, hall ticket, ya ERP support ke baare mein pooch sakte hain.";
+        if ($language === "kn") return "Adhu nanage arthaavagalilla. Attendance, SGPA, fee balance, exam results, timetable, hall ticket, athava ERP support bagge keḷabahududu.";
+        return "I didn't quite get that. You can ask me about attendance, SGPA, fee balance, exam results, timetable, hall ticket status, or raise an ERP support ticket.";
+    }
+
     private static function shapeResult($apiResponse, $query, $language) {
         $reply = trim((string) ($apiResponse["reply"] ?? ""));
         if ($reply === "") {
-            $reply = "I could not find an answer for that. Please ask again.";
+            $reply = self::unknownQueryReply($query, $language);
         }
 
         $route = (string) ($apiResponse["route"] ?? "llm");
         $intent = (string) ($apiResponse["intent"] ?? "UNKNOWN");
         $clientAction = self::clientActionFromResponse($apiResponse, $query);
 
-        return [
+        $result = [
             "reply" => self::prepareReplyForVoice($reply, $language),
             "intent" => $intent,
             "route" => $route,
@@ -1146,6 +1578,12 @@ class VapiToolService {
                 "effective_message" => $apiResponse["effective_message"] ?? $query
             ]
         ];
+
+        if (array_key_exists("visual", $apiResponse)) {
+            $result["visual"] = $apiResponse["visual"];
+        }
+
+        return $result;
     }
 
     private static function localizeGenericReply($reply, $language) {
@@ -1252,6 +1690,15 @@ class VapiToolService {
         if (self::isExplicitHomeCommand($text)) {
             return "home";
         }
+        if (preg_match('/\b(re[\s\-]?registration|reregistration)\b/u', $text)) {
+            return "re_registration";
+        }
+        if (preg_match('/\b(apply\s+resit|resit\s+apply|resit\s+exam|resit)\b/u', $text)) {
+            return "resit";
+        }
+        if (preg_match('/\b(apply\s+exam|apply\s+see|see\s+apply|see\s+registration)\b/u', $text) && !preg_match('/\b(result|marks|sgpa)\b/u', $text)) {
+            return "apply_exam";
+        }
         if (preg_match('/\b(registration|register|registation|ragistration|rijistreshan)\b/u', $text) || (preg_match('/\berp\s+page\b/u', $text) && preg_match('/\b(open|go|navigate|show|take|visit)\b/u', $text))) {
             return "registration";
         }
@@ -1260,6 +1707,12 @@ class VapiToolService {
         }
         if (preg_match('/\b(student\s+dashboard|dashboard\s+page|main\s+dashboard|dashboard|dash\s*board)\b/u', $text)) {
             return "dashboard";
+        }
+        if (preg_match('/\b(attendance|attendence|atendance|attendance\s+page|hajari|hajarati)\b/u', $text)) {
+            return "attendance";
+        }
+        if (preg_match('/\b(hall\s*ticket|hallticket|admit\s*card|exam\s*ticket)\b/u', $text)) {
+            return "hall_ticket";
         }
         if (preg_match('/\b(payment|fee\s+payment|fees\s+payment|payment\s+portal)\b/u', $text)) {
             return "payment";
@@ -1276,18 +1729,43 @@ class VapiToolService {
         return "";
     }
 
+    private static function normalizeKannadaNavigationTerms($text) {
+        $normalized = (string) $text;
+        $replacements = [
+            '/\\b(?:hogu|hogi|hofgu|hoggu|hogbu|hgo|ge\\s+hogu|ge\\s+hofgu|ge\\s+hogi)\\b/u' => ' go ',
+            '/ಹೋಗಿ|ಹೋಗು|ಹೋಗ್ಬು|ಹೋಗಬೇಕು|ಹೋಗಬೇಕಾಗಿದೆ/u' => ' go ',
+            '/ತೆರೆಯಿರಿ|ತೆರೆ|ತೆರೆಯು|ಓಪನ್\s*ಮಾಡಿ|ಓಪನ್\s*ಮಾಡು|ಓಪನ್/u' => ' open ',
+            '/ತೋರಿಸಿ|ತೋರಿಸು|ನೋಡಿ|ನೋಡು/u' => ' show ',
+            '/ಪುಟ|ಪೇಜ್/u' => ' page ',
+            '/ಮುಖ್ಯ\s*ಪುಟ|ಮೇನ್\s*ಪೇಜ್|ಹೋಮ್|ಮನೆ/u' => ' home ',
+            '/\\b(?:registration|register|rijistreshan|registreshan|regestration)\\b/u' => ' registration ',
+            '/ರಿಜಿಸ್ಟ್ರೇಷನ್|ರಿಜಿಸ್ಟ್ರೇಶನ್|ನೋಂದಣಿ/u' => ' registration ',
+            '/ಪ್ರೊಫೈಲ್/u' => ' profile ',
+            '/ಪೇಮೆಂಟ್|ಪಾವತಿ|ಶುಲ್ಕ/u' => ' payment ',
+            '/ರಿಸಲ್ಟ್|ಫಲಿತಾಂಶ|ಅಂಕಪಟ್ಟಿ|ಮಾರ್ಕ್ಸ್/u' => ' result ',
+            '/ಸರ್ಟಿಫಿಕೇಟ್|ಪ್ರಮಾಣಪತ್ರ|ಡಿಜಿಟಲ್/u' => ' certificate ',
+            '/ಡ್ಯಾಶ್\s*ಬೋರ್ಡ್|ಡ್ಯಾಶ್‌ಬೋರ್ಡ್|ಡ್ಯಾಶ್ಬೋರ್ಡ್/u' => ' dashboard ',
+            '/ಪೋರ್ಟಲ್/u' => ' portal '
+        ];
+
+        foreach ($replacements as $pattern => $replacement) {
+            $normalized = preg_replace($pattern, $replacement, $normalized);
+        }
+
+        return $normalized;
+    }
     private static function normalizeIntentText($text) {
-        $text = strtolower(trim((string) $text));
+        $text = self::normalizeKannadaNavigationTerms(strtolower(trim((string) $text)));
         $text = preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $text);
         return trim(preg_replace('/\s+/u', ' ', (string) $text));
     }
 
     private static function hasNavigationVerb($text) {
-        return (bool) preg_match('/\b(open|go|goto|navigate|show|take|visit|kholo|khol|dikhao|jao|chalo|torisu|hogu|maadi|madi|tere|tereyiri)\b/u', $text);
+        return (bool) preg_match('/\b(open|go|goto|navigate|show|take|visit|kholo|khol|dikhao|jao|chalo|torisu|hogu|hogi|hofgu|hoggu|nodi|maadi|madi|tere|tereyiri)\b/u', $text);
     }
 
     private static function isExplicitHomeCommand($text) {
-        return (bool) preg_match('/\b(come\s+back|comeback|go\s+back|back\s+home|back\s+to\s+home|back\s+to\s+main|return\s+home|return\s+to\s+home|return\s+to\s+main|go\s+home|home\s+page|main\s+page)\b/u', $text);
+        return (bool) preg_match('/\b(come\s+back|comeback|go\s+back|back\s+home|back\s+to\s+home|back\s+to\s+main|return\s+home|return\s+to\s+home|return\s+to\s+main|go\s+home|open\s+home|show\s+home|home\s+page|main\s+page)\b|\bhome(?:\s+\p{L}+){0,2}\s+(?:go|open|show)\b/u', $text);
     }
 
     private static function canonicalPage($page) {
@@ -1298,11 +1776,27 @@ class VapiToolService {
             "main" => "home",
             "dashboard" => "dashboard",
             "student dashboard" => "dashboard",
+            "attendance" => "attendance",
+            "attendance page" => "attendance",
+            "attendance analytics" => "attendance",
+            "hall ticket" => "hall_ticket",
+            "hallticket" => "hall_ticket",
+            "admit card" => "hall_ticket",
             "registration" => "registration",
             "registration page" => "registration",
             "erp registration" => "registration",
             "erp registration page" => "registration",
             "register" => "registration",
+            "re registration" => "re_registration",
+            "re-registration" => "re_registration",
+            "reregistration" => "re_registration",
+            "apply re registration" => "re_registration",
+            "resit" => "resit",
+            "apply resit" => "resit",
+            "resit exam" => "resit",
+            "apply exam" => "apply_exam",
+            "apply see" => "apply_exam",
+            "see registration" => "apply_exam",
             "payment" => "payment",
             "payment portal" => "payment",
             "fees" => "payment",
@@ -1321,25 +1815,85 @@ class VapiToolService {
 
     private static function sanitizePath($path) {
         $path = trim((string) $path);
-        $allowed = ["/home", "/dashboard", "/registration", "/payment", "/results", "/certificate", "/profile", "/portal", "/attendance-analytics"];
+        $allowed = ["/home", "/dashboard", "/registration", "/payment", "/results", "/certificate", "/profile", "/portal", "/attendance", "/attendance-analytics", "/hall-ticket", "/re-registration", "/resit", "/apply-exam"];
         $basePath = parse_url($path, PHP_URL_PATH) ?: "";
         return in_array($basePath, $allowed, true) ? $path : "";
     }
     private static function pagePath($page) {
         $map = [
-            "home" => "/home",
-            "dashboard" => "/dashboard",
-            "registration" => "/registration",
-            "payment" => "/payment",
-            "results" => "/results",
-            "certificate" => "/certificate",
-            "profile" => "/profile",
-            "portal" => "/portal"
+            "home"           => "/home",
+            "dashboard"      => "/dashboard",
+            "attendance"     => "/attendance",
+            "hall_ticket"    => "/hall-ticket",
+            "registration"   => "/registration",
+            "re_registration"=> "/registration",
+            "resit"          => "/registration",
+            "apply_exam"     => "/registration",
+            "payment"        => "/payment",
+            "results"        => "/results",
+            "certificate"    => "/certificate",
+            "profile"        => "/profile",
+            "portal"         => "/portal"
         ];
         return $map[$page] ?? "";
     }
 
     private static function toolResult($toolCallId, $result) {
+        if (is_array($result) && isset($result["reply"])) {
+            $result["reply"] = VapiSecurityService::sanitizeReply($result["reply"]);
+        }
+        if (is_array($result)) {
+            $result["tool_execution_id"] = self::$activeToolContext["tool_execution_id"] ?? $toolCallId;
+            $result["request_id"] = self::$activeToolContext["request_id"] ?? "";
+            $result["call_id"] = self::$activeToolContext["call_id"] ?? "";
+            if (!isset($result["debug"]) || !is_array($result["debug"])) {
+                $result["debug"] = [];
+            }
+            $result["debug"]["tool_execution_id"] = $result["tool_execution_id"];
+            $result["debug"]["request_id"] = $result["request_id"];
+            $result["debug"]["call_id"] = $result["call_id"];
+        }
+
+        $duration = isset(self::$activeToolContext["start_ms"]) ? LoggerService::durationMs(self::$activeToolContext["start_ms"]) : null;
+        $responseSize = strlen((string) json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        $intent = is_array($result) ? (string) ($result["intent"] ?? "") : "";
+        $route = is_array($result) ? (string) ($result["route"] ?? "") : "";
+        $status = in_array($route, ["auth", "security", "validation"], true) ? "rejected" : "success";
+        LoggerService::voice("vapi_tool_execution_completed", array_merge(self::$activeToolContext, [
+            "status" => $status,
+            "intent" => $intent,
+            "route" => $route,
+            "latency_ms" => $duration,
+            "response_size_bytes" => $responseSize
+        ]));
+        if ($duration !== null) {
+            LoggerService::markPerformance("vapi_tool_execution_latency", $duration, [
+                "intent" => $intent,
+                "route" => $route
+            ]);
+        }
+
+        // Save this turn to conversation context so the next follow-up query can be enriched.
+        // Only save for meaningful routes; skip auth/security/validation/clarification exits.
+        $convToken = self::$activeToolContext["session_token"] ?? "";
+        $convQuery = self::$activeToolContext["query"] ?? "";
+        if ($convToken !== "" && $convQuery !== "" &&
+            !in_array($route, ["auth", "security", "validation", "clarification"], true)) {
+            // Extract the actual semester used in this query (if any) so chained
+            // "previous semester?" follow-ups can anchor against it, not just enrolled sem.
+            $resolvedSemester = null;
+            if (class_exists("StudentController")) {
+                $resolvedSemester = StudentController::inferRequestedSemester($convQuery);
+            }
+            self::saveConvTurn($convToken, $convQuery, (string) ($result["reply"] ?? ""), [
+                "intent"          => $intent,
+                "language"        => is_array($result) ? (string) ($result["language"] ?? "") : "",
+                "pending_intent"  => is_array($result) ? ($result["pending_intent"]  ?? "") : "",
+                "pending_titles"  => is_array($result) ? ($result["pending_titles"]  ?? []) : [],
+                "last_semester"   => $resolvedSemester,
+            ]);
+        }
+
         return [
             "toolCallId" => $toolCallId,
             "result" => $result
@@ -1354,8 +1908,8 @@ class VapiToolService {
         if (preg_match('/[\x{0C80}-\x{0CFF}]/u', $query)) return "kn";
         if (preg_match('/[\x{0900}-\x{097F}]/u', $query)) return "hi";
         $roman = strtolower((string) $query);
-        if (preg_match('/\b(torisu|torisi|hogu|hogi|nodu|nodi|maadi|madi|madu|beku|bekagide|kannada|kannadadalli|heli|mathadu|maatadu|sari|nimma|nanna|elli|yelli|yaava|yava|hege|madodu|madbeku|kodu|kodi)\b/u', $roman)) return "kn";
-        if (preg_match('/\b(hindi|mein|me|karo|kholo|dikhao|dikhana|batao|batana|chalo|mera|meri|aapka|kripya|bharna|karna|kijiye|kaise|kahan|kya|pichla|pehla|doosra|teesra|chautha|panchwa)\b/u', $roman)) return "hi";
+        if (preg_match('/\b(torisu|torisi|hogu|hogi|hogbeku|hogali|hogona|nodu|nodi|noddu|maadi|madi|madu|madbeku|maadbeku|beku|bekagide|bekagitu|kannada|kannadadalli|heli|mathadu|maatadu|sari|nimma|nimmadu|nanna|nanage|naanu|namdu|nam|illi|yelli|yaava|yava|hege|madodu|kodu|kodi|eshtu|yeshtu|aitu|aaitu|ayitu|agide|aagide|agutte|bandide|banditu|illa|illave|ellaru|yella|oddu|bartini|barali|hajari|hajarati)\b/u', $roman)) return "kn";
+        if (preg_match('/\b(hindi|mein|me|karo|kholo|dikhao|dikhana|dikha|dekho|batao|batana|bolo|bata|chalo|mera|meri|aapka|kripya|bharna|karna|kijiye|kaise|kahan|kya|kitna|kitni|kitne|mujhe|apna|hua|gaya|pichla|pehla|doosra|teesra|chautha|panchwa|aur|nahi|hai|hain|ho|tha|the|abhi|abhibhi)\b/u', $roman)) return "hi";
         return "en";
     }
     private static function defaultApiUrl() {
@@ -1364,7 +1918,230 @@ class VapiToolService {
         $scheme = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off") ? "https" : "http";
         return $scheme . "://" . $host . $scriptDir . "/api.php";
     }
+
+    // -------------------------------------------------------------------------
+    // Conversation memory — file-based, keyed by session token.
+    // Stored alongside VapiSessionService tokens so the same /tmp cleanup applies.
+    // -------------------------------------------------------------------------
+
+    private static function convContextDir() {
+        $dir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . "gmu_conv_ctx";
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0700, true);
+        }
+        return $dir;
+    }
+
+    private static function convContextPath($sessionToken) {
+        $safe = preg_replace('/[^a-zA-Z0-9_-]/', '', (string) $sessionToken);
+        return self::convContextDir() . DIRECTORY_SEPARATOR . $safe . "_ctx.json";
+    }
+
+    private static function loadConvContext($sessionToken) {
+        if ($sessionToken === "") return [];
+        $path = self::convContextPath($sessionToken);
+        if (!is_file($path)) return [];
+        $data = json_decode((string) @file_get_contents($path), true);
+        if (!is_array($data)) return [];
+        // Expire after same TTL as the session token (1 hour).
+        if ((int) ($data["updated_at"] ?? 0) < time() - 3600) {
+            @unlink($path);
+            return [];
+        }
+        return $data;
+    }
+
+    private static function saveConvTurn($sessionToken, $query, $reply, $meta) {
+        if ($sessionToken === "" || $query === "") return;
+        $path = self::convContextPath($sessionToken);
+        $data = self::loadConvContext($sessionToken);
+
+        $turns = $data["turns"] ?? [];
+        $turns[] = [
+            "user"      => $query,
+            "assistant" => $reply,
+            "intent"    => $meta["intent"] ?? "",
+        ];
+        if (count($turns) > 10) {
+            $turns = array_slice($turns, -10);
+        }
+
+        $newIntent   = $meta["intent"] ?? "";
+        $newLanguage = $meta["language"] ?? "";
+
+        // Track pending disambiguation.
+        $isPendingDisambig = ($newIntent === "COURSE_DISAMBIGUATION");
+        $pendingIntent  = $isPendingDisambig ? ($meta["pending_intent"]  ?? "") : "";
+        $pendingTitles  = $isPendingDisambig ? ($meta["pending_titles"]  ?? []) : [];
+
+        // Persist the resolved semester so chained "previous semester?" uses it as anchor.
+        $newSemester = $meta["last_semester"] ?? null;
+        $savedSemester = ($newSemester !== null) ? (int) $newSemester : ($data["last_semester"] ?? null);
+
+        @file_put_contents($path, json_encode([
+            "turns"            => $turns,
+            "last_intent"      => $newIntent   !== "" ? $newIntent   : ($data["last_intent"]   ?? ""),
+            "last_language"    => $newLanguage !== "" ? $newLanguage : ($data["last_language"] ?? ""),
+            "last_semester"    => $savedSemester,
+            "pending_intent"   => $pendingIntent,
+            "pending_titles"   => $pendingTitles,
+            "updated_at"       => time(),
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
+    }
+
+    /**
+     * Returns true when the query looks like a follow-up fragment rather than a
+     * self-contained question. Criteria: short (≤ 8 words) AND contains no
+     * standalone ERP intent keyword of its own.
+     */
+    private static function isFollowUpQuery($query) {
+        if (str_word_count(strtolower((string) $query)) > 8) return false;
+
+        $standaloneKeywords = [
+            "attendance", "sgpa", "cgpa", "fees", "fee", "result", "results",
+            "marks", "profile", "usn", "backlog", "hall ticket", "hallticket",
+            "certificate", "registration", "timetable", "assignment", "assignments",
+            "faculty", "grievance", "payment", "balance", "receipt", "deadline",
+            "course", "courses", "hostel", "cancel", "class"
+        ];
+        $lower = strtolower((string) $query);
+        foreach ($standaloneKeywords as $kw) {
+            if (strpos($lower, $kw) !== false) return false;
+        }
+        return true;
+    }
+
+    /**
+     * If $query is a follow-up fragment (short, no own intent keyword) and the
+     * last context has a resolvable intent, prepend the topic so downstream intent
+     * detection can match it.
+     *
+     * Examples:
+     *   "For DBMS?"        + last=GET_ATTENDANCE       → "attendance for dbms"
+     *   "How about OS?"    + last=GET_ATTENDANCE       → "attendance for os"
+     *   "This semester?"   + last=GET_SGPA             → "SGPA this semester"
+     */
+    private static function enrichQueryWithContext($query, $context) {
+        if (empty($context)) return $query;
+
+        // If there is an unresolved disambiguation, try to match the student's answer
+        // to one of the pending course titles before doing normal follow-up enrichment.
+        $resolved = self::resolvePendingDisambiguation($query, $context);
+        if ($resolved !== null) return $resolved;
+
+        if (!self::isFollowUpQuery($query)) return $query;
+
+        $lastIntent = (string) ($context["last_intent"] ?? "");
+        if ($lastIntent === "") return $query;
+
+        static $intentTopicMap = [
+            "GET_ATTENDANCE"                   => "attendance",
+            "GET_SUBJECT_ATTENDANCE"           => "attendance",
+            "GET_SGPA"                         => "SGPA",
+            "GET_CGPA"                         => "CGPA",
+            "GET_INTERNAL_MARKS"               => "internal marks",
+            "GET_FEES_BALANCE"                 => "fee balance",
+            "GET_FEE_INFO"                     => "fee",
+            "GET_BACKLOG_STATUS"               => "backlog",
+            "GET_RESULT_STATUS"                => "result",
+            "GET_COURSE_DETAILS"               => "course details",
+            "GET_ACADEMIC_PERFORMANCE_SUMMARY" => "academic performance",
+            "GET_EXAM_TIMETABLE"               => "exam timetable",
+            "GET_TIMETABLE"                    => "timetable",
+        ];
+
+        if (!isset($intentTopicMap[$lastIntent])) return $query;
+        $topic = $intentTopicMap[$lastIntent];
+
+        $normalized = trim(strtolower((string) $query));
+        // Strip leading connectors so we isolate the meaningful fragment.
+        $stripped = preg_replace('/^(for|how about|what about|and|also|about|what)\s+/i', '', $normalized);
+        $stripped = trim((string) $stripped, " ?.,");
+
+        if ($stripped === "" || $stripped === "it" || $stripped === "that" || $stripped === "this") {
+            // Pure pronoun: keep the topic alone and let the ERP handler decide.
+            return $topic;
+        }
+
+        // Semester and time references — resolve to an explicit number when possible
+        // so downstream handlers get "SGPA semester 3" not just "SGPA previous semester".
+        if (preg_match('/\b(this|current|last|previous|prev|past|latest|most recent|semester\s*\d+|\d+\s*(st|nd|rd|th)\s*semester|this year|last year|current year|previous year|\d{4}[-\/]\d{2,4})\b/i', $stripped)) {
+            // If we saved the last explicit semester used, convert "previous" to a real number.
+            $lastSemester = (int) ($context["last_semester"] ?? 0);
+            if ($lastSemester > 0 && preg_match('/\b(last|previous|prev|past)\b/i', $stripped)) {
+                $prevSem = max(1, $lastSemester - 1);
+                return $topic . " semester " . $prevSem;
+            }
+            if ($lastSemester > 0 && preg_match('/\b(this|current)\b/i', $stripped)) {
+                return $topic . " semester " . $lastSemester;
+            }
+            return $topic . " " . $stripped;
+        }
+
+        // Everything else is treated as a subject / course name.
+        return $topic . " for " . $stripped;
+    }
+
+    /**
+     * When the last bot turn was a disambiguation question (e.g. "Did you mean
+     * Database Management Systems or DBMS Laboratory?"), this method maps the
+     * student's answer to the correct course title so the next query can be
+     * fulfilled directly.
+     *
+     * Returns the enriched query string on success, null if no pending context.
+     */
+    private static function resolvePendingDisambiguation($query, $context) {
+        $pendingIntent = (string) ($context["pending_intent"] ?? "");
+        $pendingTitles = $context["pending_titles"] ?? [];
+
+        if ($pendingIntent === "" || empty($pendingTitles)) return null;
+
+        static $intentTopicMap = [
+            "GET_SUBJECT_ATTENDANCE" => "attendance",
+            "GET_INTERNAL_MARKS"     => "internal marks",
+            "GET_RESULT_STATUS"      => "result",
+            "GET_COURSE_DETAILS"     => "course details",
+        ];
+        $topic = $intentTopicMap[$pendingIntent] ?? "attendance";
+
+        $normalized = strtolower(trim((string) $query));
+
+        // Ordinal picks: "first", "1st", "second one", etc.
+        $ordinalMap = [
+            '/\b(first|1st|one|first one)\b/'   => 0,
+            '/\b(second|2nd|two|second one)\b/'  => 1,
+            '/\b(third|3rd|three|third one)\b/'  => 2,
+        ];
+        foreach ($ordinalMap as $pattern => $idx) {
+            if (preg_match($pattern, $normalized) && isset($pendingTitles[$idx])) {
+                return $topic . " for " . $pendingTitles[$idx];
+            }
+        }
+
+        // Direct text match: find the pending title whose words appear most in the answer.
+        $bestTitle = null;
+        $bestSim = 0;
+        foreach ($pendingTitles as $title) {
+            similar_text($normalized, strtolower((string) $title), $pct);
+            if ($pct > $bestSim) {
+                $bestSim = $pct;
+                $bestTitle = $title;
+            }
+        }
+        if ($bestSim >= 40 && $bestTitle !== null) {
+            return $topic . " for " . $bestTitle;
+        }
+
+        return null;
+    }
 }
+
+
+
+
+
+
+
 
 
 
