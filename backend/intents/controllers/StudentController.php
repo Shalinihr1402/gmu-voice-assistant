@@ -987,7 +987,8 @@ class StudentController {
             return self::isKannada($language) ? "ಈಗ ನಿಮ್ಮ ವಿಭಾಗದ ವಿವರಗಳು ಸಿಗಲಿಲ್ಲ." : "I could not find your department details right now.";
         }
 
-        if (strpos($message, "what am i studying") !== false || strpos($message, "profile") !== false || strpos($message, "who am i") !== false || strpos($message, "do you know who i am") !== false) {
+        // Always return full profile summary for any profile query
+        if (true || strpos($message, "what am i studying") !== false || strpos($message, "profile") !== false) {
             $parts = [];
 
             if ($fullName !== "") {

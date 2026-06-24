@@ -1521,14 +1521,14 @@ class VapiToolService {
         if ($response === false || $status >= 400) {
             return [
                 "status" => "error",
-                "reply" => $error ?: "Voice backend did not respond correctly.",
+                "reply" => "Sorry, I'm having a little trouble fetching that right now. Please try again in a moment.",
                 "reply_source" => "vapi_internal_api_error",
                 "http_status" => $status
             ];
         }
 
         $decoded = json_decode((string) $response, true);
-        return is_array($decoded) ? $decoded : ["status" => "error", "reply" => "Voice backend returned an invalid response."];
+        return is_array($decoded) ? $decoded : ["status" => "error", "reply" => "I couldn't get a proper response. Please ask again."];
     }
 
     private static function unknownQueryReply($query, $language) {

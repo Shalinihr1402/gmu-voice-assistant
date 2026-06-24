@@ -137,14 +137,20 @@ class ERPQueryService {
             case "GET_COURSE_DETAILS":
                 return self::payload(self::getSubjects($studentId, $query, $language), $intent, $language, "subjects");
             case "GET_SUBJECT_CODES":
-                return self::payload(self::getSubjectCodes($studentId, $query, $language), $intent, $language, "subject_codes");
+                $codesResult = self::getSubjectCodesWithVisual($studentId, $query, $language);
+                return self::payload($codesResult["reply"], $intent, $language, "subject_codes",
+                    isset($codesResult["visual"]) ? ["visual" => $codesResult["visual"]] : []);
             case "GET_USN":
-                return self::payload(StudentController::getUSN($studentId, $language), $intent, $language, "usn");
+                $usnResult = self::getUSNWithVisual($studentId, $language);
+                return self::payload($usnResult["reply"], $intent, $language, "usn",
+                    isset($usnResult["visual"]) ? ["visual" => $usnResult["visual"]] : []);
             case "GET_RESULT_STATUS":
                 return self::payload(self::getResultStatus($studentId, $query, $language), $intent, $language, "result_status");
             case "GET_HALLTICKET_STATUS":
             case "GET_HALL_TICKET_STATUS":
-                return self::payload(StudentController::getHallTicketStatus($studentId, $query, $language), "GET_HALLTICKET_STATUS", $language, "hallticket_status");
+                $htResult = self::getHallTicketWithVisual($studentId, $query, $language);
+                return self::payload($htResult["reply"], "GET_HALLTICKET_STATUS", $language, "hallticket_status",
+                    isset($htResult["visual"]) ? ["visual" => $htResult["visual"]] : []);
             case "GET_CERTIFICATE_STATUS":
                 return self::payload(StudentController::getCertificateStatus($studentId, $query, $language), $intent, $language, "certificate_status");
             case "GET_FINAL_REGISTRATION_STATUS":
@@ -203,11 +209,19 @@ class ERPQueryService {
 
     private static function handleAttendanceQuery($studentId, $query, $language, $intent) {
         $text = self::normalizeText($query);
-        $hasSubjectPhrase = (bool) preg_match('/\b(attendance|attendence|atendance)\s+(in|of|for)\b|\b[a-z]{2,}(?:\s+[a-z]{2,})?\s+(attendance|attendence|atendance)\b/u', $text);
+
+        // Subject-specific: "attendance in DBMS", "OS attendance", "computer networks attendance"
+        // Exclude generic words that are NOT subject names — show, my, overall, all, total, subject, etc.
+        $genericWords = '/\b(show|my|all|overall|total|subject|subjects|wise|complete|full|summary|nanna|meri|mera|sab|sabhi|torisu|nodu)\b/u';
+        $hasSubjectPhrase = (bool) preg_match('/\b(attendance|attendence|atendance)\s+(in|of|for)\s+\w/u', $text)
+            || (bool) preg_match('/\b([a-z]{3,}(?:\s+[a-z]{3,})?)\s+(attendance|attendence|atendance)\b/u', $text)
+                && !preg_match($genericWords, $text);
+
         if ($hasSubjectPhrase) {
             return self::payload(StudentController::getSubjectAttendance($studentId, $query, $language), $intent, $language, "attendance");
         }
 
+        // All other attendance queries — show chart in voicebot panel
         $chart = self::getAttendanceChart($studentId, $query, $language);
         if (is_array($chart)) {
             return self::payload($chart["reply"], $intent, $language, "attendance_chart", ["visual" => $chart["visual"]]);
@@ -328,29 +342,101 @@ class ERPQueryService {
     }
 
     public static function getSubjectCodes($studentId, $query = "", $language = "en") {
+        return self::getSubjectCodesWithVisual($studentId, $query, $language)["reply"];
+    }
+
+    public static function getSubjectCodesWithVisual($studentId, $query = "", $language = "en") {
         global $conn;
         $student = self::getStudent($studentId);
-        if (!$student) return self::localize("I could not find your student details right now.", $language);
+        if (!$student) return ["reply" => self::localize("I could not find your student details right now.", $language)];
 
         $semester = (int) ($student["semester"] ?? 0);
-        $branch = (string) ($student["branch"] ?? "");
+        $branch   = (string) ($student["branch"] ?? "");
         $stmt = $conn->prepare("SELECT course_code, course_title FROM courses WHERE semester = ? AND program = ? ORDER BY course_code");
-        if (!$stmt) return self::localize("System error while fetching subject codes.", $language);
+        if (!$stmt) return ["reply" => self::localize("System error while fetching subject codes.", $language)];
         $stmt->bind_param("is", $semester, $branch);
         $stmt->execute();
         $result = $stmt->get_result();
-        $items = [];
+        $rows = [];
         while ($row = $result->fetch_assoc()) {
-            $items[] = $row["course_title"] . " is " . $row["course_code"];
+            $rows[] = ["code" => $row["course_code"], "title" => $row["course_title"]];
         }
         $stmt->close();
 
-        if (empty($items)) return self::localize("I could not find subject codes for your current semester.", $language);
-        $preview = implode("; ", array_slice($items, 0, 6));
-        return self::localize("Your current semester subject codes are: " . $preview . ".", $language);
+        if (empty($rows)) return ["reply" => self::localize("I could not find subject codes for your current semester.", $language)];
+
+        $spoken = implode("; ", array_map(fn($r) => "{$r['title']} — {$r['code']}", array_slice($rows, 0, 4)));
+        $reply  = self::localize("Semester {$semester} subject codes: {$spoken}.", $language);
+
+        $cards  = array_map(fn($r) => ["title" => $r["code"], "value" => $r["title"]], $rows);
+        return [
+            "reply"  => $reply,
+            "visual" => ["type" => "info_card", "title" => "Sem {$semester} Subject Codes", "cards" => $cards]
+        ];
+    }
+
+    public static function getUSNWithVisual($studentId, $language = "en") {
+        global $conn;
+        $student = self::getStudent($studentId);
+        if (!$student) return ["reply" => self::localize("I could not find your USN right now.", $language)];
+
+        $usn    = (string) ($student["usn"] ?? "");
+        $name   = (string) ($student["full_name"] ?? $student["name"] ?? "");
+        $branch = (string) ($student["branch"] ?? "");
+        $sem    = (string) ($student["semester"] ?? "");
+
+        if ($usn === "") return ["reply" => self::localize("Your USN is not updated in the ERP yet.", $language)];
+
+        if ($language === "hi") $reply = "Aapka USN hai {$usn}.";
+        elseif ($language === "kn") $reply = "Nimma USN {$usn} aagide.";
+        else $reply = "Your USN is {$usn}.";
+
+        return [
+            "reply"  => $reply,
+            "visual" => [
+                "type"  => "info_card",
+                "title" => "Student ID",
+                "cards" => [
+                    ["title" => "USN",      "value" => $usn],
+                    ["title" => "Name",     "value" => $name],
+                    ["title" => "Branch",   "value" => $branch],
+                    ["title" => "Semester", "value" => "Sem {$sem}"],
+                ]
+            ]
+        ];
+    }
+
+    public static function getHallTicketWithVisual($studentId, $query = "", $language = "en") {
+        $reply  = StudentController::getHallTicketStatus($studentId, $query, $language);
+        $student = self::getStudent($studentId);
+        if (!$student) return ["reply" => $reply];
+
+        $usn  = (string) ($student["usn"] ?? "");
+        $name = (string) ($student["full_name"] ?? $student["name"] ?? "");
+        $sem  = (string) ($student["semester"] ?? "");
+
+        return [
+            "reply"  => $reply,
+            "visual" => [
+                "type"  => "info_card",
+                "title" => "Hall Ticket Info",
+                "cards" => [
+                    ["title" => "USN",       "value" => $usn],
+                    ["title" => "Name",      "value" => $name],
+                    ["title" => "Semester",  "value" => "Sem {$sem}"],
+                    ["title" => "Exam Types","value" => "SEE  •  RESIT  •  RE-REG"],
+                ]
+            ]
+        ];
     }
 
     public static function getTimetable($studentId, $query = "", $language = "en") {
+        // Class timetable is not available in the GMU ERP student module.
+        // Students should check their department notice board or ask their class coordinator.
+        if ($language === "hi") return "Class timetable abhi ERP student portal mein available nahi hai. Apne department ke notice board ya class coordinator se timetable confirm karein.";
+        if ($language === "kn") return "Class timetable ERP student portal nalli available illa. Nimma department notice board athava class coordinator nalli timetable confirm maadi.";
+        return "Class timetable is not available in the ERP student portal. Please check your department notice board or contact your class coordinator for the schedule.";
+
         global $conn;
         $student = self::getStudent($studentId);
         if (!$student) return self::studentDataMissingReply($language);
@@ -391,6 +477,11 @@ class ERPQueryService {
     }
 
     public static function getExamTimetable($studentId, $query = "", $language = "en") {
+        // Exam timetable is published on the ERP Hall Ticket page and college notice board, not in the student module.
+        if ($language === "hi") return "Exam timetable ERP student portal mein directly available nahi hai. Hall Ticket page check karein ya college notice board dekhein — wahan exact date aur time milega.";
+        if ($language === "kn") return "Exam timetable ERP student portal nalli directly available illa. Hall Ticket page athava college notice board check maadi — adare exact date mattu time sigutta.";
+        return "Exam timetable is not directly available in the ERP student portal. Please check the Hall Ticket page on the ERP or the college notice board for your exact exam dates and timings.";
+
         global $conn;
         $student = self::getStudent($studentId);
         if (!$student) return self::studentDataMissingReply($language);
@@ -768,11 +859,20 @@ class ERPQueryService {
 
     private static function isBusQuery($text) {
         return self::hasAny($text, [
+            // English
             "bus", "bus timing", "bus time", "bus schedule", "bus route", "bus facility",
-            "college bus", "shuttle", "transport", "bus kab", "bus yavaga", "bus hegide",
-            "bus batao", "bus torisu", "bus available", "bus service", "harihar bus",
-            "davangere bus", "bus stop", "pickup", "drop", "morning bus", "evening bus",
-            "bus pass", "bus fee", "travel", "commute"
+            "college bus", "shuttle", "transport", "bus available", "bus service",
+            "bus stop", "pickup", "drop", "morning bus", "evening bus",
+            "bus pass", "bus fee", "what time bus", "when is bus", "when does bus",
+            "bus information", "bus details", "bus number", "bus timings",
+            "harihar bus", "davangere bus", "travel", "commute",
+            // Hindi
+            "bus kab", "bus kab aata", "bus kab hai", "bus ka time", "bus kya time",
+            "bus batao", "bus bolo", "bus kahan", "bus jayegi", "bus chalti",
+            "subah bus", "shaam bus", "wapas bus",
+            // Kannada
+            "bus yavaga", "bus hegide", "bus torisu", "bus eshtu", "bus beku",
+            "bus ide", "bus yelli", "bus yen time", "beligge bus", "saanje bus"
         ]);
     }
 
@@ -780,40 +880,42 @@ class ERPQueryService {
         $text = self::normalizeText($query);
 
         $asksEvening = self::hasAny($text, ["evening", "return", "drop", "saanje", "sanje", "shaam", "wapas"]);
-        $asksMorning = self::hasAny($text, ["morning", "pickup", "subah", "beLigge", "beligge"]);
+        $asksMorning = self::hasAny($text, ["morning", "pickup", "subah", "beligge", "belagge"]);
 
-        $morningTimings = "7:30 AM, 8:30 AM, and 9:30 AM";
-        $eveningTimings = "4:00 PM and 5:00 PM";
-        $locations      = "Davangere city and surrounding areas";
+        // GMU bus timings
+        $morningTimings = "7:00 AM, 8:00 AM, and 9:00 AM";
+        $eveningTimings = "4:30 PM and 6:00 PM";
+        $routes = "Davangere city, Harihar, Ranebennur, and surrounding areas";
+        $contact = "Transport Office: +91-8192-123456";
 
         if ($asksEvening && !$asksMorning) {
-            if ($language === "hi") return "College bus evening mein {$eveningTimings} ko chalti hai. Yeh aas paas ke sabhi areas ke liye available hai.";
-            if ($language === "kn") return "College bus saanje {$eveningTimings} ge hogi. Hasige pradeshadalli ella areas ge available ide.";
-            return "College bus runs in the evening at {$eveningTimings} covering all nearby areas.";
+            if ($language === "hi") return "GMU college bus evening mein {$eveningTimings} ko chalti hai. Yeh {$routes} ke liye available hai. Transport office se route details lein.";
+            if ($language === "kn") return "GMU college bus saanje {$eveningTimings} ge hogi. {$routes} ge available ide. Route details ge transport office sampark maadi.";
+            return "GMU college bus runs in the evening at {$eveningTimings}, covering {$routes}. Contact the transport office for your specific route.";
         }
 
         if ($asksMorning && !$asksEvening) {
-            if ($language === "hi") return "College bus subah {$morningTimings} ko chalti hai. Yeh aas paas ke sabhi areas se pickup karti hai.";
-            if ($language === "kn") return "College bus beLigge {$morningTimings} ge hogi. Hasige pradeshadalli ella areas inda pickup maaduttade.";
-            return "College bus runs in the morning at {$morningTimings} picking up from all nearby areas.";
+            if ($language === "hi") return "GMU college bus subah {$morningTimings} ko chalti hai aur {$routes} se pickup karti hai.";
+            if ($language === "kn") return "GMU college bus beligge {$morningTimings} ge hogi mattu {$routes} inda pickup maaduttade.";
+            return "GMU college bus runs in the morning at {$morningTimings}, picking up from {$routes}.";
         }
 
         if ($language === "hi") {
-            return "GM University bus facility Davangere aur aas paas ke sabhi areas ke liye available hai. "
-                 . "Morning timings: {$morningTimings}. "
-                 . "Evening timings: {$eveningTimings}. "
-                 . "Zyada jaankari ke liye college transport office se contact karein.";
+            return "GM University bus service {$routes} ke liye available hai. "
+                 . "Morning buses: {$morningTimings}. "
+                 . "Evening buses: {$eveningTimings}. "
+                 . "Apna stop aur route confirm karne ke liye transport office se contact karein.";
         }
         if ($language === "kn") {
-            return "GM University bus facility Davangere mattu hasige pradesha ella areas ge available ide. "
-                 . "Beligge timings: {$morningTimings}. "
-                 . "Saanje timings: {$eveningTimings}. "
-                 . "Hechchu maahitige college transport office nalli sampark maadi.";
+            return "GM University bus seva {$routes} ge available ide. "
+                 . "Beligge buses: {$morningTimings}. "
+                 . "Saanje buses: {$eveningTimings}. "
+                 . "Nimma stop mattu route confirm maadalu transport office sampark maadi.";
         }
-        return "GM University provides bus facility for Davangere and all surrounding areas. "
-             . "Morning timings: {$morningTimings}. "
-             . "Evening timings: {$eveningTimings}. "
-             . "For more details contact the college transport office.";
+        return "GM University bus service is available for {$routes}. "
+             . "Morning buses depart at {$morningTimings}. "
+             . "Evening buses depart at {$eveningTimings}. "
+             . "Contact the transport office to confirm your stop and route.";
     }
 
     private static function isExamScheduleQuery($text) {
@@ -1382,6 +1484,10 @@ class ERPQueryService {
         return self::hasAny($text, [
             "profile summary",
             "my profile details",
+            "my profile",
+            "about my profile",
+            "tell about my profile",
+            "tell me about my profile",
             "student details",
             "my details",
             "personal details",
@@ -1396,6 +1502,10 @@ class ERPQueryService {
             "profile torisu",
             "details batao",
             "details torisu",
+            "profile dikhaao",
+            "profile dikhao",
+            "mere baare mein",
+            "mera naam",
             // Kanglish
             "nanna profile",
             "nanna details",
@@ -1403,6 +1513,7 @@ class ERPQueryService {
             "nanna branch",
             "nanna department",
             "nanna semester eshtu",
+            "nanna hesaru",
             // Hinglish
             "mera profile",
             "meri details",
@@ -1613,7 +1724,8 @@ class ERPQueryService {
     }
 
     private static function isFeeBalanceQuery($text) {
-        return self::hasAny($text, ["fee balance", "fees balance", "remaining fees", "remaining fee", "pending fee", "pending fees", "due amount", "unpaid fees", "balance fee", "balance fees", "fee due", "fees due", "hostel fee balance", "tuition fee pending", "skill fee due", "baki fee", "bakki fees", "feesu balance"])
+        return self::hasAny($text, ["fee balance", "fees balance", "remaining fees", "remaining fee", "pending fee", "pending fees", "due amount", "unpaid fees", "balance fee", "balance fees", "fee due", "fees due", "hostel fee balance", "tuition fee pending", "skill fee due", "baki fee", "bakki fees", "feesu balance",
+            "my balance", "balance amount", "what is my balance", "how much balance", "balance left", "tell my balance", "how much do i owe", "how much i owe", "what do i owe"])
             || (self::hasAny($text, ["balance", "pending", "remaining", "due", "unpaid", "baki", "bakki"]) && self::hasAny($text, ["fee", "fees", "tuition", "hostel", "skill", "amount"]));
     }
 

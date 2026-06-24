@@ -1,5 +1,7 @@
 ﻿import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
+import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -159,8 +161,10 @@ class _LoginPageState extends State<LoginPage> {
         });
         return;
       }
-    } catch (_) {
+    } catch (e) {
       demo = true;
+      debugPrint('LOGIN ERROR: $e');
+      setState(() { loading = false; error = 'Connection failed: $e'; });
     }
     if (!mounted) return;
     setState(() => loading = false);
@@ -254,16 +258,13 @@ class _ErpShellState extends State<ErpShell> {
   int page = 0;
   bool bot = false;
   String lang = 'English';
-  String user = '';
-  // Stores the last voice-requested result filter (semester, examType, year, season)
-  // so ResultPage can show the correct grade sheet parameters.
   Map<String, String> resultFilter = {};
-  late String reply =
-      'Hello ${widget.student.name}. Welcome back to your GM University ERP Assistant. How can I help you today?';
+  late String reply = 'Hello ${widget.student.name}! How can I help you today?';
+  Offset? _orbPos; // null = default bottom-right; set on first drag
 
   void open(int i, [String? msg]) => setState(() {
     page = i;
-    reply = msg ?? '${titles[i]} page is open.';
+    if (msg != null) reply = msg;
   });
   static const titles = [
     'Home',
@@ -276,47 +277,6 @@ class _ErpShellState extends State<ErpShell> {
     'Attendance',
     'Hall Ticket',
   ];
-
-  void query(String q) {
-    final s = q.toLowerCase();
-    var r =
-        'I can help with results, attendance, fees, registration, certificates, profile, and ERP services.';
-    var p = page;
-    if (s.contains('home') || s.contains('main') || s.contains('back')) {
-      p = 0;
-      r = 'Home page is open.';
-    } else if (s.contains('profile')) {
-      p = 1;
-      r = 'Profile page is open.';
-    } else if (s.contains('registration')) {
-      p = 2;
-      r = 'Registration page is open.';
-    } else if (s.contains('payment') || s.contains('pay')) {
-      p = 3;
-      r = 'Payment portal is open.';
-    } else if (s.contains('result') || s.contains('sgpa')) {
-      p = 4;
-      r = 'Student result page is open. Latest SGPA is 8.55 and status is PASS.';
-    } else if (s.contains('certificate') || s.contains('competency')) {
-      p = 5;
-      r = 'Digital competency certificate page is open.';
-    } else if (s.contains('dashboard')) {
-      p = 6;
-      r = 'Dashboard page is open.';
-    } else if (s.contains('attendance')) {
-      p = 7;
-      r = 'Attendance page opened.';
-    } else if (s.contains('fee')) {
-      r = 'Fee balance summary: tuition fee balance Rs. 35000, skill fee balance Rs. 0, other fee balance Rs. 2500.';
-    } else if (s.contains('usn')) {
-      r = 'Your USN is ${widget.student.usn}.';
-    }
-    setState(() {
-      user = q;
-      reply = r;
-      page = p;
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -359,34 +319,61 @@ class _ErpShellState extends State<ErpShell> {
               Expanded(child: screens[page]),
             ],
           ),
-          if (bot)
-            Positioned(
-              right: 14,
-              bottom: 86,
-              child: VapiVoiceBox(
-                lang: lang,
-                user: user,
-                reply: reply,
-                onClose: () => setState(() => bot = false),
-                onLang: (v) => setState(() {
-                  lang = v;
-                  reply = '$v selected. Ask your ERP question.';
-                }),
-                onAsk: query,
-                onNavigate: _applyVoiceNavigation,
+          // ── Draggable voice orb — snaps to left/right edge ─────────
+          Builder(builder: (ctx) {
+            final mq = MediaQuery.of(ctx);
+            final screen = mq.size;
+            final safePad = mq.padding;
+            const orbW = 72.0;   // idle width for snap calc
+            const orbH = 72.0 + 28 + 8; // orb + close btn + gap
+            const margin = 24.0;
+            // Default: bottom-right, 24px from safe edges
+            final defaultPos = Offset(
+              screen.width - orbW - margin,
+              screen.height - safePad.bottom - orbH - margin,
+            );
+            final pos = _orbPos ?? defaultPos;
+
+            return Positioned(
+              left: pos.dx,
+              top: pos.dy,
+              child: SafeArea(
+                child: GestureDetector(
+                  onPanUpdate: (d) => setState(() {
+                    final cur = _orbPos ?? defaultPos;
+                    _orbPos = Offset(
+                      (cur.dx + d.delta.dx).clamp(margin, screen.width - orbW - margin),
+                      (cur.dy + d.delta.dy).clamp(safePad.top + margin, screen.height - safePad.bottom - orbH - margin),
+                    );
+                  }),
+                  // Snap to nearest edge on finger lift
+                  onPanEnd: (_) => setState(() {
+                    final cur = _orbPos ?? defaultPos;
+                    final snapRight = cur.dx + orbW / 2 > screen.width / 2;
+                    _orbPos = Offset(
+                      snapRight ? screen.width - orbW - margin : margin,
+                      cur.dy.clamp(safePad.top + margin, screen.height - safePad.bottom - orbH - margin),
+                    );
+                  }),
+                  child: bot
+                      ? VapiVoiceBox(
+                          lang: lang,
+                          user: '',
+                          reply: reply,
+                          onClose: () => setState(() => bot = false),
+                          onLang: (v) => setState(() => lang = v),
+                          onAsk: (_) {},
+                          onNavigate: _applyVoiceNavigation,
+                        )
+                      : _GlowMicButton(
+                          size: 60,
+                          state: _MicState.idle,
+                          onTap: () => setState(() => bot = true),
+                        ),
+                ),
               ),
-            ),
-          Positioned(
-            right: 18,
-            bottom: 20,
-            child: FloatingActionButton.extended(
-              backgroundColor: Clr.maroon,
-              foregroundColor: Colors.white,
-              onPressed: () => setState(() => bot = true),
-              icon: const Icon(Icons.mic),
-              label: const Text('Tap to ask'),
-            ),
-          ),
+            );
+          }),
         ],
       ),
     );
@@ -394,12 +381,9 @@ class _ErpShellState extends State<ErpShell> {
 
   String _applyVoiceNavigation(String path, String pageName, [Map<String, dynamic>? resultRequest]) {
     final target = _pageIndexForPath(path, pageName);
-    final label = _spokenActionPageName(pageName, target);
     if (target == null) return 'I could not open that page.';
-    if (page == target && resultRequest == null) return 'You are already on the ${label.toLowerCase()} page.';
     setState(() {
       page = target;
-      reply = '$label page opened.';
       if (resultRequest != null && target == 4) {
         resultFilter = {
           'semester': '${resultRequest['semester'] ?? ''}',
@@ -410,75 +394,25 @@ class _ErpShellState extends State<ErpShell> {
         };
       }
     });
-    return '$label page opened.';
+    return '$pageName page opened.';
   }
 
   int? _pageIndexForPath(String path, String pageName) {
     final pageKey = pageName.toLowerCase().trim();
     final pathKey = path.split('?').first.toLowerCase().trim();
     const byPage = {
-      'home': 0,
-      'profile': 1,
-      'registration': 2,
-      're_registration': 2,
-      'resit': 2,
-      'apply_exam': 2,
-      'payment': 3,
-      'results': 4,
-      'result': 4,
-      'certificate': 5,
-      'dashboard': 6,
-      'attendance': 7,
-      'hallticket': 8,
-      'hall_ticket': 8,
-      'hall ticket': 8,
+      'home': 0, 'profile': 1, 'registration': 2, 're_registration': 2,
+      'resit': 2, 'apply_exam': 2, 'payment': 3, 'results': 4, 'result': 4,
+      'certificate': 5, 'dashboard': 6, 'attendance': 7,
+      'hallticket': 8, 'hall_ticket': 8, 'hall ticket': 8,
     };
     const byPath = {
-      '/home': 0,
-      '/profile': 1,
-      '/registration': 2,
-      '/re-registration': 2,
-      '/resit': 2,
-      '/apply-exam': 2,
-      '/payment': 3,
-      '/results': 4,
-      '/certificate': 5,
-      '/dashboard': 6,
-      '/attendance': 7,
-      '/attendance-analytics': 7,
-      '/hall-ticket': 8,
+      '/home': 0, '/profile': 1, '/registration': 2, '/re-registration': 2,
+      '/resit': 2, '/apply-exam': 2, '/payment': 3, '/results': 4,
+      '/certificate': 5, '/dashboard': 6, '/attendance': 7,
+      '/attendance-analytics': 7, '/hall-ticket': 8,
     };
     return byPath[pathKey] ?? byPage[pageKey];
-  }
-
-  String _spokenPageName(int index) {
-    const names = {
-      0: 'Home',
-      1: 'Profile',
-      2: 'Registration',
-      3: 'Payment',
-      4: 'Result',
-      5: 'Certificate',
-      6: 'Dashboard',
-      7: 'Attendance',
-      8: 'Hall Ticket',
-    };
-    return names[index] ?? 'ERP';
-  }
-
-  String _spokenActionPageName(String pageName, int? index) {
-    final key = pageName.toLowerCase().trim();
-    const actionNames = {
-      'results': 'Result',
-      'result': 'Result',
-      'hallticket': 'Hall ticket',
-      'hall_ticket': 'Hall ticket',
-      'hall ticket': 'Hall ticket',
-      're_registration': 'Re-Registration',
-      'resit': 'Apply Resit',
-      'apply_exam': 'Apply Exam',
-    };
-    return actionNames[key] ?? (index == null ? 'ERP' : _spokenPageName(index));
   }
 }
 
@@ -1130,17 +1064,27 @@ class VapiVoiceBox extends StatefulWidget {
   State<VapiVoiceBox> createState() => _VapiVoiceBoxState();
 }
 
-class _VapiVoiceBoxState extends State<VapiVoiceBox> {
+class _VapiVoiceBoxState extends State<VapiVoiceBox> with SingleTickerProviderStateMixin {
   final _textCtrl = TextEditingController();
+  late final AnimationController _pulse;
+  late final Animation<double> _pulseAnim;
   bool _connecting = false;
   bool _callActive = false;
   bool _speaking = false;
-  String _status = 'Tap mic to start Vapi';
+  // ignore: unused_field
+  String _status = '';
+  // ignore: unused_field
   String _source = 'vapi';
   String _localLang = 'English';
+  // ignore: unused_field
   String _localUser = '';
+  // ignore: unused_field
   String _localReply = '';
+  // ignore: unused_field
+  bool _hasInteracted = false;
+  // ignore: unused_field
   String? _error;
+  // ignore: unused_field
   String _sessionToken = '';
   Map<String, dynamic>? _visual;
   final Set<String> _handledActionIds = <String>{};
@@ -1162,21 +1106,29 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> {
   @override
   void initState() {
     super.initState();
+    _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400))..repeat(reverse: true);
+    _pulseAnim = Tween<double>(begin: 1.0, end: 1.06).animate(CurvedAnimation(parent: _pulse, curve: Curves.easeInOut));
     _localLang = widget.lang;
     _localUser = widget.user;
     _localReply = widget.reply;
+    // Auto-start Vapi as soon as the panel opens
+    WidgetsBinding.instance.addPostFrameCallback((_) => _startVapi());
   }
 
   @override
   void didUpdateWidget(covariant VapiVoiceBox oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.lang != widget.lang) _localLang = widget.lang;
-    if (oldWidget.user != widget.user) _localUser = widget.user;
+    if (oldWidget.user != widget.user) {
+      _localUser = widget.user;
+      _localReply = '';
+    }
     if (oldWidget.reply != widget.reply) _localReply = widget.reply;
   }
 
   @override
   void dispose() {
+    _pulse.dispose();
     _textCtrl.dispose();
     _vapiCall?.stop();
     _vapiCall?.dispose();
@@ -1342,12 +1294,13 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> {
       setState(() {
         if (role == 'assistant') {
           _localReply = transcript;
+          _hasInteracted = true;
         } else {
           _localUser = transcript;
-          // Clear the previous answer immediately so the UI doesn't show
-          // a stale reply while the new question is being processed.
+          _hasInteracted = true;
           _localReply = '';
-          _visual = null;
+          // Do NOT clear _visual here — keep the previous chart visible
+          // until the new answer arrives with its own visual (or none).
           _status = 'Thinking...';
         }
       });
@@ -1402,6 +1355,7 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> {
     }
 
     setState(() {
+      _hasInteracted = true;
       if (actionReply.isNotEmpty) {
         _localReply = actionReply;
       } else if (reply.isNotEmpty) {
@@ -1470,56 +1424,6 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> {
     return parts.join('|');
   }
 
-  Future<void> _sendTypedMessage() async {
-    final text = _textCtrl.text.trim();
-    if (text.isEmpty) return;
-    setState(() {
-      _localUser = text;
-      _status = 'Sending to Vapi backend...';
-      _error = null;
-    });
-    try {
-      if (_sessionToken.isEmpty) {
-        final config = await api.get('vapiConfig.php?language=$_languageCode');
-        if (config is Map) _sessionToken = '${config['session_token'] ?? ''}';
-      }
-      final response = await api.post('vapiWebhook.php', {
-        'message': {
-          'type': 'tool-calls',
-          'toolCalls': [
-            {
-              'id': 'flutter-typed-${DateTime.now().millisecondsSinceEpoch}',
-              'function': {
-                'name': 'gmu_voice_assistant',
-                'arguments': jsonEncode({
-                  'query': text,
-                  'language': _languageCode,
-                  'session_token': _sessionToken,
-                }),
-              },
-            }
-          ],
-          'call': {
-            'assistantOverrides': {
-              'variableValues': {
-                'session_token': _sessionToken,
-                'student_session_token': _sessionToken,
-                'voice_language': _languageCode,
-              },
-            },
-          },
-        },
-      });
-      final result = _findToolResult(response);
-      if (result != null) _applyToolResult(result);
-      _textCtrl.clear();
-    } catch (error) {
-      setState(() {
-        _error = '$error';
-        _status = 'Backend unavailable';
-      });
-    }
-  }
 
   String _applyNavigation(String path, String page, [Map<String, dynamic>? resultRequest]) {
     return widget.onNavigate(path, page, resultRequest);
@@ -1541,18 +1445,6 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> {
     }
   }
 
-  Future<void> _selectLanguage(String lang) async {
-    if (_localLang == lang) return;
-    setState(() {
-      _localLang = lang;
-      _localReply = '$lang selected. Restart Vapi to use this language.';
-    });
-    widget.onLang(lang);
-    if (_callActive) {
-      _stopVapi();
-      await _startVapi();
-    }
-  }
 
   Future<void> _close() async {
     _stopVapi();
@@ -1561,179 +1453,416 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> {
 
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.sizeOf(context).width;
-    final panelWidth = width < 720 ? width - 28 : 520.0;
-    final displayUser = _localUser.trim().isNotEmpty ? _localUser : widget.user;
-    final displayReply = _localReply.trim().isNotEmpty ? _localReply : widget.reply;
+    final isSpeaking   = _speaking;
+    final isListening  = _callActive && !_speaking;
+    final isConnecting = _connecting;
+    final screenH = MediaQuery.sizeOf(context).height;
+
+    // ── Dimensions per state ─────────────────────────────────────────
+    const double idleW = 72, idleH = 72;
+    const double listenW = 88, listenH = 88;
+    const double speakW = 180, speakH = 72;
+
+    final double orbW = isSpeaking ? speakW : (isListening ? listenW : idleW);
+    final double orbH = isSpeaking ? speakH : (isListening ? listenH : idleH);
+    final double radius = isSpeaking ? 36 : orbW / 2;
+
+    // ── Colors ──────────────────────────────────────────────────────
+    final glowColor = isListening ? const Color(0xFF5B8FD4) : Clr.maroon;
+    final List<Color> gradColors = isListening
+        ? [const Color(0xFF6FA3E0), const Color(0xFF851818)]
+        : [const Color(0xFFB23A3A), const Color(0xFF6B0F0F)];
+
+    // ── Card width for visual data ───────────────────────────────────
+    final cardW = math.max(280.0, orbW);
+
+    // ── Orb core with glassmorphism ──────────────────────────────────
+    Widget orbCore = AnimatedContainer(
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeInOutCubic,
+      width: orbW,
+      height: orbH,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(radius),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: gradColors,
+        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.20), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: glowColor.withValues(alpha: 0.15),
+            blurRadius: 20,
+            spreadRadius: isSpeaking || isListening ? 2 : 0,
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+          child: Container(
+            color: Colors.white.withValues(alpha: 0.10),
+            child: ClipRect(
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // ── State content ──────────────────────────────────
+                if (isConnecting)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      _PulsingDot(color: Colors.white, delay: 0),
+                      SizedBox(width: 6),
+                      _PulsingDot(color: Colors.white, delay: 200),
+                      SizedBox(width: 6),
+                      _PulsingDot(color: Colors.white, delay: 400),
+                    ],
+                  )
+                else if (isSpeaking)
+                  // Clip during AnimatedContainer width transition to prevent overflow
+                  ClipRect(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 60,
+                          child: _SoundWave(active: true, barColor: Colors.white),
+                        ),
+                        const SizedBox(width: 6),
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Text('Speaking...', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
+                            Text('GMU Voice', style: TextStyle(color: Colors.white60, fontSize: 8)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  )
+                else if (isListening)
+                  // 88×88: glowing mic with pulse rings
+                  _GlowMicButton(
+                    size: 46,
+                    state: _MicState.listening,
+                    onTap: _stopVapi,
+                  )
+                else
+                  // Idle 72×72: tap-to-start
+                  GestureDetector(
+                    onTap: _startVapi,
+                    child: const Icon(Icons.mic_rounded, color: Colors.white, size: 28),
+                  ),
+              ],
+            ),
+            ), // ClipRect
+          ),
+        ),
+      ),
+    );
+
+    // ── Pulse scale for listening state ─────────────────────────────
+    orbCore = AnimatedBuilder(
+      animation: _pulseAnim,
+      builder: (_, child) => Transform.scale(
+        scale: isListening ? _pulseAnim.value : 1.0,
+        child: child,
+      ),
+      child: orbCore,
+    );
 
     return Material(
-      elevation: 18,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        width: panelWidth,
-        constraints: const BoxConstraints(maxHeight: 620),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: Clr.maroon, width: 3),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+      color: Colors.transparent,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // ── Info / chart card above orb ──────────────────────────
+          if (_visual != null)
             Container(
-              height: 64,
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              decoration: const BoxDecoration(
-                color: Clr.maroon,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+              width: cardW,
+              margin: const EdgeInsets.only(bottom: 8),
+              constraints: BoxConstraints(maxHeight: screenH * 0.25),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.95),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Clr.maroon.withValues(alpha: 0.12)),
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 16, offset: const Offset(0, 4))],
               ),
-              child: Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'GMU Vapi VoiceBot',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800),
-                    ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                    child: VisualRenderer(visual: _visual!),
                   ),
-                  IconButton(onPressed: _close, icon: const Icon(Icons.close, color: Colors.white)),
-                ],
-              ),
-            ),
-            Flexible(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 10,
-                      children: ['English', 'Hindi', 'Kannada'].map((lang) {
-                        final selected = lang == _localLang;
-                        return SizedBox(
-                          width: panelWidth < 420 ? panelWidth - 46 : 132,
-                          child: OutlinedButton.icon(
-                            onPressed: () => _selectLanguage(lang),
-                            icon: selected ? const Icon(Icons.check, size: 18) : const SizedBox.shrink(),
-                            label: Text(lang),
-                            style: OutlinedButton.styleFrom(
-                              backgroundColor: selected ? Clr.maroon : Colors.white,
-                              foregroundColor: selected ? Colors.white : Clr.maroon,
-                              side: const BorderSide(color: Clr.maroon),
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 22),
-                    Row(
-                      children: [
-                        Container(
-                          width: 12,
-                          height: 12,
-                          decoration: BoxDecoration(
-                            color: _callActive ? Colors.green : (_connecting ? Colors.orange : Colors.grey),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text.rich(
-                            TextSpan(
-                              children: [
-                                const TextSpan(text: 'Status: ', style: TextStyle(fontWeight: FontWeight.w800, color: Clr.maroon)),
-                                TextSpan(text: _status),
-                              ],
-                            ),
-                            style: const TextStyle(fontSize: 16),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Text.rich(
-                      TextSpan(
-                        children: [
-                          const TextSpan(text: 'Language: ', style: TextStyle(fontWeight: FontWeight.w800, color: Clr.maroon)),
-                          TextSpan(text: _localLang),
-                        ],
-                      ),
-                      style: const TextStyle(fontSize: 16),
-                    ),
-                    const SizedBox(height: 18),
-                    _Line(label: 'You', text: displayUser),
-                    const SizedBox(height: 14),
-                    _Line(label: 'Assistant', text: displayReply),
-                    if (_visual != null) ...[
-                      const SizedBox(height: 16),
-                      VisualRenderer(visual: _visual!),
-                    ],
-                    const SizedBox(height: 14),
-                    _Line(label: 'Source', text: _source),
-                    if (_speaking) ...[
-                      const SizedBox(height: 12),
-                      const _Line(label: 'Voice', text: 'Vapi is speaking...'),
-                    ],
-                    if (_error != null) ...[
-                      const SizedBox(height: 16),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFE3E3),
-                          borderRadius: BorderRadius.circular(8),
-                          border: const Border(left: BorderSide(color: Colors.red, width: 5)),
-                        ),
-                        child: Text(_error!, style: const TextStyle(color: Colors.red, height: 1.35)),
-                      ),
-                    ],
-                    const SizedBox(height: 20),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _textCtrl,
-                            textInputAction: TextInputAction.send,
-                            onSubmitted: (_) => _sendTypedMessage(),
-                            decoration: const InputDecoration(hintText: 'Type here or use Vapi voice', border: OutlineInputBorder()),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        IconButton.filled(
-                          onPressed: _connecting ? null : (_callActive ? _stopVapi : _startVapi),
-                          icon: Icon(_callActive ? Icons.stop : Icons.mic),
-                          style: IconButton.styleFrom(
-                            backgroundColor: _callActive ? Colors.green : Clr.maroon,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.all(16),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton.filled(
-                          onPressed: _sendTypedMessage,
-                          icon: const Icon(Icons.send),
-                          style: IconButton.styleFrom(backgroundColor: Clr.maroon, foregroundColor: Colors.white, padding: const EdgeInsets.all(16)),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      _callActive
-                          ? 'Vapi is connected. Speak naturally.'
-                          : 'Uses Vapi Web SDK with your existing Vapi assistant config.',
-                      style: TextStyle(color: Colors.grey.shade700),
-                    ),
-                  ],
                 ),
               ),
+            ),
+
+          // ── Close button: 28×28, above-right of orb, 12px gap ───
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              GestureDetector(
+                onTap: _close,
+                child: Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: Clr.maroon.withValues(alpha: 0.85),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.30), width: 1),
+                    boxShadow: [BoxShadow(color: Clr.maroon.withValues(alpha: 0.30), blurRadius: 8)],
+                  ),
+                  child: const Icon(Icons.close_rounded, color: Colors.white, size: 16),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+
+          // ── Orb ─────────────────────────────────────────────────
+          orbCore,
+        ],
+      ),
+    );
+  }
+}
+
+class _SoundWave extends StatefulWidget {
+  const _SoundWave({required this.active, this.barColor});
+  final bool active;
+  final Color? barColor;
+  @override
+  State<_SoundWave> createState() => _SoundWaveState();
+}
+
+class _SoundWaveState extends State<_SoundWave> with TickerProviderStateMixin {
+  final List<AnimationController> _ctrls = [];
+  final List<Animation<double>> _anims = [];
+  static const _heights = [10.0, 20.0, 28.0, 18.0, 12.0];
+  static const _delays  = [0, 100, 180, 80, 220];
+
+  @override
+  void initState() {
+    super.initState();
+    for (var i = 0; i < _heights.length; i++) {
+      final ctrl = AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: 500 + i * 60),
+      )..repeat(reverse: true);
+      _ctrls.add(ctrl);
+      _anims.add(Tween<double>(begin: 4, end: _heights[i]).animate(
+        CurvedAnimation(parent: ctrl, curve: Curves.easeInOut),
+      ));
+      Future.delayed(Duration(milliseconds: _delays[i]), () {
+        if (mounted) ctrl.forward();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final c in _ctrls) { c.dispose(); }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.center,
+    children: List.generate(_heights.length, (i) => Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 3),
+      child: AnimatedBuilder(
+        animation: _anims[i],
+        builder: (context2, snap) => Container(
+          width: 5,
+          height: widget.active ? _anims[i].value : 6,
+          decoration: BoxDecoration(
+            color: (widget.barColor ?? Clr.maroon).withValues(alpha: widget.active ? 0.85 : 0.3),
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ),
+      ),
+    )),
+  );
+}
+
+enum _MicState { idle, connecting, listening, speaking }
+
+/// Bixby-style glowing voice orb: a radial-gradient core wrapped in a slowly
+/// rotating conic "shine" ring, with concentric pulse rings when active.
+/// Colors shift per state so the user can read connecting / listening / speaking
+/// at a glance without needing a text label.
+class _GlowMicButton extends StatefulWidget {
+  const _GlowMicButton({required this.size, required this.state, required this.onTap});
+  final double size;
+  final _MicState state;
+  final VoidCallback? onTap;
+
+  @override
+  State<_GlowMicButton> createState() => _GlowMicButtonState();
+}
+
+class _GlowMicButtonState extends State<_GlowMicButton> with TickerProviderStateMixin {
+  late final AnimationController _spin;
+  late final AnimationController _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _spin = AnimationController(vsync: this, duration: const Duration(seconds: 4))..repeat();
+    _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 1300))..repeat();
+  }
+
+  @override
+  void dispose() {
+    _spin.dispose();
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  // Single maroon theme for every state — only the icon and the wave motion change.
+  List<Color> get _coreColors => const [Color(0xFFB23A3A), Color(0xFF9B1C1C), Color(0xFF6B0F0F)];
+
+  Color get _glow => Clr.maroon;
+
+  IconData get _icon {
+    switch (widget.state) {
+      case _MicState.connecting:
+        return Icons.more_horiz_rounded;
+      case _MicState.speaking:
+        return Icons.graphic_eq_rounded;
+      case _MicState.listening:
+        return Icons.stop_rounded;
+      case _MicState.idle:
+        return Icons.mic_rounded;
+    }
+  }
+
+  bool get _active => widget.state != _MicState.idle;
+
+  @override
+  Widget build(BuildContext context) {
+    final ringBox = widget.size * 1.7;
+    return GestureDetector(
+      onTap: widget.onTap,
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: ringBox,
+        height: ringBox,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Concentric expanding pulse rings (only while active).
+            if (_active)
+              AnimatedBuilder(
+                animation: _pulse,
+                builder: (context, _) {
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: List.generate(2, (i) {
+                      final t = ((_pulse.value + i * 0.5) % 1.0);
+                      return Container(
+                        width: widget.size + (ringBox - widget.size) * t,
+                        height: widget.size + (ringBox - widget.size) * t,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white.withValues(alpha: (1 - t) * 0.55), width: 2),
+                        ),
+                      );
+                    }),
+                  );
+                },
+              ),
+            // Rotating conic "shine" ring for the Bixby sheen.
+            RotationTransition(
+              turns: _spin,
+              child: Container(
+                width: widget.size + 8,
+                height: widget.size + 8,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: SweepGradient(
+                    colors: [
+                      _glow.withValues(alpha: 0.0),
+                      _glow.withValues(alpha: 0.7),
+                      Colors.white.withValues(alpha: 0.9),
+                      _glow.withValues(alpha: 0.7),
+                      _glow.withValues(alpha: 0.0),
+                    ],
+                    stops: const [0.0, 0.25, 0.5, 0.75, 1.0],
+                  ),
+                ),
+              ),
+            ),
+            // Core orb.
+            Container(
+              width: widget.size,
+              height: widget.size,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: _coreColors,
+                  center: const Alignment(-0.3, -0.4),
+                  radius: 1.1,
+                ),
+                boxShadow: [
+                  BoxShadow(color: _glow.withValues(alpha: 0.55), blurRadius: _active ? 22 : 12, spreadRadius: _active ? 3 : 0),
+                ],
+              ),
+              child: Icon(_icon, color: Colors.white, size: widget.size * 0.42),
             ),
           ],
         ),
       ),
     );
   }
+}
+
+class _PulsingDot extends StatefulWidget {
+  const _PulsingDot({required this.color, required this.delay});
+  final Color color;
+  final int delay;
+  @override
+  State<_PulsingDot> createState() => _PulsingDotState();
+}
+
+class _PulsingDotState extends State<_PulsingDot> with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 600))..repeat(reverse: true);
+    _anim = Tween<double>(begin: 0.4, end: 1.0).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+    Future.delayed(Duration(milliseconds: widget.delay), () {
+      if (mounted) _ctrl.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
+    opacity: _anim,
+    child: Container(
+      width: 8,
+      height: 8,
+      decoration: BoxDecoration(color: widget.color, shape: BoxShape.circle),
+    ),
+  );
 }
 
 class VisualRenderer extends StatelessWidget {
@@ -1746,7 +1875,6 @@ class VisualRenderer extends StatelessWidget {
   static const _cream = Color(0xFFF4E7B0);
   static const _darkBrown = Color(0xFF2B1D12);
   static const _card = Color(0xFFFFFDF7);
-  static const _lightRed = Color(0xFFE9A3A3);
   // Attendance level colors
   static const _attendanceGreen = Color(0xFF2E7D32);
   static const _attendanceAmber = Color(0xFFFF8F00);
@@ -1760,6 +1888,8 @@ class VisualRenderer extends StatelessWidget {
         return _VisualFrame(child: _attendanceChart(context));
       case 'bar_chart':
         return _VisualFrame(child: _barChart(context, _genericItems()));
+      case 'info_card':
+        return _VisualFrame(child: _infoCard(context));
       case 'cards':
       case 'dashboard_widgets':
         return _VisualFrame(child: _cards(context));
@@ -1872,6 +2002,54 @@ class VisualRenderer extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _infoCard(BuildContext context) {
+    final title = '${visual['title'] ?? ''}';
+    final cards = _listOfMaps(visual['cards']);
+    if (cards.isEmpty) return const _EmptyVisual();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (title.isNotEmpty) ...[
+          Text(title, style: const TextStyle(color: _maroon, fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 0.5)),
+          const SizedBox(height: 6),
+          Container(height: 1, color: _gold.withValues(alpha: 0.5)),
+          const SizedBox(height: 4),
+        ],
+        ...List.generate(cards.length, (i) {
+          final card = cards[i];
+          final label = _firstText(card, ['title', 'label']);
+          final value = _firstText(card, ['value', 'text']);
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: Text(label, style: TextStyle(color: _maroon.withValues(alpha: 0.8), fontWeight: FontWeight.w600, fontSize: 12)),
+                    ),
+                    Expanded(
+                      flex: 3,
+                      child: Text(
+                        value,
+                        style: const TextStyle(color: _darkBrown, fontWeight: FontWeight.w800, fontSize: 13),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (i < cards.length - 1)
+                Container(height: 0.5, color: _gold.withValues(alpha: 0.35)),
+            ],
+          );
+        }),
+      ],
     );
   }
 
@@ -2014,30 +2192,6 @@ class _EmptyVisual extends StatelessWidget {
     );
   }
 }
-
-class _Line extends StatelessWidget {
-  const _Line({required this.label, required this.text});
-
-  final String label;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return RichText(
-      text: TextSpan(
-        style: const TextStyle(color: Colors.black87, fontSize: 16, height: 1.45),
-        children: [
-          TextSpan(
-            text: '$label: ',
-            style: const TextStyle(color: Clr.maroon, fontWeight: FontWeight.w800),
-          ),
-          TextSpan(text: text),
-        ],
-      ),
-    );
-  }
-}
-
 
 class Field extends StatelessWidget {
   const Field({

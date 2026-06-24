@@ -6,13 +6,9 @@ ini_set('log_errors', '1');
 
 require_once __DIR__ . "/cors.php";
 
-ini_set('session.cookie_samesite', 'Lax');
-ini_set('session.cookie_secure', '0');
+ini_set('session.cookie_samesite', 'None');
+ini_set('session.cookie_secure', '1');
 
-header("Access-Control-Allow-Origin: http://localhost:3000");
-header("Access-Control-Allow-Credentials: true");
-header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type");
 header("Content-Type: application/json");
 
 // Check internal auth from VapiToolService BEFORE session_start (headers are always available)
@@ -312,6 +308,21 @@ function resolveConversationMemoryFollowUp($message, $language, $lastContext) {
     }
 
     return null;
+}
+
+function buildIntentClarificationPayload($intent, $message, $language) {
+    return null;
+}
+
+function respondWithClarification($intent, $clarification, $source) {
+    echo json_encode([
+        "status" => "clarification",
+        "intent" => $intent,
+        "route" => "clarification",
+        "reply" => $clarification["reply"] ?? "",
+        "source" => $source
+    ]);
+    exit();
 }
 
 function buildExamReadinessReply($student_id, $message, $language) {

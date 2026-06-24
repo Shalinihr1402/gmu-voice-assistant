@@ -4,6 +4,8 @@ require_once __DIR__ . "/cors.php";
 
 header("Content-Type: application/json");
 
+ini_set('session.cookie_samesite', 'None');
+ini_set('session.cookie_secure', '1');
 session_start();
 require_once "config/db.php";
 
