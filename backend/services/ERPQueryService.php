@@ -936,32 +936,30 @@ class ERPQueryService {
     }
 
     private static function isHolidayQuery($text) {
-        // "is there class tomorrow / today", "class kal hai kya", "kal holiday hai kya"
+        // "is there class/college tomorrow/today", "kal class hai", "nale holiday ide"
         $classTomorrow = (bool) preg_match(
-            '/\b(class(es)?\s+(tomorrow|today|kal|aaj|nale)|' .
-            'tomorrow\s+(class(es)?|holiday|bandh|chutti|raje|rajeyide)|' .
-            'is\s+(there\s+)?(class|college|school)\s+(tomorrow|today)|' .
+            '/\b(' .
+            'class(es)?\s+(tomorrow|today|kal|aaj|nale)|' .
+            '(tomorrow|kal|nale)\s+(class(es)?|holiday|bandh|chutti|raje)|' .
+            'is\s+(there\s+)?(class(es)?|college|holiday)\s+(tomorrow|today)|' .
             'kal\s+(class|college|holiday|chutti|bandh)\s*(hai|he|ide|ade)?|' .
             'aaj\s+(class|college|holiday|chutti)\s*(hai|he|ide)?|' .
             'nale\s+(class|college|holiday|raje)\s*(ide|ade|he)?|' .
-            'college\s+(tomorrow|kal|aaj|today)\s*(open|closed|bandh|hai)?)\b/ui',
+            'college\s+(tomorrow|kal|aaj|today)\s*(open|closed|bandh|hai)?' .
+            ')\b/ui',
             $text
         );
-        // specific holiday names from the GMU 2026 list
+        // specific festival names from GMU 2026 list
         $festivalNames = (bool) preg_match(
-            '/\b(sankranti|makara|uttarayana|republic\s*day|ugadi|ramzan|khutub|basava|akshaya\s*tritiya|may\s*day|' .
-            'independence\s*day|vinayaka|ganesh|gandhi\s*jayanti|mahalaya|amavasye|mahanavami|ayudha|' .
-            'vijayadasami|dussehra|dasara|balipadyami|deepavali|diwali|christmas|shivaratri|valmiki|rajyotsava)\b/ui',
+            '/\b(sankranti|makara|uttarayana|republic\s*day|ugadi|ramzan|khutub|basava|akshaya|' .
+            'may\s*day|independence\s*day|vinayaka|ganesh|gandhi\s*jayanti|mahalaya|amavasye|' .
+            'mahanavami|ayudha|vijayadasami|dussehra|dasara|balipadyami|deepavali|diwali|' .
+            'christmas|shivaratri|valmiki|rajyotsava)\b/ui',
             $text
         );
-        // generic holiday list / next holiday queries
-        $genericHoliday = self::hasAny($text, [
-            "holiday list", "list of holidays", "all holidays", "gmu holidays",
-            "college holidays", "public holidays", "next holiday", "upcoming holiday",
-            "when is holiday", "holiday kab", "holiday yaavaga", "holiday schedule",
-            "छुट्टी कब है", "ರಜೆ ಯಾವಾಗ", "holidays in 2026", "2026 holiday"
-        ]);
-        return $classTomorrow || $festivalNames || $genericHoliday;
+        // any mention of the word holiday/holidays — catch-all so it never falls to the DB query
+        $anyHoliday = (bool) preg_match('/\bholiday(s)?\b/ui', $text);
+        return $classTomorrow || $festivalNames || $anyHoliday;
     }
 
     // ── GMU Annual Holiday List 2026 (hardcoded from official circular) ───────
