@@ -324,8 +324,8 @@ class _ErpShellState extends State<ErpShell> {
             final mq = MediaQuery.of(ctx);
             final screen = mq.size;
             final safePad = mq.padding;
-            const orbW = 72.0;   // idle width for snap calc
-            const orbH = 72.0 + 28 + 8; // orb + close btn + gap
+            const orbW = 82.0;   // 72 orb + 10 outer ring
+            const orbH = 82.0 + 24 + 5 + 18; // orb + close btn + gap + label
             const margin = 24.0;
             // Default: bottom-right, 24px from safe edges
             final defaultPos = Offset(
@@ -1467,16 +1467,10 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> with TickerProviderStateMix
     final isSpeaking   = _speaking;
     final isListening  = _callActive && !_speaking;
     final isConnecting = _connecting;
-    final isThinking   = _callActive && !_speaking && !isListening; // future-proof
     final screenH      = MediaQuery.sizeOf(context).height;
 
-    // ── Fixed circle — never changes size or shape ───────────────
     const double orbSize = 72.0;
     const Color  gold    = Color(0xFFD4A843);
-    const Color  goldDim = Color(0xFFAA8830);
-
-    // ── Matte red gradient — same every state ────────────────────
-    const List<Color> mattRed = [Color(0xFFA52020), Color(0xFF7A0F0F)];
 
     // ── Status label ─────────────────────────────────────────────
     final String statusLabel = isConnecting
@@ -1487,130 +1481,172 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> with TickerProviderStateMix
                 ? 'Listening...'
                 : '';
 
-    // ── Inner circle content ──────────────────────────────────────
+    // ── GMU logo — cropped to emblem only (top 68% of image hides text) ──
+    final Widget gmuLogo = ClipRect(
+      child: Align(
+        alignment: const Alignment(0.0, -0.6),
+        heightFactor: 0.68,
+        child: Image.asset(
+          'assets/gmu_logo.png',
+          width: 56,
+          fit: BoxFit.fitWidth,
+        ),
+      ),
+    );
+
+    // ── Inner content: logo + state animation stacked ────────────
     Widget innerContent;
     if (isConnecting) {
-      // Dots that travel left → right sequentially
-      innerContent = const _SequentialDots(color: gold);
-    } else if (isSpeaking) {
-      // Animated bars that vibrate with speech + gentle translate shake
-      innerContent = AnimatedBuilder(
-        animation: _shake,
-        builder: (_, child) => Transform.translate(
-          offset: Offset((_shake.value - 0.5) * 1.6, 0),
-          child: child,
-        ),
-        child: const _VoiceWaveform(color: gold, barCount: 7),
-      );
-    } else if (isListening) {
-      // Animated waveform — tap to stop
-      innerContent = GestureDetector(
-        onTap: _stopVapi,
-        child: const _VoiceWaveform(color: Colors.white, barCount: 5),
-      );
-    } else {
-      // Idle — mic icon, tap to start
       innerContent = GestureDetector(
         onTap: _startVapi,
-        child: const Icon(Icons.mic_rounded, color: Colors.white, size: 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            gmuLogo,
+            const SizedBox(height: 6),
+            const _SequentialDots(color: gold),
+          ],
+        ),
+      );
+    } else if (isSpeaking) {
+      innerContent = GestureDetector(
+        onTap: _stopVapi,
+        child: AnimatedBuilder(
+          animation: _shake,
+          builder: (_, child) => Transform.translate(
+            offset: Offset((_shake.value - 0.5) * 1.4, 0),
+            child: child,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              gmuLogo,
+              const SizedBox(height: 5),
+              const _VoiceWaveform(color: gold, barCount: 5),
+            ],
+          ),
+        ),
+      );
+    } else if (isListening) {
+      innerContent = GestureDetector(
+        onTap: _stopVapi,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            gmuLogo,
+            const SizedBox(height: 5),
+            const _VoiceWaveform(color: Colors.white70, barCount: 5),
+          ],
+        ),
+      );
+    } else {
+      // Idle
+      innerContent = GestureDetector(
+        onTap: _startVapi,
+        child: gmuLogo,
       );
     }
 
-    // ── Outer decorations: rotating ring / breathing border ──────
-    Widget orbDecorated = Stack(
-      alignment: Alignment.center,
-      children: [
-        // Rotating gold sweep arc — connecting only
-        if (isConnecting)
-          RotationTransition(
-            turns: _spin,
-            child: Container(
-              width: orbSize + 7,
-              height: orbSize + 7,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: SweepGradient(
-                  colors: [
-                    gold.withValues(alpha: 0.0),
-                    gold.withValues(alpha: 0.85),
-                    Colors.white.withValues(alpha: 0.55),
-                    gold.withValues(alpha: 0.85),
-                    gold.withValues(alpha: 0.0),
-                  ],
-                  stops: const [0.0, 0.3, 0.5, 0.7, 1.0],
+    // ── Outer ring decorations ────────────────────────────────────
+    Widget orbDecorated = SizedBox(
+      // fix: constrain to orbSize so nothing spills into screen edge
+      width: orbSize + 10,
+      height: orbSize + 10,
+      child: Stack(
+        alignment: Alignment.center,
+        clipBehavior: Clip.none,
+        children: [
+          // Rotating gold sweep — connecting
+          if (isConnecting)
+            RotationTransition(
+              turns: _spin,
+              child: Container(
+                width: orbSize + 8,
+                height: orbSize + 8,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: SweepGradient(
+                    colors: [
+                      gold.withValues(alpha: 0.0),
+                      gold.withValues(alpha: 0.9),
+                      gold.withValues(alpha: 0.0),
+                    ],
+                    stops: const [0.0, 0.5, 1.0],
+                  ),
                 ),
               ),
             ),
-          ),
-        // Breathing gold border — listening
-        if (isListening)
-          AnimatedBuilder(
-            animation: _pulse,
-            builder: (_, __) {
-              final t = _pulse.value;
-              return Container(
-                width: orbSize + 5,
-                height: orbSize + 5,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: gold.withValues(alpha: 0.25 + t * 0.55),
-                    width: 1.2 + t * 1.0,
+          // Breathing ring — listening
+          if (isListening)
+            AnimatedBuilder(
+              animation: _pulse,
+              builder: (_, __) {
+                final t = _pulse.value;
+                return Container(
+                  width: orbSize + 6,
+                  height: orbSize + 6,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: gold.withValues(alpha: 0.20 + t * 0.55),
+                      width: 1.0 + t * 1.2,
+                    ),
                   ),
-                ),
-              );
-            },
-          ),
-        // Soft pulse border — speaking
-        if (isSpeaking)
-          AnimatedBuilder(
-            animation: _pulse,
-            builder: (_, __) {
-              final t = _pulse.value;
-              return Container(
-                width: orbSize + 5,
-                height: orbSize + 5,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: gold.withValues(alpha: 0.3 + t * 0.45),
-                    width: 1.2 + t * 0.8,
+                );
+              },
+            ),
+          // Pulse ring — speaking
+          if (isSpeaking)
+            AnimatedBuilder(
+              animation: _pulse,
+              builder: (_, __) {
+                final t = _pulse.value;
+                return Container(
+                  width: orbSize + 6,
+                  height: orbSize + 6,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: gold.withValues(alpha: 0.25 + t * 0.50),
+                      width: 1.0 + t * 1.0,
+                    ),
                   ),
-                ),
-              );
-            },
-          ),
-        // Core orb — always 72×72, always circle
-        Container(
-          width: orbSize,
-          height: orbSize,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: mattRed,
+                );
+              },
             ),
-            border: Border.all(
-              color: gold.withValues(alpha: 0.55),
-              width: 1.2,
+          // Core 72×72 matte circle — always
+          Container(
+            width: orbSize,
+            height: orbSize,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFA52020), Color(0xFF6E0E0E)],
+              ),
+              border: Border.all(
+                color: gold.withValues(alpha: 0.55),
+                width: 1.2,
+              ),
+            ),
+            child: ClipOval(
+              child: Center(child: innerContent),
             ),
           ),
-          child: ClipOval(child: Center(child: innerContent)),
-        ),
-      ],
+        ],
+      ),
     );
 
-    // ── Card width for visual data ───────────────────────────────
     const double cardW = 280.0;
 
     return Material(
       color: Colors.transparent,
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // ── Info / chart card above orb ──────────────────────────
+          // ── Visual card ──────────────────────────────────────────
           if (_visual != null)
             Container(
               width: cardW,
@@ -1620,7 +1656,7 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> with TickerProviderStateMix
                 color: Colors.white.withValues(alpha: 0.95),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: Clr.maroon.withValues(alpha: 0.12)),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.10), blurRadius: 12, offset: const Offset(0, 3))],
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 10, offset: const Offset(0, 2))],
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(14),
@@ -1632,36 +1668,40 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> with TickerProviderStateMix
             ),
 
           // ── Close button ─────────────────────────────────────────
-          GestureDetector(
-            onTap: _close,
-            child: Container(
-              width: 26,
-              height: 26,
-              decoration: BoxDecoration(
-                color: Clr.maroon.withValues(alpha: 0.88),
-                shape: BoxShape.circle,
-                border: Border.all(color: gold.withValues(alpha: 0.40), width: 1),
+          Align(
+            alignment: Alignment.centerRight,
+            child: GestureDetector(
+              onTap: _close,
+              child: Container(
+                width: 24,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: Clr.maroon.withValues(alpha: 0.90),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: gold.withValues(alpha: 0.45), width: 1),
+                ),
+                child: const Icon(Icons.close_rounded, color: Colors.white, size: 13),
               ),
-              child: const Icon(Icons.close_rounded, color: Colors.white, size: 14),
             ),
           ),
 
-          const SizedBox(height: 6),
+          const SizedBox(height: 5),
 
           // ── Orb ─────────────────────────────────────────────────
           orbDecorated,
 
-          // ── Status label below orb ───────────────────────────────
+          // ── Status label ─────────────────────────────────────────
           if (statusLabel.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(top: 5),
+              padding: const EdgeInsets.only(top: 4),
               child: Text(
                 statusLabel,
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.80),
+                  color: Colors.white.withValues(alpha: 0.85),
                   fontSize: 10,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: 0.3,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.4,
+                  shadows: const [Shadow(color: Colors.black26, blurRadius: 4)],
                 ),
               ),
             ),
