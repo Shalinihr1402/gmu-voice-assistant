@@ -885,40 +885,37 @@ class ERPQueryService {
         $asksEvening = self::hasAny($text, ["evening", "return", "drop", "saanje", "sanje", "shaam", "wapas"]);
         $asksMorning = self::hasAny($text, ["morning", "pickup", "subah", "beligge", "belagge"]);
 
-        // GMU bus timings
-        $morningTimings = "7:00 AM, 8:00 AM, and 9:00 AM";
-        $eveningTimings = "4:30 PM and 6:00 PM";
-        $routes = "Davangere city, Harihar, Ranebennur, and surrounding areas";
-        $contact = "Transport Office: +91-8192-123456";
-
         if ($asksEvening && !$asksMorning) {
-            if ($language === "hi") return "GMU college bus evening mein {$eveningTimings} ko chalti hai. Yeh {$routes} ke liye available hai. Transport office se route details lein.";
-            if ($language === "kn") return "GMU college bus saanje {$eveningTimings} ge hogi. {$routes} ge available ide. Route details ge transport office sampark maadi.";
-            return "GMU college bus runs in the evening at {$eveningTimings}, covering {$routes}. Contact the transport office for your specific route.";
+            if ($language === "hi") return "GMU ki evening drop buses 4:00 PM aur 5:00 PM ko chalti hain. Apna exact stop aur route transport office se confirm karein.";
+            if ($language === "kn") return "GMU evening drop buses 4:00 PM mattu 5:00 PM ge hogi. Nimma exact stop mattu route transport office ninda confirm maadi.";
+            return "GMU evening drop buses run at 4:00 PM and 5:00 PM. Contact the transport office for your exact stop and route.";
         }
 
         if ($asksMorning && !$asksEvening) {
-            if ($language === "hi") return "GMU college bus subah {$morningTimings} ko chalti hai aur {$routes} se pickup karti hai.";
-            if ($language === "kn") return "GMU college bus beligge {$morningTimings} ge hogi mattu {$routes} inda pickup maaduttade.";
-            return "GMU college bus runs in the morning at {$morningTimings}, picking up from {$routes}.";
+            if ($language === "hi") return "GMU morning buses 8 AM, 9 AM, aur 10 AM classes ke liye available hain. Aapki bus class se 30 se 60 minute pehle aayegi, yeh aapki distance par depend karta hai. Exact pickup time ke liye transport office se milein.";
+            if ($language === "kn") return "GMU morning buses 8 AM, 9 AM, mattu 10 AM class batches ge available ide. Nimma bus class suru aaguvudakke 30 inda 60 nimisha mundhe bantide, adu nimma distance avalaṁbisiruttade. Exact pickup time ge transport office sampark maadi.";
+            return "GMU morning pickup buses are available for 8 AM, 9 AM, and 10 AM class batches. Your bus arrives 30 to 60 minutes before your class depending on your distance. Contact the transport office for your exact time.";
         }
 
         if ($language === "hi") {
-            return "GM University bus service {$routes} ke liye available hai. "
-                 . "Morning buses: {$morningTimings}. "
-                 . "Evening buses: {$eveningTimings}. "
-                 . "Apna stop aur route confirm karne ke liye transport office se contact karein.";
+            return "GMU bus timing aapki class start time aur distance par depend karti hai. "
+                 . "Morning pickup 8 AM, 9 AM, aur 10 AM class batches ke liye available hai — "
+                 . "aapki bus class se 30 se 60 minute pehle aayegi. "
+                 . "Evening drop 4:00 PM aur 5:00 PM ko hai. "
+                 . "Exact pickup time ke liye transport office ya department notice board check karein.";
         }
         if ($language === "kn") {
-            return "GM University bus seva {$routes} ge available ide. "
-                 . "Beligge buses: {$morningTimings}. "
-                 . "Saanje buses: {$eveningTimings}. "
-                 . "Nimma stop mattu route confirm maadalu transport office sampark maadi.";
+            return "GMU bus timing nimma class start time mattu distance avalaṁbisiruttade. "
+                 . "Morning pickup 8 AM, 9 AM, mattu 10 AM class batches ge ide — "
+                 . "nimma bus class suru aaguvudakke 30 inda 60 nimisha mundhe bantide. "
+                 . "Evening drop 4:00 PM mattu 5:00 PM ge ide. "
+                 . "Exact pickup time ge transport office athava department notice board nodi.";
         }
-        return "GM University bus service is available for {$routes}. "
-             . "Morning buses depart at {$morningTimings}. "
-             . "Evening buses depart at {$eveningTimings}. "
-             . "Contact the transport office to confirm your stop and route.";
+        return "GMU bus timings depend on your class start time and distance from college. "
+             . "Morning pickup buses run for 8 AM, 9 AM, and 10 AM class batches — "
+             . "your bus arrives 30 to 60 minutes before your class. "
+             . "Evening drop buses are at 4:00 PM and 5:00 PM. "
+             . "For your exact pickup time and stop, contact the GMU transport office or check your department notice board.";
     }
 
     private static function isExamScheduleQuery($text) {
