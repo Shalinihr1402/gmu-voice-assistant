@@ -1105,26 +1105,11 @@ class ERPQueryService {
             }
         }
 
-        // ── Full holiday list ────────────────────────────────────────────────
-        $upcoming = array_filter($holidays, fn($h) => $h["date"] >= $today && $h["day"] !== "Sunday");
-        if (empty($upcoming)) {
-            $msg = [
-                "en" => "No more public holidays remaining in 2026 for GMU.",
-                "hi" => "2026 mein GMU ke liye koi aur public holiday nahi hai.",
-                "kn" => "2026 nalli GMU ge innu public holidays illa.",
-            ];
-            return $msg[$language] ?? $msg["en"];
-        }
-        $parts = [];
-        foreach (array_slice(array_values($upcoming), 0, 8) as $h) {
-            $d = date("d M", strtotime($h["date"]));
-            $parts[] = "{$d} — {$h['name']}";
-        }
-        $list = implode("; ", $parts);
+        // ── General holiday list query — direct to official source ───────────
         $msg = [
-            "en" => "GMU 2026 upcoming holidays: {$list}.",
-            "hi" => "GMU 2026 upcoming holidays: {$list}.",
-            "kn" => "GMU 2026 upcoming holidays: {$list}.",
+            "en" => "The full GMU holiday list is available on the college notice board and the official GMU website. You can also check with your department office for the latest circular.",
+            "hi" => "GMU ki poori holiday list college notice board aur official GMU website par available hai. Latest circular ke liye apne department office se bhi pooch sakte ho.",
+            "kn" => "GMU holiday list college notice board mattu official GMU website nalli siguttade. Latest circular ge nimma department office ninda check maadi.",
         ];
         return $msg[$language] ?? $msg["en"];
     }
