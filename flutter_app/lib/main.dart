@@ -1490,103 +1490,97 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> with TickerProviderStateMix
     // ── Inner circle content ──────────────────────────────────────
     Widget innerContent;
     if (isConnecting) {
-      // Three gold pulsing dots
-      innerContent = Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: const [
-          _PulsingDot(color: gold, delay: 0),
-          SizedBox(width: 5),
-          _PulsingDot(color: gold, delay: 180),
-          SizedBox(width: 5),
-          _PulsingDot(color: gold, delay: 360),
-        ],
-      );
+      // Dots that travel left → right sequentially
+      innerContent = const _SequentialDots(color: gold);
     } else if (isSpeaking) {
-      // Logo gently shakes; compact waveform centred
+      // Animated bars that vibrate with speech + gentle translate shake
       innerContent = AnimatedBuilder(
         animation: _shake,
         builder: (_, child) => Transform.translate(
-          offset: Offset((_shake.value - 0.5) * 2.4, 0),
+          offset: Offset((_shake.value - 0.5) * 1.6, 0),
           child: child,
         ),
-        child: SizedBox(
-          width: 48,
-          height: 28,
-          child: _SoundWave(active: true, barColor: gold),
-        ),
+        child: const _VoiceWaveform(color: gold, barCount: 7),
       );
     } else if (isListening) {
-      // Mic icon — tap to stop
+      // Animated waveform — tap to stop
       innerContent = GestureDetector(
         onTap: _stopVapi,
-        child: const Icon(Icons.mic_rounded, color: Colors.white, size: 28),
+        child: const _VoiceWaveform(color: Colors.white, barCount: 5),
       );
     } else {
-      // Idle — tap to start
+      // Idle — mic icon, tap to start
       innerContent = GestureDetector(
         onTap: _startVapi,
         child: const Icon(Icons.mic_rounded, color: Colors.white, size: 28),
       );
     }
 
-    // ── Border: gold pulse for listening, rotating ring for connecting ──
+    // ── Outer decorations: rotating ring / breathing border ──────
     Widget orbDecorated = Stack(
       alignment: Alignment.center,
       children: [
-        // Rotating gold arc (connecting only)
+        // Rotating gold sweep arc — connecting only
         if (isConnecting)
           RotationTransition(
             turns: _spin,
             child: Container(
-              width: orbSize + 6,
-              height: orbSize + 6,
+              width: orbSize + 7,
+              height: orbSize + 7,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: SweepGradient(
                   colors: [
                     gold.withValues(alpha: 0.0),
-                    gold.withValues(alpha: 0.9),
+                    gold.withValues(alpha: 0.85),
+                    Colors.white.withValues(alpha: 0.55),
+                    gold.withValues(alpha: 0.85),
                     gold.withValues(alpha: 0.0),
                   ],
-                  stops: const [0.0, 0.5, 1.0],
+                  stops: const [0.0, 0.3, 0.5, 0.7, 1.0],
                 ),
               ),
             ),
           ),
-        // Pulsing gold border (listening only)
+        // Breathing gold border — listening
         if (isListening)
           AnimatedBuilder(
             animation: _pulse,
             builder: (_, __) {
-              final t = _pulse.value; // 0→1→0
+              final t = _pulse.value;
               return Container(
-                width: orbSize + 4,
-                height: orbSize + 4,
+                width: orbSize + 5,
+                height: orbSize + 5,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: gold.withValues(alpha: 0.3 + t * 0.5),
-                    width: 1.5 + t * 1.0,
+                    color: gold.withValues(alpha: 0.25 + t * 0.55),
+                    width: 1.2 + t * 1.0,
                   ),
                 ),
               );
             },
           ),
-        // Soft pulsing border (speaking only)
+        // Soft pulse border — speaking
         if (isSpeaking)
           AnimatedBuilder(
-            animation: _shake,
-            builder: (_, __) => Container(
-              width: orbSize + 4,
-              height: orbSize + 4,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: gold.withValues(alpha: 0.55), width: 1.5),
-              ),
-            ),
+            animation: _pulse,
+            builder: (_, __) {
+              final t = _pulse.value;
+              return Container(
+                width: orbSize + 5,
+                height: orbSize + 5,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: gold.withValues(alpha: 0.3 + t * 0.45),
+                    width: 1.2 + t * 0.8,
+                  ),
+                ),
+              );
+            },
           ),
-        // Core orb — always 72×72 matte circle
+        // Core orb — always 72×72, always circle
         Container(
           width: orbSize,
           height: orbSize,
@@ -1598,7 +1592,7 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> with TickerProviderStateMix
               colors: mattRed,
             ),
             border: Border.all(
-              color: isListening || isSpeaking ? goldDim : gold.withValues(alpha: 0.6),
+              color: gold.withValues(alpha: 0.55),
               width: 1.2,
             ),
           ),
@@ -1734,6 +1728,123 @@ class _SoundWaveState extends State<_SoundWave> with TickerProviderStateMixin {
       ),
     )),
   );
+}
+
+// ── Sequential left-to-right dots (Connecting / Thinking) ────────────────────
+class _SequentialDots extends StatefulWidget {
+  const _SequentialDots({required this.color});
+  final Color color;
+  @override
+  State<_SequentialDots> createState() => _SequentialDotsState();
+}
+
+class _SequentialDotsState extends State<_SequentialDots> with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat();
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (_, __) {
+        // t cycles 0→1; each dot is "active" during its 1/3 window
+        final t = _ctrl.value;
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(3, (i) {
+            final phase  = i / 3.0;
+            final active = ((t - phase + 1.0) % 1.0) < 0.35;
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 3.5),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 80),
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: widget.color.withValues(alpha: active ? 1.0 : 0.28),
+                ),
+              ),
+            );
+          }),
+        );
+      },
+    );
+  }
+}
+
+// ── Animated voice waveform bars (Listening / Speaking) ──────────────────────
+class _VoiceWaveform extends StatefulWidget {
+  const _VoiceWaveform({required this.color, this.barCount = 5});
+  final Color color;
+  final int   barCount;
+  @override
+  State<_VoiceWaveform> createState() => _VoiceWaveformState();
+}
+
+class _VoiceWaveformState extends State<_VoiceWaveform> with TickerProviderStateMixin {
+  final List<AnimationController> _ctrls = [];
+  final List<Animation<double>>   _anims = [];
+
+  // Natural-feeling heights and speeds per bar
+  static const _maxH   = [10.0, 20.0, 26.0, 18.0, 12.0, 22.0, 8.0];
+  static const _speeds = [480,  540,   420,  600,  500,  460,  580];
+  static const _delays = [0,    90,   160,   60,  220,  130,  300];
+
+  @override
+  void initState() {
+    super.initState();
+    for (var i = 0; i < widget.barCount; i++) {
+      final ctrl = AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: _speeds[i % _speeds.length]),
+      )..repeat(reverse: true);
+      _ctrls.add(ctrl);
+      _anims.add(Tween<double>(begin: 3.0, end: _maxH[i % _maxH.length]).animate(
+        CurvedAnimation(parent: ctrl, curve: Curves.easeInOut),
+      ));
+      Future.delayed(Duration(milliseconds: _delays[i % _delays.length]), () {
+        if (mounted) ctrl.forward();
+      });
+    }
+  }
+
+  @override
+  void dispose() { for (final c in _ctrls) c.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: (widget.barCount * 8.0).clamp(32.0, 52.0),
+      height: 28,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: List.generate(widget.barCount, (i) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2.0),
+          child: AnimatedBuilder(
+            animation: _anims[i],
+            builder: (_, __) => Container(
+              width: 4,
+              height: _anims[i].value,
+              decoration: BoxDecoration(
+                color: widget.color.withValues(alpha: 0.88),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+        )),
+      ),
+    );
+  }
 }
 
 enum _MicState { idle, connecting, listening, speaking }
