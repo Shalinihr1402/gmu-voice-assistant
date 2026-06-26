@@ -76,6 +76,7 @@ class ERPQueryService {
         if (self::isLibraryQuery($text)) return self::observedDetectedIntent("GET_LIBRARY_INFO", $query, $text, $language, $start);
         if (self::isBusQuery($text)) return self::observedDetectedIntent("GET_BUS_INFO", $query, $text, $language, $start);
         if (self::isExamScheduleQuery($text)) return self::observedDetectedIntent("GET_EXAM_SCHEDULE", $query, $text, $language, $start);
+        if (self::isHolidayQuery($text)) return self::observedDetectedIntent("GET_HOLIDAY_INFO", $query, $text, $language, $start);
         if (self::isAcademicCalendarQuery($text)) return self::observedDetectedIntent("GET_ACADEMIC_CALENDAR", $query, $text, $language, $start);
         if (self::isHostelInfoQuery($text)) return self::observedDetectedIntent("GET_HOSTEL_INFO", $query, $text, $language, $start);
         if (self::hasAny($text, ["faculty", "faculty details", "teacher details", "staff details", "professor", "hod details", "faculty contact", "teacher contact"])) return self::observedDetectedIntent("GET_FACULTY_DETAILS", $query, $text, $language, $start);
@@ -163,6 +164,8 @@ class ERPQueryService {
                 return self::payload(self::getBusInfo($query, $language), $intent, $language, "bus_info");
             case "GET_EXAM_SCHEDULE":
                 return self::payload(self::getExamSchedule($studentId, $query, $language), $intent, $language, "exam_schedule");
+            case "GET_HOLIDAY_INFO":
+                return self::payload(self::getHolidayInfo($query, $language), $intent, $language, "holiday_info");
             case "GET_ACADEMIC_CALENDAR":
                 return self::payload(self::getAcademicCalendar($query, $language), $intent, $language, "academic_calendar");
             case "GET_HOSTEL_INFO":
@@ -930,6 +933,200 @@ class ERPQueryService {
         // exclude class timetable queries already handled by GET_TIMETABLE
         $isClassTimetable = self::hasAny($text, ["class timetable", "today class", "tomorrow class", "which class", "class schedule today"]);
         return $hasExam && !$isClassTimetable;
+    }
+
+    private static function isHolidayQuery($text) {
+        // "is there class tomorrow / today", "class kal hai kya", "kal holiday hai kya"
+        $classTomorrow = (bool) preg_match(
+            '/\b(class(es)?\s+(tomorrow|today|kal|aaj|nale)|' .
+            'tomorrow\s+(class(es)?|holiday|bandh|chutti|raje|rajeyide)|' .
+            'is\s+(there\s+)?(class|college|school)\s+(tomorrow|today)|' .
+            'kal\s+(class|college|holiday|chutti|bandh)\s*(hai|he|ide|ade)?|' .
+            'aaj\s+(class|college|holiday|chutti)\s*(hai|he|ide)?|' .
+            'nale\s+(class|college|holiday|raje)\s*(ide|ade|he)?|' .
+            'college\s+(tomorrow|kal|aaj|today)\s*(open|closed|bandh|hai)?)\b/ui',
+            $text
+        );
+        // specific holiday names from the GMU 2026 list
+        $festivalNames = (bool) preg_match(
+            '/\b(sankranti|makara|uttarayana|republic\s*day|ugadi|ramzan|khutub|basava|akshaya\s*tritiya|may\s*day|' .
+            'independence\s*day|vinayaka|ganesh|gandhi\s*jayanti|mahalaya|amavasye|mahanavami|ayudha|' .
+            'vijayadasami|dussehra|dasara|balipadyami|deepavali|diwali|christmas|shivaratri|valmiki|rajyotsava)\b/ui',
+            $text
+        );
+        // generic holiday list / next holiday queries
+        $genericHoliday = self::hasAny($text, [
+            "holiday list", "list of holidays", "all holidays", "gmu holidays",
+            "college holidays", "public holidays", "next holiday", "upcoming holiday",
+            "when is holiday", "holiday kab", "holiday yaavaga", "holiday schedule",
+            "छुट्टी कब है", "ರಜೆ ಯಾವಾಗ", "holidays in 2026", "2026 holiday"
+        ]);
+        return $classTomorrow || $festivalNames || $genericHoliday;
+    }
+
+    // ── GMU Annual Holiday List 2026 (hardcoded from official circular) ───────
+
+    private static function gmu2026Holidays() {
+        return [
+            ["date" => "2026-01-15", "day" => "Thursday",  "name" => "Uttarayana Punyakala / Makara Sankranti Festival"],
+            ["date" => "2026-01-26", "day" => "Monday",    "name" => "Republic Day"],
+            ["date" => "2026-02-15", "day" => "Sunday",    "name" => "Maha Shivaratri (Sunday)"],
+            ["date" => "2026-03-19", "day" => "Thursday",  "name" => "Ugadi Festival"],
+            ["date" => "2026-03-21", "day" => "Saturday",  "name" => "Khutub-E-Ramzan"],
+            ["date" => "2026-04-20", "day" => "Monday",    "name" => "Basava Jayanthi / Akshaya Tritiya"],
+            ["date" => "2026-05-01", "day" => "Friday",    "name" => "May Day"],
+            ["date" => "2026-08-15", "day" => "Saturday",  "name" => "Independence Day"],
+            ["date" => "2026-09-14", "day" => "Monday",    "name" => "Varasiddhi Vinayaka Vrata"],
+            ["date" => "2026-10-02", "day" => "Friday",    "name" => "Gandhi Jayanthi"],
+            ["date" => "2026-10-10", "day" => "Saturday",  "name" => "Mahalaya Amavasye"],
+            ["date" => "2026-10-20", "day" => "Tuesday",   "name" => "Mahanavami / Ayudha Pooja"],
+            ["date" => "2026-10-21", "day" => "Wednesday", "name" => "Vijayadasami"],
+            ["date" => "2026-11-01", "day" => "Sunday",    "name" => "Kannada Rajyothsava (Sunday)"],
+            ["date" => "2026-11-08", "day" => "Sunday",    "name" => "Naraka Chaturdasi (Sunday)"],
+            ["date" => "2026-11-10", "day" => "Tuesday",   "name" => "Balipadyami / Deepavali"],
+            ["date" => "2026-12-25", "day" => "Friday",    "name" => "Christmas"],
+        ];
+    }
+
+    public static function getHolidayInfo($query = "", $language = "en") {
+        $text     = self::normalizeText($query);
+        $holidays = self::gmu2026Holidays();
+        $today    = date("Y-m-d");
+        $todayTs  = strtotime($today);
+
+        // ── "Is there class tomorrow / today?" ──────────────────────────────
+        $askTomorrow = (bool) preg_match('/\b(tomorrow|kal|nale)\b/ui', $text);
+        $askToday    = (bool) preg_match('/\b(today|aaj|indu|ee\s*dinavu)\b/ui', $text) && !$askTomorrow;
+        $isClassQ    = (bool) preg_match('/\b(class(es)?|college|school)\b/ui', $text);
+
+        if ($isClassQ || $askTomorrow || $askToday) {
+            $checkDate = $askTomorrow ? date("Y-m-d", strtotime("+1 day")) : $today;
+            $checkTs   = strtotime($checkDate);
+            $dayOfWeek = (int) date("N", $checkTs); // 1=Mon ... 7=Sun
+            $label     = $askTomorrow ? "Tomorrow" : "Today";
+            $labelHi   = $askTomorrow ? "Kal"   : "Aaj";
+            $labelKn   = $askTomorrow ? "Naale" : "Indu";
+            $displayDate = date("d M Y", $checkTs);
+
+            // Sunday → always no class
+            if ($dayOfWeek === 7) {
+                $msg = [
+                    "en" => "{$label} ({$displayDate}) is a Sunday — no classes at GMU.",
+                    "hi" => "{$labelHi} ({$displayDate}) Sunday hai — GMU mein class nahi hai.",
+                    "kn" => "{$labelKn} ({$displayDate}) Bhanuvaara — GMU nalli class illa.",
+                ];
+                return $msg[$language] ?? $msg["en"];
+            }
+
+            // Check holiday list
+            $matchedHoliday = null;
+            foreach ($holidays as $h) {
+                if ($h["date"] === $checkDate) { $matchedHoliday = $h; break; }
+            }
+
+            if ($matchedHoliday) {
+                $hName = $matchedHoliday["name"];
+                $msg = [
+                    "en" => "{$label} ({$displayDate}) is a public holiday — {$hName}. No classes at GMU.",
+                    "hi" => "{$labelHi} ({$displayDate}) {$hName} ki chutti hai — GMU mein class nahi hai.",
+                    "kn" => "{$labelKn} ({$displayDate}) {$hName} — public holiday. GMU nalli class illa.",
+                ];
+                return $msg[$language] ?? $msg["en"];
+            }
+
+            // Saturday — check if it's a holiday; otherwise mention it may be a working day
+            if ($dayOfWeek === 6) {
+                $msg = [
+                    "en" => "{$label} ({$displayDate}) is a Saturday and is not a listed public holiday — classes may be held. Check with your department to confirm.",
+                    "hi" => "{$labelHi} ({$displayDate}) Saturday hai aur koi listed holiday nahi hai — class ho sakti hai. Department se confirm karein.",
+                    "kn" => "{$labelKn} ({$displayDate}) Shanivaara — listed holiday alla, class irabahudhu. Department ninda confirm maadi.",
+                ];
+                return $msg[$language] ?? $msg["en"];
+            }
+
+            // Regular weekday — no holiday
+            $dayName = date("l", $checkTs);
+            $msg = [
+                "en" => "{$label} ({$displayDate}) is a {$dayName} — regular classes are scheduled at GMU.",
+                "hi" => "{$labelHi} ({$displayDate}) ko {$dayName} hai — GMU mein normal class hai.",
+                "kn" => "{$labelKn} ({$displayDate}) {$dayName} — GMU nalli normal class ide.",
+            ];
+            return $msg[$language] ?? $msg["en"];
+        }
+
+        // ── Specific festival name search ────────────────────────────────────
+        $festivalMap = [
+            "sankranti" => "2026-01-15", "makara" => "2026-01-15", "uttarayana" => "2026-01-15",
+            "republic"  => "2026-01-26",
+            "ugadi"     => "2026-03-19",
+            "ramzan"    => "2026-03-21", "khutub" => "2026-03-21",
+            "basava"    => "2026-04-20", "akshaya" => "2026-04-20",
+            "may day"   => "2026-05-01",
+            "independence" => "2026-08-15",
+            "vinayaka"  => "2026-09-14", "ganesh" => "2026-09-14",
+            "gandhi"    => "2026-10-02",
+            "mahalaya"  => "2026-10-10",
+            "mahanavami" => "2026-10-20", "ayudha" => "2026-10-20",
+            "vijayadasami" => "2026-10-21", "dussehra" => "2026-10-21", "dasara" => "2026-10-21",
+            "deepavali" => "2026-11-10", "diwali" => "2026-11-10", "balipadyami" => "2026-11-10",
+            "christmas" => "2026-12-25",
+            "shivaratri" => "2026-02-15",
+            "rajyotsava" => "2026-11-01",
+        ];
+        foreach ($festivalMap as $keyword => $date) {
+            if (strpos($text, $keyword) !== false) {
+                foreach ($holidays as $h) {
+                    if ($h["date"] === $date) {
+                        $d = date("d M Y", strtotime($date));
+                        $msg = [
+                            "en" => "{$h['name']} is on {$d} ({$h['day']}) — it's a GMU public holiday.",
+                            "hi" => "{$h['name']} {$d} ({$h['day']}) ko hai — GMU mein is din chutti hai.",
+                            "kn" => "{$h['name']} {$d} ({$h['day']}) nalli ide — GMU public holiday.",
+                        ];
+                        return $msg[$language] ?? $msg["en"];
+                    }
+                }
+            }
+        }
+
+        // ── Next upcoming holiday ────────────────────────────────────────────
+        $wantsNext = (bool) preg_match('/\b(next|upcoming|coming|aane\s*wala|bandhu\s*baruta)\b/ui', $text);
+        if ($wantsNext) {
+            foreach ($holidays as $h) {
+                if ($h["date"] >= $today && $h["day"] !== "Sunday") {
+                    $d = date("d M Y", strtotime($h["date"]));
+                    $msg = [
+                        "en" => "The next GMU holiday is {$h['name']} on {$d} ({$h['day']}).",
+                        "hi" => "GMU mein agla holiday {$h['name']} hai — {$d} ({$h['day']}) ko.",
+                        "kn" => "Munde GMU holiday: {$h['name']} — {$d} ({$h['day']}) nalli.",
+                    ];
+                    return $msg[$language] ?? $msg["en"];
+                }
+            }
+        }
+
+        // ── Full holiday list ────────────────────────────────────────────────
+        $upcoming = array_filter($holidays, fn($h) => $h["date"] >= $today && $h["day"] !== "Sunday");
+        if (empty($upcoming)) {
+            $msg = [
+                "en" => "No more public holidays remaining in 2026 for GMU.",
+                "hi" => "2026 mein GMU ke liye koi aur public holiday nahi hai.",
+                "kn" => "2026 nalli GMU ge innu public holidays illa.",
+            ];
+            return $msg[$language] ?? $msg["en"];
+        }
+        $parts = [];
+        foreach (array_slice(array_values($upcoming), 0, 8) as $h) {
+            $d = date("d M", strtotime($h["date"]));
+            $parts[] = "{$d} — {$h['name']}";
+        }
+        $list = implode("; ", $parts);
+        $msg = [
+            "en" => "GMU 2026 upcoming holidays: {$list}.",
+            "hi" => "GMU 2026 upcoming holidays: {$list}.",
+            "kn" => "GMU 2026 upcoming holidays: {$list}.",
+        ];
+        return $msg[$language] ?? $msg["en"];
     }
 
     private static function isAcademicCalendarQuery($text) {

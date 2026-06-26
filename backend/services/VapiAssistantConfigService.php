@@ -84,23 +84,33 @@ class VapiAssistantConfigService {
             "transcriber" => [
                 "provider" => $transcriberProvider,
                 "model" => $transcriberModel,
-                "language" => self::vapiLanguage($language)
+                "language" => self::vapiLanguage($language),
+                // Deepgram endpointing: wait 800ms of true silence before closing the utterance.
+                // Prevents partial-transcript barge-in from a brief pause mid-sentence.
+                "endpointingConfig" => [
+                    "timeoutMs" => 800
+                ]
             ],
             "voice" => self::voiceConfig($voiceProvider, $voiceId, $voiceModel),
             "server" => [
                 "url" => $webhookUrl,
                 "timeoutSeconds" => 30
             ],
-            // Aggressive noise resistance: ignore background noise / echo / short bursts.
-            // numWords=10: requires 10 clear spoken words before treating as barge-in.
-            // voiceSeconds=1.2: noise must be sustained 1.2s — filters out claps, coughs, TV noise.
-            // backoffSeconds=3.0: after stopping, waits 3s before re-enabling barge-in detection.
+            // Maximum noise resistance:
+            // numWords=20  — requires 20 clearly spoken words before treating as genuine barge-in.
+            // voiceSeconds=2.5 — ambient noise must be sustained 2.5 s (fans, TV, footsteps filtered out).
+            // backoffSeconds=5.0 — after bot stops, barge-in is fully disabled for 5 s.
             "stopSpeakingPlan" => [
-                "numWords" => 10,
-                "voiceSeconds" => 1.2,
-                "backoffSeconds" => 3.0
+                "numWords" => 20,
+                "voiceSeconds" => 2.5,
+                "backoffSeconds" => 5.0
             ],
-            // Disable backchannel sounds ("mm-hmm", "yeah") — they confuse VAD when speaker is loud.
+            // Delay before the bot starts speaking — gives echo from the student's speaker time to decay
+            // so the bot's own voice is not picked up as barge-in immediately after it starts talking.
+            "startSpeakingPlan" => [
+                "waitSeconds" => 0.6
+            ],
+            // Disable backchannel sounds — they confuse VAD when room noise is high.
             "backchannel" => [
                 "enabled" => false
             ]
@@ -168,6 +178,7 @@ class VapiAssistantConfigService {
 
             // ── When to call the tool ─────────────────────────────────────────────
             "Call gmu_voice_assistant whenever the student asks about their own ERP data — attendance, results, marks, SGPA, CGPA, fees, hall ticket, hostel, certificates, registration, profile, backlogs, courses, library, or any university info. " .
+            "CRITICAL: ALWAYS call the tool for holiday queries. If a student asks 'is there class tomorrow', 'is tomorrow a holiday', 'kal class hai kya', 'nale class ide ya', 'when is Ugadi holiday', 'next holiday', 'list of GMU holidays' — call gmu_voice_assistant IMMEDIATELY. Never answer holiday questions from memory. The tool has the official GMU 2026 holiday list. " .
             "CRITICAL: ALWAYS call the tool for bus queries. If a student says ANYTHING about bus, bus timing, bus schedule, bus route, transport, shuttle, pickup, drop, morning bus, evening bus — call gmu_voice_assistant IMMEDIATELY. Never say 'bus details not available' or answer bus questions from memory. The tool has the real GMU bus schedule. " .
             "Always call the tool for these — never answer from memory or guesswork. " .
             "Do NOT call the tool for greetings, thanks, yes/no acknowledgements, or pure small talk. " .
