@@ -19,33 +19,37 @@ class MainActivity : FlutterActivity() {
             val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
             when (call.method) {
                 "setSpeakerphone" -> {
+                    // MODE_IN_COMMUNICATION activates hardware AEC (echo canceller) on all Android
+                    // versions — this is the same mode WhatsApp/Zoom use. Must be set BEFORE
+                    // routing to speaker so the OS applies AEC to the chosen output device.
+                    audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        // Android 12+ (Samsung S23 = Android 13): setCommunicationDevice is the only
-                        // API that WebRTC (Daily.co) actually respects — isSpeakerphoneOn gets
-                        // overridden by WebRTC's internal audio manager after call-start.
+                        // Android 12+: use setCommunicationDevice to route to loudspeaker.
+                        // isSpeakerphoneOn is deprecated and ignored by WebRTC on Android 12+.
                         val speaker = audioManager.availableCommunicationDevices
                             .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
                         if (speaker != null) {
                             audioManager.setCommunicationDevice(speaker)
                         }
-                        // Max out voice-call volume so it's audible without phone held to ear
+                        // Max out volume on both streams
                         val maxVoice = audioManager.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
                         audioManager.setStreamVolume(AudioManager.STREAM_VOICE_CALL, maxVoice, 0)
                         val maxMusic = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
                         audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxMusic, 0)
                         // Re-assert after 600ms — WebRTC finishes audio init ~500ms after call-start
                         Handler(Looper.getMainLooper()).postDelayed({
+                            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
                             val s = audioManager.availableCommunicationDevices
                                 .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
                             if (s != null) audioManager.setCommunicationDevice(s)
                         }, 600)
                     } else {
-                        // Android < 12 fallback
-                        audioManager.mode = AudioManager.MODE_NORMAL
+                        // Android < 12: MODE_IN_COMMUNICATION + isSpeakerphoneOn = AEC + loudspeaker
                         audioManager.isSpeakerphoneOn = true
                         val maxMusic = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
                         audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxMusic, 0)
                         Handler(Looper.getMainLooper()).postDelayed({
+                            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
                             audioManager.isSpeakerphoneOn = true
                         }, 600)
                     }
