@@ -1064,10 +1064,12 @@ class VapiVoiceBox extends StatefulWidget {
   State<VapiVoiceBox> createState() => _VapiVoiceBoxState();
 }
 
-class _VapiVoiceBoxState extends State<VapiVoiceBox> with SingleTickerProviderStateMixin {
+class _VapiVoiceBoxState extends State<VapiVoiceBox> with TickerProviderStateMixin {
   final _textCtrl = TextEditingController();
   late final AnimationController _pulse;
   late final Animation<double> _pulseAnim;
+  late final AnimationController _shake;
+  late final AnimationController _spin;
   bool _connecting = false;
   bool _callActive = false;
   bool _speaking = false;
@@ -1106,8 +1108,10 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> with SingleTickerProviderSt
   @override
   void initState() {
     super.initState();
-    _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400))..repeat(reverse: true);
-    _pulseAnim = Tween<double>(begin: 1.0, end: 1.06).animate(CurvedAnimation(parent: _pulse, curve: Curves.easeInOut));
+    _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 1600))..repeat(reverse: true);
+    _pulseAnim = Tween<double>(begin: 1.0, end: 1.0).animate(_pulse); // unused scale — kept for compat
+    _shake = AnimationController(vsync: this, duration: const Duration(milliseconds: 120))..repeat(reverse: true);
+    _spin  = AnimationController(vsync: this, duration: const Duration(seconds: 3))..repeat();
     _localLang = widget.lang;
     _localUser = widget.user;
     _localReply = widget.reply;
@@ -1129,6 +1133,8 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> with SingleTickerProviderSt
   @override
   void dispose() {
     _pulse.dispose();
+    _shake.dispose();
+    _spin.dispose();
     _textCtrl.dispose();
     _vapiCall?.stop();
     _vapiCall?.dispose();
@@ -1461,123 +1467,148 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> with SingleTickerProviderSt
     final isSpeaking   = _speaking;
     final isListening  = _callActive && !_speaking;
     final isConnecting = _connecting;
-    final screenH = MediaQuery.sizeOf(context).height;
+    final isThinking   = _callActive && !_speaking && !isListening; // future-proof
+    final screenH      = MediaQuery.sizeOf(context).height;
 
-    // ── Dimensions per state ─────────────────────────────────────────
-    const double idleW = 72, idleH = 72;
-    const double listenW = 88, listenH = 88;
-    const double speakW = 180, speakH = 72;
+    // ── Fixed circle — never changes size or shape ───────────────
+    const double orbSize = 72.0;
+    const Color  gold    = Color(0xFFD4A843);
+    const Color  goldDim = Color(0xFFAA8830);
 
-    final double orbW = isSpeaking ? speakW : (isListening ? listenW : idleW);
-    final double orbH = isSpeaking ? speakH : (isListening ? listenH : idleH);
-    final double radius = isSpeaking ? 36 : orbW / 2;
+    // ── Matte red gradient — same every state ────────────────────
+    const List<Color> mattRed = [Color(0xFFA52020), Color(0xFF7A0F0F)];
 
-    // ── Colors ──────────────────────────────────────────────────────
-    final glowColor = isListening ? const Color(0xFF5B8FD4) : Clr.maroon;
-    final List<Color> gradColors = isListening
-        ? [const Color(0xFF6FA3E0), const Color(0xFF851818)]
-        : [const Color(0xFFB23A3A), const Color(0xFF6B0F0F)];
+    // ── Status label ─────────────────────────────────────────────
+    final String statusLabel = isConnecting
+        ? 'Connecting...'
+        : isSpeaking
+            ? 'Speaking...'
+            : isListening
+                ? 'Listening...'
+                : '';
 
-    // ── Card width for visual data ───────────────────────────────────
-    final cardW = math.max(280.0, orbW);
-
-    // ── Orb core with glassmorphism ──────────────────────────────────
-    Widget orbCore = AnimatedContainer(
-      duration: const Duration(milliseconds: 280),
-      curve: Curves.easeInOutCubic,
-      width: orbW,
-      height: orbH,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(radius),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: gradColors,
-        ),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.20), width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: glowColor.withValues(alpha: 0.15),
-            blurRadius: 20,
-            spreadRadius: isSpeaking || isListening ? 2 : 0,
-          ),
+    // ── Inner circle content ──────────────────────────────────────
+    Widget innerContent;
+    if (isConnecting) {
+      // Three gold pulsing dots
+      innerContent = Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+          _PulsingDot(color: gold, delay: 0),
+          SizedBox(width: 5),
+          _PulsingDot(color: gold, delay: 180),
+          SizedBox(width: 5),
+          _PulsingDot(color: gold, delay: 360),
         ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(radius),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-          child: Container(
-            color: Colors.white.withValues(alpha: 0.10),
-            child: ClipRect(
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                // ── State content ──────────────────────────────────
-                if (isConnecting)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: const [
-                      _PulsingDot(color: Colors.white, delay: 0),
-                      SizedBox(width: 6),
-                      _PulsingDot(color: Colors.white, delay: 200),
-                      SizedBox(width: 6),
-                      _PulsingDot(color: Colors.white, delay: 400),
-                    ],
-                  )
-                else if (isSpeaking)
-                  // Clip during AnimatedContainer width transition to prevent overflow
-                  ClipRect(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                          width: 60,
-                          child: _SoundWave(active: true, barColor: Colors.white),
-                        ),
-                        const SizedBox(width: 6),
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: const [
-                            Text('Speaking...', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700)),
-                            Text('GMU Voice', style: TextStyle(color: Colors.white60, fontSize: 8)),
-                          ],
-                        ),
-                      ],
-                    ),
-                  )
-                else if (isListening)
-                  // 88×88: glowing mic with pulse rings
-                  _GlowMicButton(
-                    size: 46,
-                    state: _MicState.listening,
-                    onTap: _stopVapi,
-                  )
-                else
-                  // Idle 72×72: tap-to-start
-                  GestureDetector(
-                    onTap: _startVapi,
-                    child: const Icon(Icons.mic_rounded, color: Colors.white, size: 28),
-                  ),
-              ],
-            ),
-            ), // ClipRect
-          ),
+      );
+    } else if (isSpeaking) {
+      // Logo gently shakes; compact waveform centred
+      innerContent = AnimatedBuilder(
+        animation: _shake,
+        builder: (_, child) => Transform.translate(
+          offset: Offset((_shake.value - 0.5) * 2.4, 0),
+          child: child,
         ),
-      ),
+        child: SizedBox(
+          width: 48,
+          height: 28,
+          child: _SoundWave(active: true, barColor: gold),
+        ),
+      );
+    } else if (isListening) {
+      // Mic icon — tap to stop
+      innerContent = GestureDetector(
+        onTap: _stopVapi,
+        child: const Icon(Icons.mic_rounded, color: Colors.white, size: 28),
+      );
+    } else {
+      // Idle — tap to start
+      innerContent = GestureDetector(
+        onTap: _startVapi,
+        child: const Icon(Icons.mic_rounded, color: Colors.white, size: 28),
+      );
+    }
+
+    // ── Border: gold pulse for listening, rotating ring for connecting ──
+    Widget orbDecorated = Stack(
+      alignment: Alignment.center,
+      children: [
+        // Rotating gold arc (connecting only)
+        if (isConnecting)
+          RotationTransition(
+            turns: _spin,
+            child: Container(
+              width: orbSize + 6,
+              height: orbSize + 6,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: SweepGradient(
+                  colors: [
+                    gold.withValues(alpha: 0.0),
+                    gold.withValues(alpha: 0.9),
+                    gold.withValues(alpha: 0.0),
+                  ],
+                  stops: const [0.0, 0.5, 1.0],
+                ),
+              ),
+            ),
+          ),
+        // Pulsing gold border (listening only)
+        if (isListening)
+          AnimatedBuilder(
+            animation: _pulse,
+            builder: (_, __) {
+              final t = _pulse.value; // 0→1→0
+              return Container(
+                width: orbSize + 4,
+                height: orbSize + 4,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: gold.withValues(alpha: 0.3 + t * 0.5),
+                    width: 1.5 + t * 1.0,
+                  ),
+                ),
+              );
+            },
+          ),
+        // Soft pulsing border (speaking only)
+        if (isSpeaking)
+          AnimatedBuilder(
+            animation: _shake,
+            builder: (_, __) => Container(
+              width: orbSize + 4,
+              height: orbSize + 4,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: gold.withValues(alpha: 0.55), width: 1.5),
+              ),
+            ),
+          ),
+        // Core orb — always 72×72 matte circle
+        Container(
+          width: orbSize,
+          height: orbSize,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: mattRed,
+            ),
+            border: Border.all(
+              color: isListening || isSpeaking ? goldDim : gold.withValues(alpha: 0.6),
+              width: 1.2,
+            ),
+          ),
+          child: ClipOval(child: Center(child: innerContent)),
+        ),
+      ],
     );
 
-    // ── Pulse scale for listening state ─────────────────────────────
-    orbCore = AnimatedBuilder(
-      animation: _pulseAnim,
-      builder: (_, child) => Transform.scale(
-        scale: isListening ? _pulseAnim.value : 1.0,
-        child: child,
-      ),
-      child: orbCore,
-    );
+    // ── Card width for visual data ───────────────────────────────
+    const double cardW = 280.0;
 
     return Material(
       color: Colors.transparent,
@@ -1595,45 +1626,51 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> with SingleTickerProviderSt
                 color: Colors.white.withValues(alpha: 0.95),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: Clr.maroon.withValues(alpha: 0.12)),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 16, offset: const Offset(0, 4))],
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.10), blurRadius: 12, offset: const Offset(0, 3))],
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(14),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                    child: VisualRenderer(visual: _visual!),
-                  ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                  child: VisualRenderer(visual: _visual!),
                 ),
               ),
             ),
 
-          // ── Close button: 28×28, above-right of orb, 12px gap ───
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              GestureDetector(
-                onTap: _close,
-                child: Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    color: Clr.maroon.withValues(alpha: 0.85),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.30), width: 1),
-                    boxShadow: [BoxShadow(color: Clr.maroon.withValues(alpha: 0.30), blurRadius: 8)],
-                  ),
-                  child: const Icon(Icons.close_rounded, color: Colors.white, size: 16),
-                ),
+          // ── Close button ─────────────────────────────────────────
+          GestureDetector(
+            onTap: _close,
+            child: Container(
+              width: 26,
+              height: 26,
+              decoration: BoxDecoration(
+                color: Clr.maroon.withValues(alpha: 0.88),
+                shape: BoxShape.circle,
+                border: Border.all(color: gold.withValues(alpha: 0.40), width: 1),
               ),
-            ],
+              child: const Icon(Icons.close_rounded, color: Colors.white, size: 14),
+            ),
           ),
 
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
 
           // ── Orb ─────────────────────────────────────────────────
-          orbCore,
+          orbDecorated,
+
+          // ── Status label below orb ───────────────────────────────
+          if (statusLabel.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 5),
+              child: Text(
+                statusLabel,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.80),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ),
         ],
       ),
     );
