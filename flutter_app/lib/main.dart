@@ -1155,6 +1155,10 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> with SingleTickerProviderSt
       }
     }
 
+    // Enable hardware AEC before WebRTC initialises — MODE_IN_COMMUNICATION activates
+    // the device echo canceller so the bot's speaker output is not fed back into the mic.
+    await _setSpeakerphone();
+
     setState(() {
       _connecting = true;
       _error = null;
@@ -1410,18 +1414,19 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> with SingleTickerProviderSt
 
   String _actionTrackingId(Map<String, dynamic> result, Map<String, dynamic> action) {
     final debug = result['debug'] is Map ? Map<String, dynamic>.from(result['debug'] as Map) : const <String, dynamic>{};
-    final parts = [
+    // Only use truly unique server-side IDs for deduplication.
+    // Never use type/path/page alone — that would block navigating to the same page twice.
+    final uniqueIds = [
       result['tool_execution_id'],
       result['request_id'],
       result['call_id'],
       debug['tool_execution_id'],
       debug['request_id'],
       debug['call_id'],
-      action['type'],
-      action['path'],
-      action['page'],
-    ].map((value) => '$value'.trim()).where((value) => value.isNotEmpty && value != 'null').toList();
-    return parts.join('|');
+    ].map((v) => '$v'.trim()).where((v) => v.isNotEmpty && v != 'null').toList();
+
+    if (uniqueIds.isEmpty) return '';  // no unique ID → never deduplicate
+    return '${uniqueIds.first}|${action['type']}|${action['path']}';
   }
 
 

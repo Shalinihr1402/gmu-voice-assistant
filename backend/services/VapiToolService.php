@@ -500,7 +500,28 @@ class VapiToolService {
         $text = self::normalizeIntentText($query);
 
         // ── Ticket status check ───────────────────────────────────────────────
-        $isStatusCheck = (bool) preg_match('/\b(ticket\s*status|status\s*of\s*(my\s*)?ticket|my\s*ticket|ticket\s*update|ticket\s*resolve|ticket\s*open|ticket\s*closed|ticket\s*kya\s*hua|ticket\s*ka\s*status|ticket\s*check|mera\s*ticket|nanna\s*ticket|ticket\s*hegide|ticket\s*aayitu)\b/ui', $text);
+        $isStatusCheck = (bool) preg_match(
+            '/\b(' .
+            // English natural queries
+            'any\s+(support\s+)?tickets?|' .
+            'show\s+(my\s+)?(support\s+)?tickets?|' .
+            'do\s+i\s+have\s+(any\s+)?(support\s+)?tickets?|' .
+            'tickets?\s+in\s+my\s+profile|' .
+            'support\s+ticket\s+status|' .
+            'status\s+of\s+(my\s+|support\s+)?tickets?|' .
+            'tell\s+me\s+(about\s+)?(my\s+)?(support\s+)?tickets?|' .
+            'list\s+(my\s+)?(support\s+)?tickets?|' .
+            'view\s+(my\s+)?(support\s+)?tickets?|' .
+            // existing patterns
+            'ticket\s*status|my\s*ticket|ticket\s*update|ticket\s*resolve|' .
+            'ticket\s*open|ticket\s*closed|ticket\s*check|' .
+            // Hindi
+            'ticket\s*kya\s*hua|ticket\s*ka\s*status|mera\s*ticket|' .
+            // Kannada
+            'nanna\s*ticket|ticket\s*hegide|ticket\s*aayitu' .
+            ')\b/ui',
+            $text
+        );
         $hasTicketCode = (bool) preg_match('/\bGMU-\d{4}\b/i', $query);
 
         if ($isStatusCheck || $hasTicketCode) {
