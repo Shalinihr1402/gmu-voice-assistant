@@ -319,15 +319,38 @@ class _ErpShellState extends State<ErpShell> {
               Expanded(child: screens[page]),
             ],
           ),
-          // ── Draggable voice orb — snaps to left/right edge ─────────
+          // ── Voice UI overlay ────────────────────────────────────────
           Builder(builder: (ctx) {
             final mq = MediaQuery.of(ctx);
             final screen = mq.size;
             final safePad = mq.padding;
-            const orbW = 82.0;   // 72 orb + 10 outer ring
-            const orbH = 82.0 + 24 + 5 + 18; // orb + close btn + gap + label
-            const margin = 24.0;
-            // Default: bottom-right, 24px from safe edges
+            const margin = 16.0;
+
+            if (bot) {
+              // ── Active: full-width chat bubble pinned to bottom ──
+              final bubbleW = screen.width - margin * 2;
+              // Extra 56px clears Android nav bar even without SafeArea padding
+              final bottomOffset = safePad.bottom + 8.0;
+              return Positioned(
+                left: margin,
+                right: margin,
+                bottom: bottomOffset,
+                child: VapiVoiceBox(
+                  lang: lang,
+                  user: '',
+                  reply: reply,
+                  bubbleWidth: bubbleW,
+                  onClose: () => setState(() => bot = false),
+                  onLang: (v) => setState(() => lang = v),
+                  onAsk: (_) {},
+                  onNavigate: _applyVoiceNavigation,
+                ),
+              );
+            }
+
+            // ── Idle: small draggable mic orb ────────────────────
+            const orbW = 72.0;
+            const orbH = 72.0;
             final defaultPos = Offset(
               screen.width - orbW - margin,
               screen.height - safePad.bottom - orbH - margin,
@@ -337,39 +360,26 @@ class _ErpShellState extends State<ErpShell> {
             return Positioned(
               left: pos.dx,
               top: pos.dy,
-              child: SafeArea(
-                child: GestureDetector(
-                  onPanUpdate: (d) => setState(() {
-                    final cur = _orbPos ?? defaultPos;
-                    _orbPos = Offset(
-                      (cur.dx + d.delta.dx).clamp(margin, screen.width - orbW - margin),
-                      (cur.dy + d.delta.dy).clamp(safePad.top + margin, screen.height - safePad.bottom - orbH - margin),
-                    );
-                  }),
-                  // Snap to nearest edge on finger lift
-                  onPanEnd: (_) => setState(() {
-                    final cur = _orbPos ?? defaultPos;
-                    final snapRight = cur.dx + orbW / 2 > screen.width / 2;
-                    _orbPos = Offset(
-                      snapRight ? screen.width - orbW - margin : margin,
-                      cur.dy.clamp(safePad.top + margin, screen.height - safePad.bottom - orbH - margin),
-                    );
-                  }),
-                  child: bot
-                      ? VapiVoiceBox(
-                          lang: lang,
-                          user: '',
-                          reply: reply,
-                          onClose: () => setState(() => bot = false),
-                          onLang: (v) => setState(() => lang = v),
-                          onAsk: (_) {},
-                          onNavigate: _applyVoiceNavigation,
-                        )
-                      : _GlowMicButton(
-                          size: 60,
-                          state: _MicState.idle,
-                          onTap: () => setState(() => bot = true),
-                        ),
+              child: GestureDetector(
+                onPanUpdate: (d) => setState(() {
+                  final cur = _orbPos ?? defaultPos;
+                  _orbPos = Offset(
+                    (cur.dx + d.delta.dx).clamp(margin, screen.width - orbW - margin),
+                    (cur.dy + d.delta.dy).clamp(safePad.top + margin, screen.height - safePad.bottom - orbH - margin),
+                  );
+                }),
+                onPanEnd: (_) => setState(() {
+                  final cur = _orbPos ?? defaultPos;
+                  final snapRight = cur.dx + orbW / 2 > screen.width / 2;
+                  _orbPos = Offset(
+                    snapRight ? screen.width - orbW - margin : margin,
+                    cur.dy.clamp(safePad.top + margin, screen.height - safePad.bottom - orbH - margin),
+                  );
+                }),
+                child: _GlowMicButton(
+                  size: 60,
+                  state: _MicState.idle,
+                  onTap: () => setState(() => bot = true),
                 ),
               ),
             );
@@ -1050,6 +1060,7 @@ class VapiVoiceBox extends StatefulWidget {
     required this.onLang,
     required this.onAsk,
     required this.onNavigate,
+    this.bubbleWidth,
   });
 
   final String lang;
@@ -1059,6 +1070,7 @@ class VapiVoiceBox extends StatefulWidget {
   final ValueChanged<String> onLang;
   final ValueChanged<String> onAsk;
   final String Function(String path, String page, [Map<String, dynamic>? resultRequest]) onNavigate;
+  final double? bubbleWidth;
 
   @override
   State<VapiVoiceBox> createState() => _VapiVoiceBoxState();
@@ -1469,7 +1481,8 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> with TickerProviderStateMix
     final isConnecting = _connecting;
     final screenH      = MediaQuery.sizeOf(context).height;
 
-    const double orbSize = 72.0;
+    // Smaller orb size for inline card use
+    const double orbSize = 44.0;
     const Color  gold    = Color(0xFFD4A843);
 
     // ── Status label ─────────────────────────────────────────────
@@ -1481,32 +1494,20 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> with TickerProviderStateMix
                 ? 'Listening...'
                 : '';
 
-    // ── GMU logo — cropped to emblem only (top 68% of image hides text) ──
-    final Widget gmuLogo = ClipRect(
-      child: Align(
-        alignment: const Alignment(0.0, -0.6),
-        heightFactor: 0.68,
-        child: Image.asset(
-          'assets/gmu_logo.png',
-          width: 56,
-          fit: BoxFit.fitWidth,
-        ),
-      ),
+    // ── GMU logo — show full emblem, no red overlay ──────────────
+    final Widget gmuLogo = Image.asset(
+      'assets/gmu_logo.png',
+      width: 36,
+      height: 36,
+      fit: BoxFit.contain,
     );
 
-    // ── Inner content: logo + state animation stacked ────────────
+    // ── Orb inner content ─────────────────────────────────────────
     Widget innerContent;
     if (isConnecting) {
       innerContent = GestureDetector(
         onTap: _startVapi,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            gmuLogo,
-            const SizedBox(height: 6),
-            const _SequentialDots(color: gold),
-          ],
-        ),
+        child: Center(child: gmuLogo),
       );
     } else if (isSpeaking) {
       innerContent = GestureDetector(
@@ -1514,55 +1515,38 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> with TickerProviderStateMix
         child: AnimatedBuilder(
           animation: _shake,
           builder: (_, child) => Transform.translate(
-            offset: Offset((_shake.value - 0.5) * 1.4, 0),
+            offset: Offset((_shake.value - 0.5) * 1.2, 0),
             child: child,
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              gmuLogo,
-              const SizedBox(height: 5),
-              const _VoiceWaveform(color: gold, barCount: 5),
-            ],
-          ),
+          child: Center(child: gmuLogo),
         ),
       );
     } else if (isListening) {
       innerContent = GestureDetector(
         onTap: _stopVapi,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            gmuLogo,
-            const SizedBox(height: 5),
-            const _VoiceWaveform(color: Colors.white70, barCount: 5),
-          ],
-        ),
+        child: Center(child: gmuLogo),
       );
     } else {
-      // Idle
       innerContent = GestureDetector(
         onTap: _startVapi,
-        child: gmuLogo,
+        child: Center(child: gmuLogo),
       );
     }
 
-    // ── Outer ring decorations ────────────────────────────────────
-    Widget orbDecorated = SizedBox(
-      // fix: constrain to orbSize so nothing spills into screen edge
-      width: orbSize + 10,
-      height: orbSize + 10,
+    // ── Compact inline orb ────────────────────────────────────────
+    final Widget inlineOrb = SizedBox(
+      width: orbSize + 8,
+      height: orbSize + 8,
       child: Stack(
         alignment: Alignment.center,
-        clipBehavior: Clip.none,
+        clipBehavior: Clip.hardEdge,
         children: [
-          // Rotating gold sweep — connecting
           if (isConnecting)
             RotationTransition(
               turns: _spin,
               child: Container(
-                width: orbSize + 8,
-                height: orbSize + 8,
+                width: orbSize + 6,
+                height: orbSize + 6,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: SweepGradient(
@@ -1576,45 +1560,42 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> with TickerProviderStateMix
                 ),
               ),
             ),
-          // Breathing ring — listening
           if (isListening)
             AnimatedBuilder(
               animation: _pulse,
               builder: (_, __) {
                 final t = _pulse.value;
                 return Container(
-                  width: orbSize + 6,
-                  height: orbSize + 6,
+                  width: orbSize + 4,
+                  height: orbSize + 4,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: gold.withValues(alpha: 0.20 + t * 0.55),
+                      color: gold.withValues(alpha: 0.25 + t * 0.55),
                       width: 1.0 + t * 1.2,
                     ),
                   ),
                 );
               },
             ),
-          // Pulse ring — speaking
           if (isSpeaking)
             AnimatedBuilder(
               animation: _pulse,
               builder: (_, __) {
                 final t = _pulse.value;
                 return Container(
-                  width: orbSize + 6,
-                  height: orbSize + 6,
+                  width: orbSize + 4,
+                  height: orbSize + 4,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: gold.withValues(alpha: 0.25 + t * 0.50),
+                      color: gold.withValues(alpha: 0.30 + t * 0.50),
                       width: 1.0 + t * 1.0,
                     ),
                   ),
                 );
               },
             ),
-          // Core 72×72 matte circle — always
           Container(
             width: orbSize,
             height: orbSize,
@@ -1625,88 +1606,219 @@ class _VapiVoiceBoxState extends State<VapiVoiceBox> with TickerProviderStateMix
                 end: Alignment.bottomRight,
                 colors: [Color(0xFFA52020), Color(0xFF6E0E0E)],
               ),
-              border: Border.all(
-                color: gold.withValues(alpha: 0.55),
-                width: 1.2,
-              ),
+              border: Border.all(color: gold.withValues(alpha: 0.60), width: 1.5),
             ),
-            child: ClipOval(
-              child: Center(child: innerContent),
-            ),
+            child: ClipOval(child: innerContent),
           ),
         ],
       ),
     );
 
-    const double cardW = 280.0;
+    // ── Determine speaker ─────────────────────────────────────────
+    final bool userSpeaking = _callActive && !_speaking && _localUser.isNotEmpty;
+    final bool botSpeaking  = _speaking || (_localReply.isNotEmpty && !userSpeaking);
+    final String speakerLabel = userSpeaking
+        ? 'YOU SPEAKING'
+        : isConnecting
+            ? 'CONNECTING'
+            : botSpeaking
+                ? 'BOT SPEAKING'
+                : isListening
+                    ? 'LISTENING'
+                    : '';
+    final String bubbleText = userSpeaking
+        ? _localUser
+        : _localReply.isNotEmpty
+            ? _localReply
+            : isConnecting
+                ? 'Starting voice session...'
+                : isListening
+                    ? 'Speak now — I\'m listening...'
+                    : 'Tap the orb to speak';
 
     return Material(
       color: Colors.transparent,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // ── Visual card ──────────────────────────────────────────
-          if (_visual != null)
-            Container(
-              width: cardW,
-              margin: const EdgeInsets.only(bottom: 8),
-              constraints: BoxConstraints(maxHeight: screenH * 0.25),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.95),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Clr.maroon.withValues(alpha: 0.12)),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 10, offset: const Offset(0, 2))],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                  child: VisualRenderer(visual: _visual!),
+      child: LayoutBuilder(
+        builder: (ctx, constraints) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ── Visual card ──────────────────────────────────────
+              if (_visual != null)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  constraints: BoxConstraints(maxHeight: screenH * 0.22),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.95),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Clr.maroon.withValues(alpha: 0.12)),
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 10, offset: const Offset(0, 2))],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                      child: VisualRenderer(visual: _visual!),
+                    ),
+                  ),
                 ),
-              ),
-            ),
 
-          // ── Close button ─────────────────────────────────────────
-          Align(
-            alignment: Alignment.centerRight,
-            child: GestureDetector(
-              onTap: _close,
-              child: Container(
-                width: 24,
-                height: 24,
+              // ── Compact two-row voice card ───────────────────────
+              Container(
                 decoration: BoxDecoration(
-                  color: Clr.maroon.withValues(alpha: 0.90),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: gold.withValues(alpha: 0.45), width: 1),
+                  color: Clr.maroon,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: gold.withValues(alpha: 0.40), width: 1.0),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withValues(alpha: 0.30), blurRadius: 10, offset: const Offset(0, 3)),
+                  ],
                 ),
-                child: const Icon(Icons.close_rounded, color: Colors.white, size: 13),
-              ),
-            ),
-          ),
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // ── Row 1: label + dots + close ─────────────
+                    Row(
+                      children: [
+                        if (speakerLabel.isNotEmpty) ...[
+                          Text(
+                            speakerLabel,
+                            style: TextStyle(
+                              color: gold,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.9,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          _AnimatedDots(
+                            color: gold.withValues(alpha: 0.9),
+                            active: isSpeaking || isListening || isConnecting,
+                          ),
+                        ],
+                        const Spacer(),
+                        GestureDetector(
+                          onTap: _close,
+                          child: Container(
+                            width: 18,
+                            height: 18,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.18),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.close_rounded, color: Colors.white, size: 11),
+                          ),
+                        ),
+                      ],
+                    ),
 
-          const SizedBox(height: 5),
+                    const SizedBox(height: 6),
 
-          // ── Orb ─────────────────────────────────────────────────
-          orbDecorated,
+                    // ── Row 2: message (1 line) + orb ────────────
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            bubbleText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        inlineOrb,
+                      ],
+                    ),
 
-          // ── Status label ─────────────────────────────────────────
-          if (statusLabel.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                statusLabel,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.85),
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.4,
-                  shadows: const [Shadow(color: Colors.black26, blurRadius: 4)],
+                    // ── Row 3: waveform + status (hidden) ────────
+                    if (false && (isSpeaking || isListening || isConnecting))
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: _VoiceWaveform(
+                                color: isSpeaking ? gold : Colors.white38,
+                                barCount: 8,
+                              ),
+                            ),
+                            if (statusLabel.isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              Text(
+                                statusLabel,
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.60),
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
               ),
-            ),
-        ],
+            ],
+          );
+        },
       ),
+    );
+  }
+}
+
+// Three animated dots: sequential fade in/out
+class _AnimatedDots extends StatefulWidget {
+  const _AnimatedDots({required this.color, required this.active});
+  final Color color;
+  final bool active;
+  @override
+  State<_AnimatedDots> createState() => _AnimatedDotsState();
+}
+
+class _AnimatedDotsState extends State<_AnimatedDots> with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat();
+  }
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.active) return const SizedBox.shrink();
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (_, __) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(3, (i) {
+            final phase = ((_ctrl.value * 3) - i).clamp(0.0, 1.0);
+            final opacity = math.sin(phase * math.pi).clamp(0.15, 1.0);
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 1.5),
+              child: Opacity(
+                opacity: opacity,
+                child: Container(
+                  width: 5,
+                  height: 5,
+                  decoration: BoxDecoration(color: widget.color, shape: BoxShape.circle),
+                ),
+              ),
+            );
+          }),
+        );
+      },
     );
   }
 }
